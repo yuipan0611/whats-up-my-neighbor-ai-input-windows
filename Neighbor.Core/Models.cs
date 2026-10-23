@@ -28,6 +28,7 @@ namespace Neighbor.Core
         public bool HudAtTop { get; set; }
         public bool LaunchAtLogin { get; set; }
         public bool IntroductionShown { get; set; }
+        public bool DesktopPetEnabled { get; set; } // Off by default, matching macOS first-run behavior.
         public AppSettings Clone()
         {
             return new AppSettings {
@@ -35,7 +36,7 @@ namespace Neighbor.Core
                 Mode = Mode, ConvertChineseNumerals = ConvertChineseNumerals, AutomaticLanguageRetry = AutomaticLanguageRetry,
                 SilenceSeconds = SilenceSeconds, PrimaryShortcut = PrimaryShortcut?.Clone(), AlternateShortcut = AlternateShortcut?.Clone(),
                 AlternateMode = AlternateMode, InputDeviceId = InputDeviceId, HudAtTop = HudAtTop,
-                LaunchAtLogin = LaunchAtLogin, IntroductionShown = IntroductionShown
+                LaunchAtLogin = LaunchAtLogin, IntroductionShown = IntroductionShown, DesktopPetEnabled = DesktopPetEnabled
             };
         }
     }

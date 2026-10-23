@@ -1,6 +1,7 @@
-param([string]$Version = '0.1.0-beta.1')
+﻿param([string]$Version)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+if (!$Version) { $Version = (Get-Content "$root/VERSION" -Raw).Trim() }
 $installer = "$root/dist/Neighbor-Setup-$Version-x64.exe"
 $target = Join-Path $env:LOCALAPPDATA 'Programs/WhatsUpMyNeighbor-CI'
 $baselineVersion = '0.0.9-ci'
@@ -62,11 +63,14 @@ if ($Version -eq $baselineVersion) { throw 'Current version must differ from the
 Assert-NoStartup
 try {
     New-Item -ItemType Directory -Force $baselineDirectory | Out-Null
-    $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
-    if (!(Test-Path $compiler)) { $compiler = (Get-Command ISCC.exe -ErrorAction Stop).Source }
+    $compiler = @(
+        Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+        Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 6/ISCC.exe'
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (!$compiler) { $compiler = (Get-Command ISCC.exe -ErrorAction Stop).Source }
     # Same AppId and payload, different AppVersion: exercises installer upgrade
     # and registry behavior, not migration from a historical released binary.
-    & $compiler "/DAppVersion=$baselineVersion" "/O$baselineDirectory" '/FNeighbor-CI-Baseline' "$root/packaging/neighbor.iss"
+    & $compiler "/DAppVersion=$baselineVersion" '/DNumericVersion=0.0.9' "/O$baselineDirectory" '/FNeighbor-CI-Baseline' "$root/packaging/neighbor.iss"
     if ($LASTEXITCODE -ne 0 -or !(Test-Path $baselineInstaller)) { throw 'Synthetic prior-version installer compilation failed' }
     $evidence.Add("BASELINE: synthetic prior installer $baselineVersion, same AppId and same payload as $Version; not a historical released binary.")
     $installedByTest = $true

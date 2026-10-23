@@ -41,6 +41,13 @@ namespace Neighbor.Tests
                         RunSuite("Groq", () => GroqTests.RunAsync(Check).GetAwaiter().GetResult());
                         RunSuite("Platform", () => PlatformTests.Run(Check));
                         RunSuite("Settings", SettingsChecks);
+                        RunSuite("Desktop pet", () => DesktopPetTests.Run(Check));
+                        RunSuite("Layered window", () => LayeredWindowTests.Run(Check));
+                        RunSuite("Recording HUD interaction", () => RecordingHudInteractionTests.Run(Check));
+                        RunSuite("Recording HUD accessibility", () => RecordingHudAccessibilityTests.Run(Check));
+                        RunSuite("Diagnostic log", () => DiagnosticLogTests.Run(Check));
+                        RunSuite("Desktop pet controller", () => DesktopPetControllerTests.Run(Check));
+                        RunSuite("Scaled cat cache", () => ScaledCatCacheTests.Run(Check));
                     }
                 }
                 catch (Exception error) { Check(false, error.ToString()); }

@@ -1,62 +1,129 @@
 # What's up my neighbor AI Input — Windows
 
-Windows 獨立 repo；macOS 版請見 [Mac repo](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-macos)。目前仍為預發布測試版，實機待驗收項目見 [VALIDATION.md](VALIDATION.md)，拆分紀錄見 [MIGRATION.md](MIGRATION.md)。想回報實機測試結果或參與開發，見 [CONTRIBUTING.md](CONTRIBUTING.md)。
+官方網站：[nekonode.cloud](https://nekonode.cloud)。各平台進度、使用教學與開發者文件可在官網查看。
 
-小黑貓語音輸入工具：按快捷鍵說話，再按一次完成，透過 Groq 辨識並把文字貼入目前的輸入框。只貼上，不會自動傳送訊息。
+小黑貓語音輸入工具（Windows 版）：按快捷鍵說話，再按一次完成，錄音送到 Groq 辨識，然後把文字貼到目前的輸入框。**只貼上，不會自動按 Enter 送出訊息。**
 
-## 下載與開始使用
+目前版本：**0.1.0-beta.2（預發布測試版）**。實機驗收尚未完成，見 [VALIDATION.md](VALIDATION.md)。
 
-到本專案 [Releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) 找名稱含 **Windows** 的預發布版本，下載 `Neighbor-Setup-…-x64.exe`。不需要下載原始碼或安裝 Python、Node.js、開發工具。
+本 repo 是 Windows 版的 fork，由 andrewchu0101 維護。原作者為 yuipan0611，授權為 MIT（見 [LICENSE](LICENSE)）。macOS 版在 [Mac repo](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-macos)。Windows 版與 macOS 版各自開發、各自發布；功能不完全對等，以本文件列出的內容為準。
 
-1. 執行安裝程式，安裝到目前 Windows 使用者的個人資料夾。
-2. 從開始功能表開啟 **What's up my neighbor**，右下角系統匣會出現黑貓。
-3. 第一次使用時，在 App 的安全輸入欄儲存**自己的** Groq API Key。[建立金鑰](https://console.groq.com/keys)
-4. 在想輸入的位置點一下，按 **Ctrl + Alt + Space** 開始錄音；再按一次完成。
-5. 黑貓左眼可取消、右眼完成。遇到無法驗證的輸入框，文字仍會留在剪貼簿，請按 **Ctrl + V** 手動貼上。
+## 桌面小黑貓（Windows 第一階段）
 
-需要 Windows 11 x64 或 Windows 10 22H2 x64、系統內建 .NET Framework 4.8 或較新 4.x、麥克風與網路。ARM64 未驗證。若學校電腦限制安裝／執行應用程式，需由電腦管理者處理，請勿關閉防護。
+預設關閉，與 macOS 版第一次使用的狀態一致。開啟後，小黑貓會在螢幕工作區底部散步與休息。右下角系統匣選單的「桌面小黑貓散步」可開關，設定會保存。貓咪視窗不搶焦點；只有貓咪身體接收滑鼠，可按住拖曳，放開後在新高度水平散步，透明區域仍會穿透到後面的視窗；錄音與辨識期間、鎖定、休眠及全螢幕時隱藏，恢復後繼續。Windows 實際桌面行為仍待人工驗收。
 
-這是未購買 Windows 程式碼簽章的測試版，可能遇到 Windows 發行者／信譽提示；發布頁會提供 SHA-256，請確認檔案來源。App 不要求管理員權限，亦不會自行購買 API 額度。
+素材及腳步參考原作者 macOS 版，保持 X 左眼與勾勾右眼。這是第一階段功能同步，已支援拖曳（放開後只水平散步），尚未包含舔掌、抓起動畫、資料夾停靠與其他 macOS 桌面互動。錄音浮窗的眼睛操作維持原樣。
 
-## 桌面功能
+## 版本與發布流程
 
-- 自訂主／第二快捷鍵、麥克風選擇、非搶焦點浮窗與真實音量顯示。
-- 純逐字（預設）、標準、簡潔；繁中＋英文（預設），可選九種主語言及最多兩種混用語言。
-- 中文數字轉換預設關閉；靜音停止預設關閉，可選 3／5／10 秒；每段最多五分鐘。
-- 詞典搜尋、新增、修改、啟停、釘選、刪除，以及提示詞納入狀態。最多 200 詞，每詞 40 個 Unicode 碼位；完整辨識提示最多 200 UTF-8 bytes，顯示因額度未納入的詞條。
-- 支援的輸入框可觀察本次貼入範圍的改字：修正穩定約 1.1 秒後顯示兩秒「不加入」，未取消且仍可驗證時加入詞典。可在詞典管理確認／拒絕／刪除候選。學習是提示詞管理，不是訓練 Whisper。
-- 登入啟動由使用者自行在設定中開啟；安裝時不預設常駐登入。
+- 版本號只在 [VERSION](VERSION) 檔案維護。
+- 發布流程見 [docs/UPDATES.md](docs/UPDATES.md)。流程會建置、測試、打包、做安裝測試，全部通過後才建立預發布版本。
+- 本版不做程式內自動更新。要升級時，下載新版安裝檔直接執行即可，設定、詞典與 API Key 會保留。
+- 版本紀錄見 [CHANGELOG.md](CHANGELOG.md)，發布說明見 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
 
-## 隱私與故障處理
+## 下載與安裝
 
-API Key 只存目前帳號的 Windows 認證管理員，目標名稱 `WhatsUpMyNeighbor/GroqApiKey`。每次錄音送至 `api.groq.com` 的 transcription endpoint，模型固定為 `whisper-large-v3`；沒有聊天改寫或其他供應商備援。
+到 [Releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) 下載最新版本，只需要一個檔案：
 
-設定與短詞紀錄位於 `%LOCALAPPDATA%\WhatsUpMyNeighbor`。App 不寫入日常完整逐字稿或金鑰日誌。為辨識與觀察修字所需的文字只短暫留在記憶體；剪貼簿由 Windows 管理，可能受使用者自行開啟的剪貼簿歷程／同步設定影響。
-
-成功複製、取消、捨棄或新錄音取代時刪除錄音。辨識／網路／剪貼簿失敗的錄音暫留兩分鐘，從系統匣選「重新辨識保留錄音」可重試；正常退出與下次啟動也會清理。App 不保證雲端供應商的資料保存或帳務政策。
-
-- 沒有錄音：系統匣開啟「Windows 麥克風隱私設定」，確認允許桌面應用程式使用麥克風，並確認選到正確裝置。
-- 無法自動貼上：維持原程式與欄位焦點；對以管理員權限執行的程式、安全欄位、無法識別的輸入框或無法確認的中文組字狀態，只複製文字。
-- 沒有修字提示：需要輸入框提供可靠的 UI Automation 文字範圍；開啟「詞典與學習狀態」查看原因，也可手動新增。
-- 若把本次貼入的整段文字全部選取後替換，部分輸入框會失去原範圍邊界，此次自動學習會停止，請在詞典中手動加入。
-- 語言異常：語言檢查只分辨文字系統，拉丁字母語言彼此無法區分；短句、靜音或同語言幻覺尚無完整防護，請檢查辨識內容。
-- 額度或網路問題：App 顯示錯誤，不無限重試、不更換模型、不自動付費。
-
-升級保留設定、詞典與金鑰；解除安裝移除程式、捷徑、登入項目與暫存錄音，預設保留詞典與金鑰。若要完全清除，先在 App 移除金鑰，再自行刪除上述個人資料夾。
-
-## 建置與驗證
-
-Windows 開發環境需 .NET SDK、.NET Framework 4.8 targeting pack（亦可由鎖定的 reference-assemblies 套件提供）及 Inno Setup 6。
-
-執行依賴固定為 NAudio.Wasapi／NAudio.Core 2.2.1 與 Interop.UIAutomationClient 10.19041.0。後者只提供 Windows 原生文字介面的呼叫宣告；不附加另一套桌面執行環境。安裝包使用明確檔案清單，排除測試、除錯符號、SDK、模型與測試音訊。
-
-```powershell
-./scripts/build.ps1
-./Neighbor.Tests/bin/Release/net48/Neighbor.Tests.exe --interactive
-./scripts/package.ps1
-./scripts/test-install.ps1
+```text
+Neighbor-Setup-<版本>-x64.exe
 ```
 
-整合測試只應在測試用桌面執行：會開啟隔離文字視窗並使用剪貼簿。測試不讀正式金鑰、不錄真實麥克風、不呼叫 Groq。安裝檔必須小於 20,000,000 bytes。
+同一個 Release 另附 `.sha256` 校驗碼與 `build-manifest.json`。不需要下載原始碼，也不需要安裝 Python、Node.js 或其他開發工具。
 
-驗證結果與未測範圍見 [VALIDATION.md](VALIDATION.md)。iPhone 接力、跨裝置詞典同步、會議分人與本機 AI 模型不包含在此版。
+**系統需求**
+
+- Windows 11 x64，或 Windows 10 22H2 x64。
+- 系統內建 .NET Framework 4.8（Windows 10 22H2 與 Windows 11 預設已有；安裝程式會先檢查，不會下載額外的執行環境）。
+- 麥克風與網路。
+- 不需要系統管理員權限；安裝到目前使用者的個人資料夾。
+- ARM64 未驗證。
+
+**安裝步驟**
+
+1. 執行安裝程式。
+2. 從開始功能表開啟 **What's up my neighbor**，右下角系統匣會出現黑貓。
+3. 第一次使用時，依提示儲存自己的 Groq API Key（見下一節）。
+
+**關於未簽章的提示**
+
+這是未購買程式碼簽章的測試版。Windows 第一次執行時可能顯示「Windows 已保護你的電腦」，請點選 **其他資訊**，再點選 **仍要執行**。請只從本專案的 Releases 下載，並核對 SHA-256。不要為了安裝而關閉系統防護。
+
+PowerShell 核對雜湊：
+
+```powershell
+Get-FileHash .\Neighbor-Setup-<版本>-x64.exe -Algorithm SHA256
+```
+
+## 建立 Groq API Key
+
+1. 到 [Groq 控制台](https://console.groq.com/keys) 建立自己的 API Key。
+2. 在系統匣的黑貓上按滑鼠右鍵，選擇 **設定／更換 Groq 金鑰…**。
+3. 把 Key 貼入安全輸入欄並儲存。
+
+App 不會替你購買 API 額度；額度或費用依你的 Groq 帳號方案計算。金鑰只存在目前 Windows 帳號的認證管理員中，目標名稱為 `WhatsUpMyNeighbor/GroqApiKey`。
+
+## 使用方式
+
+1. 點一下想輸入文字的欄位。
+2. 按 **Ctrl + Alt + Space** 開始錄音，再按一次完成。
+3. 浮窗中的小黑貓左眼可取消，右眼可完成；辨識失敗時錄音會保留兩分鐘，右眼可重試，也可從系統匣選擇 **重新辨識保留錄音**。
+4. 文字會貼到目前的輸入框。若無法確認輸入框，文字仍會留在剪貼簿，請按 **Ctrl + V** 手動貼上。
+
+## 功能
+
+- 快捷鍵：預設 Ctrl + Alt + Space，可在設定中改為主要與第二組快捷鍵。
+- 麥克風：可在設定中選擇輸入裝置，錄音浮窗顯示真實音量。
+- 輸出模式：純逐字（預設）、標準、簡潔。
+- 語言：預設繁體中文加英文，可選九種主要語言，並可設定最多兩種混用語言。
+- 數字：中文數字轉換預設關閉。
+- 靜音停止：預設關閉，可選 3、5 或 10 秒。每段錄音最多五分鐘。
+- 詞典：最多 200 個詞，每個詞最多 40 個 Unicode 字元。可搜尋、新增、修改、啟用／停用、釘選與刪除；超出提示字數上限的詞條會顯示為未納入。
+- 修字學習：在支援的輸入框中，貼入後修正同一欄位裡的一個詞，修正穩定後會顯示提示，可選擇加入詞典或不加入。不支援的應用程式可手動新增詞條。學習是提示詞管理，**不是重新訓練語音模型**。
+- 登入時啟動：預設關閉，需要在設定中自行開啟。
+
+## 隱私
+
+- 每次錄音都會上傳到 `api.groq.com`，使用模型 `whisper-large-v3`。沒有聊天改寫，也沒有其他供應商的備援。
+- API Key 只存在 Windows 認證管理員中，不寫入設定檔或記錄檔。
+- 設定與詞典儲存在 `%LOCALAPPDATA%\WhatsUpMyNeighbor`。
+- App 不寫入日常完整逐字稿，也不記錄金鑰。辨識與修字觀察所需的文字只短暫保留在記憶體中。
+- 成功複製、取消、捨棄或新錄音取代時，錄音檔會刪除。
+- 剪貼簿由 Windows 管理，可能受你自己開啟的剪貼簿歷程或同步設定影響。
+- 詳見 [PRIVACY.md](PRIVACY.md)。
+
+## 故障排除
+
+- **沒有錄音**：在系統匣選擇 **Windows 麥克風隱私設定**，確認允許桌面應用程式使用麥克風，並確認選到正確的裝置。
+- **無法自動貼上**：對以系統管理員權限執行的程式、密碼欄位、無法識別的輸入框，或中文組字狀態不明時，App 只會複製文字。請按 Ctrl + V 手動貼上。
+- **沒有修字提示**：需要輸入框提供可靠的 UI Automation 文字範圍。開啟 **詞典與學習狀態** 可以看到原因，也可以手動新增。
+- **辨識結果不正確**：短句、靜音或語言判斷錯誤時，App 目前沒有完整防護。請核對辨識結果。
+- **額度或網路錯誤**：App 會顯示錯誤，不會無限重試、不會更換模型，也不會自動付費。
+
+## 解除安裝
+
+到 Windows **設定 → 應用程式**，移除 What's up my neighbor。設定、詞典與 API Key 預設保留；要完整清除時，先在 App 中移除金鑰，再刪除 `%LOCALAPPDATA%\WhatsUpMyNeighbor`。
+
+## 從原始碼建置
+
+見 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。測試方式與人工驗收清單見 [docs/TESTING.md](docs/TESTING.md)。
+
+## 文件
+
+| 文件 | 內容 |
+|---|---|
+| [CHANGELOG.md](CHANGELOG.md) | 版本紀錄 |
+| [RELEASE_NOTES.md](RELEASE_NOTES.md) | 發布說明範本 |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 開發環境與本機建置 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架構與資料流 |
+| [docs/TESTING.md](docs/TESTING.md) | 測試方式、覆蓋範圍與人工驗收清單 |
+| [docs/UPDATES.md](docs/UPDATES.md) | 發布、校驗與升級流程 |
+| [docs/WEBSITE.md](docs/WEBSITE.md) | 官網交付資料 |
+| [VALIDATION.md](VALIDATION.md) | 已驗證與待實機驗收的範圍 |
+| [MIGRATION.md](MIGRATION.md) | 從原專案拆分為獨立 repo 的紀錄 |
+| [PRIVACY.md](PRIVACY.md)、[SECURITY.md](SECURITY.md) | 隱私與安全性 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 回報測試結果與參與開發 |
+
+## 不在本版範圍
+
+iPhone 接力、跨裝置詞典同步、多人會議分人、本機 AI 模型，以及 macOS 版的其他功能。

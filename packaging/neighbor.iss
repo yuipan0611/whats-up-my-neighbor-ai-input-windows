@@ -1,13 +1,20 @@
+; AppVersion and NumericVersion (MAJOR.MINOR.PATCH) come from the VERSION file via
+; scripts/package.ps1, so the installer name, uninstall entry and file version match.
 #ifndef AppVersion
-  #define AppVersion "0.1.0-beta.1"
+  #error AppVersion is required; run scripts/package.ps1 so it reads the VERSION file
+#endif
+#ifndef NumericVersion
+  #error NumericVersion is required; run scripts/package.ps1 so it reads the VERSION file
 #endif
 [Setup]
 AppId={{B747FDE2-3340-45DA-A662-90FF930904EA}
 AppName=What's up my neighbor
 AppVersion={#AppVersion}
+; Original author credit is kept in AppPublisher and LICENSE; the URLs point to the upstream Windows repository.
 AppPublisher=YUI
 AppPublisherURL=https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows
 AppSupportURL=https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/issues
+AppUpdatesURL=https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases
 DefaultDirName={localappdata}\Programs\WhatsUpMyNeighbor
 DefaultGroupName=What's up my neighbor
 DisableProgramGroupPage=yes
@@ -26,7 +33,7 @@ ShowLanguageDialog=no
 CloseApplications=yes
 RestartApplications=no
 LicenseFile=..\LICENSE
-VersionInfoVersion=0.1.0.0
+VersionInfoVersion={#NumericVersion}.0
 VersionInfoDescription=What's up my neighbor Windows 安裝程式
 
 [Languages]

@@ -22,8 +22,9 @@ namespace Neighbor.Windows
                     Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
                     Application.ThreadException += (_, e) => MessageBox.Show("操作未完成，請重新開啟 App 後再試。你的設定與詞典會保留。", "What's up my neighbor", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
-                    using (var app = new NeighborApplicationContext(smoke)) Application.Run(app);
-                    return 0;
+                    int code;
+                    using (var app = new NeighborApplicationContext(smoke)) { Application.Run(app); code = app.Failed ? 1 : 0; }
+                    return code;
                 }
                 catch
                 {

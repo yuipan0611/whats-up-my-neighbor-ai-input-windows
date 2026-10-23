@@ -51,6 +51,7 @@ namespace Neighbor.Tests
             }
             check(backend.Registered.Count == 0, "hotkeys released on dispose");
             RecorderCompletionChecks(check);
+            CaptureConverterChecks(check);
             if (Environment.OSVersion.Platform != PlatformID.Win32NT) return;
 
             var normalizer = new WindowsTextNormalizer();
@@ -86,6 +87,81 @@ namespace Neighbor.Tests
                 catch (OperationCanceledException) { canceledCorrectly = true; }
                 check(canceledCorrectly, "cancelled delivery exits before clipboard write");
             }
+        }
+
+        private static void CaptureConverterChecks(Action<bool, string> check)
+        {
+            // Synthetic packets only: the converter must accept the mix format that a
+            // 48 kHz stereo microphone reports and still produce 16 kHz mono PCM.
+            const int seconds = 1;
+            var stereoFloat = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);
+            var packets = Synthetic(stereoFloat, 48000, seconds, 1000, 0.5, 2400);
+            var converter = new CaptureFormatConverter(stereoFloat);
+            var output = Drain(converter, packets);
+            int samples = output.Length / 2;
+            check(Math.Abs(samples - 16000) <= 160, "stereo 48 kHz float converts to about one second of 16 kHz samples (" + samples + ")");
+            int crossings = 0; short peak = 0; short previous = 0;
+            for (int i = 0; i < samples; i++)
+            {
+                short value = (short)(output[i * 2] | output[i * 2 + 1] << 8);
+                if (i > 0 && (previous < 0) != (value < 0)) crossings++;
+                peak = (short)Math.Max(peak, Math.Abs((int)value));
+                previous = value;
+            }
+            check(Math.Abs(crossings - 2000) <= 60, "1 kHz tone keeps its frequency after resampling (" + crossings + " crossings)");
+            check(peak > 14000 && peak < 18000, "channel averaging keeps the amplitude of identical channels (peak " + peak + ")");
+
+            // 44.1 kHz is a fractional ratio to 16 kHz and must keep the same output length and pitch.
+            var mono441 = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(44100, 1);
+            var fractional = Drain(new CaptureFormatConverter(mono441), Synthetic(mono441, 44100, seconds, 1000, 0.5, 1000));
+            int fractionalSamples = fractional.Length / 2;
+            int fractionalCrossings = 0; short fractionalPrevious = 0;
+            for (int i = 0; i < fractionalSamples; i++)
+            {
+                short value = (short)(fractional[i * 2] | fractional[i * 2 + 1] << 8);
+                if (i > 0 && (fractionalPrevious < 0) != (value < 0)) fractionalCrossings++;
+                fractionalPrevious = value;
+            }
+            check(Math.Abs(fractionalSamples - 16000) <= 160, "44.1 kHz mono converts to about one second of 16 kHz samples (" + fractionalSamples + ")");
+            check(Math.Abs(fractionalCrossings - 2000) <= 60, "44.1 kHz tone keeps its frequency after resampling (" + fractionalCrossings + " crossings)");
+
+            var monoTarget = new NAudio.Wave.WaveFormat(16000, 16, 1);
+            var passthrough = new CaptureFormatConverter(monoTarget);
+            var pcm = new byte[16000 * 2];
+            for (int i = 0; i < pcm.Length; i++) pcm[i] = (byte)(i % 251);
+            var passed = Drain(passthrough, new[] { pcm });
+            check(Math.Abs(passed.Length - pcm.Length) <= 4 * 32, "16 kHz mono 16-bit input keeps its length within the filter delay (" + passed.Length + " bytes)");
+        }
+
+        private static byte[][] Synthetic(NAudio.Wave.WaveFormat format, int rate, int seconds, double hz, double amplitude, int framesPerPacket)
+        {
+            int frames = rate * seconds;
+            var packets = new byte[(frames + framesPerPacket - 1) / framesPerPacket][];
+            for (int p = 0; p < packets.Length; p++)
+            {
+                int count = Math.Min(framesPerPacket, frames - p * framesPerPacket);
+                packets[p] = new byte[count * format.BlockAlign];
+                for (int f = 0; f < count; f++)
+                {
+                    float value = (float)(amplitude * Math.Sin(2 * Math.PI * hz * (p * framesPerPacket + f) / rate));
+                    var bytes = BitConverter.GetBytes(value);
+                    for (int c = 0; c < format.Channels; c++) Array.Copy(bytes, 0, packets[p], f * format.BlockAlign + c * 4, 4);
+                }
+            }
+            return packets;
+        }
+
+        private static byte[] Drain(CaptureFormatConverter converter, byte[][] packets)
+        {
+            var scratch = new byte[16000];
+            var result = new System.IO.MemoryStream();
+            foreach (var packet in packets)
+            {
+                converter.Write(packet, 0, packet.Length);
+                int read;
+                while ((read = converter.Read(scratch, 0, scratch.Length)) > 0) result.Write(scratch, 0, read);
+            }
+            return result.ToArray();
         }
 
         private static void RecorderCompletionChecks(Action<bool, string> check)

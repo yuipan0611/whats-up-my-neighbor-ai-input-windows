@@ -83,9 +83,11 @@ namespace Neighbor.Tests
                     }
                     using (var hud = new RecordingHud())
                     {
+                        // The HUD is a per-pixel layered window, so DrawToBitmap would miss its content.
                         hud.UpdateState(DictationState.Recording, "示範資料：正在聽你說話…");
                         hud.UpdateLevel(-15, true);
-                        RenderForm(hud, directory, "recording-hud", scale);
+                        using (var frame = hud.RenderFrame())
+                            frame.Save(Path.Combine(directory, "recording-hud-scale100.png"), ImageFormat.Png);
                     }
                     using (var key = new ApiKeyForm(new TestCredentials())) RenderForm(key, directory, "api-key", scale);
                     using (var toast = new LearningToast())
@@ -100,7 +102,7 @@ namespace Neighbor.Tests
                         "這些圖片僅使用受控測試資料，未讀取使用者的金鑰、詞典、麥克風或桌面內容。\r\n" +
                         "100 / 150 / 200 代表程式化幾何與字型縮放的版面回歸檢查，不等同已完成真實螢幕 DPI 切換或多螢幕實測。\r\n" +
                         "圖片由各個測試窗體 DrawToBitmap 產生；程式要求縮放後尺寸，實際仍受 runner 視窗上限限制，需以捲軸檢視內容。\r\n" +
-                        "HUD／倒數提示圖片中的洋紅色為 DrawToBitmap 保留的透明色鍵，實際浮窗背景透明。\r\n執行環境實際桌面 DPI：" + graphics.DpiX + " × " + graphics.DpiY + "。\r\n",
+                        "錄音浮窗以分層視窗渲染，圖片只提供 100% 版本，且不包含桌面背景上的實際透明效果。\r\n執行環境實際桌面 DPI：" + graphics.DpiX + " × " + graphics.DpiY + "。\r\n",
                         new UTF8Encoding(false));
             }
             finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }

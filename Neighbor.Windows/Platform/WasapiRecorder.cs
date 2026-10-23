@@ -16,6 +16,8 @@ namespace Neighbor.Windows.Platform
             public WasapiCapture Capture;
             public MMDevice Device;
             public WaveFileWriter Writer;
+            public CaptureFormatConverter Converter;
+            public readonly byte[] Scratch = new byte[16000];
             public CancellationTokenRegistration Cancellation;
             public readonly TaskCompletionSource<bool> Stopped = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             public readonly TaskCompletionSource<bool> FirstData = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -57,8 +59,10 @@ namespace Neighbor.Windows.Platform
                             session.Device = string.IsNullOrWhiteSpace(deviceId)
                                 ? enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications)
                                 : enumerator.GetDevice(deviceId);
-                        session.Capture = new WasapiCapture(session.Device, false, 50) { WaveFormat = new WaveFormat(16000, 16, 1) };
-                        session.Writer = new WaveFileWriter(path, session.Capture.WaveFormat);
+                        // Use the device's mix format; forcing 16 kHz is refused by many microphones.
+                        session.Capture = new WasapiCapture(session.Device, false, 50);
+                        session.Converter = new CaptureFormatConverter(session.Capture.WaveFormat);
+                        session.Writer = new WaveFileWriter(path, CaptureFormatConverter.Target);
                         session.Capture.DataAvailable += (sender, args) => DataAvailable(session, args);
                         session.Capture.RecordingStopped += (sender, args) => Finish(session, args.Exception);
                         current = session;
@@ -101,20 +105,27 @@ namespace Neighbor.Windows.Platform
         private void DataAvailable(Session session, WaveInEventArgs args)
         {
             double squares = 0;
+            int samples = 0;
             lock (session.Sync)
             {
                 if (session.Finished) return;
-                session.Writer.Write(args.Buffer, 0, args.BytesRecorded);
-                if (args.BytesRecorded > 0) session.FirstData.TrySetResult(true);
-                for (int i = 0; i + 1 < args.BytesRecorded; i += 2)
+                session.Converter.Write(args.Buffer, 0, args.BytesRecorded);
+                int read;
+                while ((read = session.Converter.Read(session.Scratch, 0, session.Scratch.Length)) > 0)
                 {
-                    double sample = (short)(args.Buffer[i] | args.Buffer[i + 1] << 8) / 32768d;
-                    squares += sample * sample;
+                    session.Writer.Write(session.Scratch, 0, read);
+                    session.FirstData.TrySetResult(true);
+                    for (int i = 0; i + 1 < read; i += 2)
+                    {
+                        double sample = (short)(session.Scratch[i] | session.Scratch[i + 1] << 8) / 32768d;
+                        squares += sample * sample;
+                    }
+                    samples += read / 2;
                 }
             }
-            if (args.BytesRecorded > 1)
+            if (samples > 0)
             {
-                double rms = Math.Sqrt(squares / (args.BytesRecorded / 2));
+                double rms = Math.Sqrt(squares / samples);
                 LevelChanged?.Invoke(this, new AudioLevelEventArgs { Decibels = rms > 0 ? Math.Max(-96, 20 * Math.Log10(rms)) : -96, IsKnown = true });
             }
         }

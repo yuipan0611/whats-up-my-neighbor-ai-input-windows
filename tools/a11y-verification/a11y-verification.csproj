@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Interactive verification host for the recording HUD accessibility. Not part of the installer, not run by build.ps1. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="Neighbor"><HintPath>..\..\Neighbor.Windows\bin\Release\net48\Neighbor.exe</HintPath><Private>true</Private></Reference>
+    <Reference Include="Neighbor.Core"><HintPath>..\..\Neighbor.Windows\bin\Release\net48\Neighbor.Core.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="NAudio.Core"><HintPath>..\..\Neighbor.Windows\bin\Release\net48\NAudio.Core.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="NAudio.Wasapi"><HintPath>..\..\Neighbor.Windows\bin\Release\net48\NAudio.Wasapi.dll</HintPath><Private>true</Private></Reference>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,129 @@
+name: Release
+on:
+  # Manual trigger only: the maintainer decides when a release is published.
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (!(Test-Path $compiler)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+          if (!(Test-Path $compiler)) { throw "Inno Setup 6 not found at $compiler" }
+          Write-Output "Using $compiler"
+      - name: Read version and check tag
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match VERSION v$version"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Output "Release version: $version (tag v$version)"
+      - name: Restore, build and offline tests
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/build.ps1
+      - name: UI integration tests
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          & ./Neighbor.Tests/bin/Release/net48/Neighbor.Tests.exe --interactive
+          if ($LASTEXITCODE -ne 0) { throw 'UI integration failed' }
+      - name: Package installer
+        timeout-minutes: 3
+        shell: pwsh
+        run: ./scripts/package.ps1
+      - name: Install, launch, upgrade and uninstall
+        timeout-minutes: 3
+        shell: pwsh
+        run: ./scripts/test-install.ps1
+      - name: Collect validation evidence
+        shell: pwsh
+        run: |
+          $results = 'Neighbor.Tests/bin/Release/net48/test-results'
+          foreach ($report in 'offline-tests.txt', 'ui-tests.txt') {
+            if (!(Test-Path "$results/$report" -PathType Leaf)) { throw "Missing test report: $report" }
+          }
+          $evidence = 'dist/validation-evidence'
+          New-Item -ItemType Directory -Force $evidence | Out-Null
+          Copy-Item $results $evidence -Recurse -Force
+          Copy-Item dist/install-tests.txt, dist/*.log $evidence
+          Compress-Archive -Path "$evidence/*" -DestinationPath dist/validation-evidence.zip -Force
+          Remove-Item $evidence -Recurse -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.version.outputs.version }}
+          path: |
+            dist/Neighbor-Setup-*-x64.exe
+            dist/Neighbor-Setup-*-x64.exe.sha256
+            dist/build-manifest.json
+            dist/validation-evidence.zip
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    needs: build-and-test
+    # Manual runs publish only from main; tag runs publish the tagged commit.
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.build-and-test.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ needs.build-and-test.outputs.version }}
+          path: release
+      - name: Verify artifacts belong to this commit and version
+        run: |
+          set -euo pipefail
+          installer="Neighbor-Setup-${VERSION}-x64.exe"
+          cd release
+          test -f "$installer"
+          test -f "$installer.sha256"
+          test -f build-manifest.json
+          test -f validation-evidence.zip
+          sha256sum -c "$installer.sha256"
+          test "$(jq -r .version build-manifest.json)" = "$VERSION"
+          test "$(jq -r .sourceCommit build-manifest.json)" = "$GITHUB_SHA"
+          test "$(jq -r .installer build-manifest.json)" = "$installer"
+          test "$(jq -r .sha256 build-manifest.json)" = "$(sha256sum "$installer" | cut -d' ' -f1)"
+      - name: Refuse to overwrite an existing release
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists; bump VERSION before releasing." >&2
+            exit 1
+          fi
+      - name: Create pre-release
+        run: |
+          sed "s/{{VERSION}}/$VERSION/g" RELEASE_NOTES.md > notes.md
+          cd release
+          gh release create "v$VERSION" \
+            "Neighbor-Setup-${VERSION}-x64.exe" \
+            "Neighbor-Setup-${VERSION}-x64.exe.sha256" \
+            build-manifest.json \
+            validation-evidence.zip \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "What's up my neighbor Windows ${VERSION}（預發布）" \
+            --notes-file ../notes.md

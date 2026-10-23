@@ -33,6 +33,7 @@ namespace Neighbor.Windows
         private readonly LearningEngine learning;
         private readonly RecordingHud hud;
         private readonly LearningToast toast;
+        private readonly DesktopPetController desktopPet;
         private VocabularyForm vocabularyForm;
         private VocabularyPrompt latestPrompt;
         private readonly ToolStripMenuItem statusItem = new ToolStripMenuItem("準備好了") { Enabled = false };
@@ -44,6 +45,9 @@ namespace Neighbor.Windows
         private string shownPendingId;
         private bool exiting, learningBusy;
         private int smokeTicks;
+        /// <summary>Smoke mode only: true when an optional component failed, so the process exits non-zero.</summary>
+        // Smoke mode only: true when the optional companion failed, so the process exits non-zero.
+        public bool Failed => smoke && desktopPet.Failed;
 
         public NeighborApplicationContext(bool smoke = false)
         {
@@ -65,12 +69,17 @@ namespace Neighbor.Windows
             learning = new LearningEngine(new WindowsWordSegmenter());
             hud = new RecordingHud(); hud.ApplySettings(settings);
             toast = new LearningToast();
+            desktopPet = new DesktopPetController(() => new DesktopPetForm(),
+                (stage, error) => DiagnosticLog.Record(DiagnosticLog.DefaultPath, stage, error),
+                message => Post(() => Notify(message)));
+            desktopPet.Create();
             tray = new NotifyIcon { Icon = Theme.LoadIcon(), Text = ProductName, ContextMenuStrip = menu, Visible = true };
             BuildMenu();
             hotkeys.Pressed += id => Run(() => ToggleAsync(id == 2));
-            hud.StartRequested += () => Run(() => coordinator.State == DictationState.RetainedAudio ? coordinator.RetryAsync() : ToggleAsync(false));
+            hud.StartRequested += () => Run(() => ToggleAsync(false));
             hud.FinishRequested += () => Run(coordinator.StopAsync);
             hud.CancelRequested += () => Run(CancelAsync);
+            hud.RetryRequested += () => Run(coordinator.RetryAsync);
             toast.Rejected += RejectLearning;
             coordinator.StatusChanged += (_, e) => UpdateStatus(e);
             coordinator.LevelChanged += (_, e) => hud.UpdateLevel(e.Decibels, e.IsKnown);
@@ -89,6 +98,7 @@ namespace Neighbor.Windows
             {
                 if (!hotkeys.TryApply(settings.PrimaryShortcut, settings.AlternateShortcut, out string error)) Post(() => Notify(error + " 可從系統匣開啟設定或開始錄音。"));
                 Post(FirstRun);
+                desktopPet.SetEnabled(settings.DesktopPetEnabled);
             }
         }
         private void BuildMenu()
@@ -102,6 +112,13 @@ namespace Neighbor.Windows
             menu.Items.Add(recordItem); menu.Items.Add(retryItem); menu.Items.Add(cancelItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("文字、語言與錄音設定…", null, (_, e) => OpenSettings());
+            var petItem = new ToolStripMenuItem("桌面小黑貓散步") { Checked = settings.DesktopPetEnabled };
+            petItem.Click += (_, e) => {
+                var updated = settings.Clone(); updated.DesktopPetEnabled = !settings.DesktopPetEnabled;
+                try { settingsStore.Save(updated); settings = updated; petItem.Checked = settings.DesktopPetEnabled; desktopPet.SetEnabled(settings.DesktopPetEnabled); }
+                catch { Notify("無法儲存桌面小黑貓設定。"); }
+            };
+            menu.Items.Add(petItem);
             menu.Items.Add("詞典與學習狀態…", null, (_, e) => OpenVocabulary());
             menu.Items.Add("設定／更換 Groq 金鑰…", null, (_, e) => OpenKey());
             menu.Items.Add("Windows 麥克風隱私設定", null, (_, e) => { try { System.Diagnostics.Process.Start("ms-settings:privacy-microphone"); } catch { Notify("請開啟 Windows 設定 → 隱私權與安全性 → 麥克風。"); } });
@@ -135,6 +152,7 @@ namespace Neighbor.Windows
         private async Task CancelAsync() { CancelLearning("已取消"); await coordinator.CancelAsync(); }
         private void UpdateStatus(StatusEventArgs e)
         {
+            desktopPet.SetBusy(e.State != DictationState.Idle);
             statusItem.Text = e.Message;
             tray.Text = ProductName + (e.State == DictationState.Recording ? " · 錄音中" : "");
             recordItem.Text = e.State == DictationState.Recording ? "完成錄音並辨識" : "開始錄音";
@@ -152,7 +170,8 @@ namespace Neighbor.Windows
             if (exiting) return;
             if (smoke)
             {
-                if (++smokeTicks == 1) { hud.UpdateState(DictationState.Recording, "測試錄音介面"); hud.Show(); hud.UpdateLevel(-20, true); }
+                if (++smokeTicks == 1) { hud.UpdateState(DictationState.Recording, "測試錄音介面"); hud.Show(); hud.UpdateLevel(-20, true); desktopPet.SetEnabled(true); desktopPet.SetBusy(false); }
+                if (smokeTicks == 8) desktopPet.SetEnabled(false);
                 if (smokeTicks >= 10) await ExitAsync();
                 return;
             }
@@ -231,6 +250,8 @@ namespace Neighbor.Windows
                 {
                     if (form.ShowDialog() != DialogResult.OK) return;
                     var updated = form.Settings; SettingsStore.Validate(updated);
+                    // The settings dialog has no companion control; keep the current value even if it was toggled while the dialog was open.
+                    updated.DesktopPetEnabled = settings.DesktopPetEnabled;
                     if (!hotkeys.TryApply(updated.PrimaryShortcut, updated.AlternateShortcut, out string error)) { Notify(error); return; }
                     try { LoginStartup.Apply(updated.LaunchAtLogin); settingsStore.Save(updated); }
                     catch { hotkeys.TryApply(settings.PrimaryShortcut, settings.AlternateShortcut, out _); LoginStartup.Apply(settings.LaunchAtLogin); throw; }
@@ -272,6 +293,7 @@ namespace Neighbor.Windows
             await coordinator.CancelAsync();
             audioStore.Cleanup();
             hud.Hide(); toast.Hide(); tray.Visible = false;
+            desktopPet.Hide();
             ExitThread();
         }
         protected override void Dispose(bool disposing)
@@ -280,6 +302,7 @@ namespace Neighbor.Windows
             {
                 timer.Dispose(); hideHud.Dispose(); hotkeys.Dispose(); recorder.Dispose(); delivery.Dispose(); transcriber.Dispose();
                 hud.Dispose(); toast.Dispose(); vocabularyForm?.Dispose();
+                desktopPet.Dispose();
                 var icon = tray.Icon; tray.Dispose(); icon?.Dispose(); menu.Dispose(); dispatcher.Dispose();
                 if (smoke) { try { Directory.Delete(Path.GetDirectoryName(audioStore.DirectoryPath), true); } catch { } }
             }

@@ -33,7 +33,7 @@ App 只貼上，永不自動按 Enter；若無法確認輸入欄位，請 Ctrl +
 
 Windows 11 x64／Windows 10 22H2 x64；ARM64 未驗證。
 這是未簽章測試版。請只從專案 Releases 下載並核對 SHA-256，勿關閉系統防護。
-https://github.com/yuipan0611/groq-ai-voice-input-macos/releases
+https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases
 
 解除安裝：Windows 設定 → 應用程式，移除 What's up my neighbor。
 設定、詞典與金鑰預設保留。完全清除時，先在 App 移除金鑰，再刪除個人資料夾。
