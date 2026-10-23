@@ -180,7 +180,7 @@
 - **交付分支已處理的設定**（只在 `handoff/windows-beta2-improvements` 上，fork 的 `main` 不變）：
   - 安裝程式的發行者、支援與更新網址（`packaging/neighbor.iss`）指向上游 repo。
   - 下載、支援與更新連結（README、CONTRIBUTING、RELEASE_NOTES、docs/UPDATES、docs/DEVELOPMENT、docs/WEBSITE、使用說明.txt）指向上游 repo。
-  - 來源與維護說明（README 第 9 行、RELEASE_NOTES 第 5 行、docs/WEBSITE 維護者列）保留 fork 連結，並標明它是貢獻來源。
+  - 來源說明（README 第 9 行、RELEASE_NOTES 第 5 行、docs/WEBSITE 貢獻者列）在審查時改為「Windows 版主要貢獻者 andrewchu0101」，不再寫成由 fork 維護或發布。
   - `docs/WEBSITE.md` 的直接下載網址仍標示為**預計網址**，上游尚未建立此 Release，不能當作可用連結。
 - **發布設定**：`release.yml` 在本分支只保留 `workflow_dispatch`，由原作者決定何時發布。
 - **上游 PR #2**（`codex/official-website-links`，作者 yuipan0611，修改 `README.md`）：本分支把 PR #2 新增的官網連結原文保留在 README 標題下方。其餘 README 內容是本分支的 Windows 版說明。若 PR #2 先合併，合併時應以本分支的 README 為準，但保留官網連結那一行。

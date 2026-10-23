@@ -2,7 +2,7 @@ What's up my neighbor Windows {{VERSION}}（預發布測試版）
 
 這是 Windows 版語音輸入工具的**預發布測試版**。下方的測試範圍分開列出；請特別注意「尚未完成的實機驗收」。
 
-Windows 版程式碼的原始專案與授權聲明來自 yuipan0611（見 LICENSE 與 MIGRATION.md）。本 Release 由 andrewchu0101 維護的 Windows fork 發布。
+Windows 版程式碼的原始專案與授權聲明來自 yuipan0611（見 LICENSE 與 MIGRATION.md）。Windows 版主要貢獻者：andrewchu0101。本 Release 由本 repo 的 GitHub Actions 發布流程建立。
 
 ## 一般使用者：下載一個檔案
 

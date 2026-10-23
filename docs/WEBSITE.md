@@ -13,7 +13,7 @@
 | 發布類型 | 預發布測試版（beta） |
 | 授權 | MIT License，版權聲明 Copyright (c) 2026 yuipan0611 |
 | 原作者 | yuipan0611 |
-| Windows 版維護者 | andrewchu0101（本 fork） |
+| Windows 版主要貢獻者 | andrewchu0101 |
 
 ## 安裝檔
 
