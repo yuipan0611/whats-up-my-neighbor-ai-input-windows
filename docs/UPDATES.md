@@ -22,6 +22,7 @@
 | Groq API Key | Windows 認證管理員，目標 `WhatsUpMyNeighbor/GroqApiKey` | 保留 | 保留（使用者可先在 App 中移除） |
 | 設定 | `%LOCALAPPDATA%\WhatsUpMyNeighbor\settings.json` | 保留 | 保留 |
 | 詞典 | `%LOCALAPPDATA%\WhatsUpMyNeighbor\vocabulary.json` | 保留 | 保留 |
+| 診斷紀錄（只在桌面小黑貓失敗時建立） | `%LOCALAPPDATA%\WhatsUpMyNeighbor\diagnostics.log` | 保留 | 保留 |
 | 暫存錄音 | `%LOCALAPPDATA%\WhatsUpMyNeighbor\Recordings` | 啟動時清理 | 刪除 |
 | 程式檔案 | `%LOCALAPPDATA%\Programs\WhatsUpMyNeighbor` | 覆蓋為新版 | 刪除 |
 | 登入啟動項目 | `HKCU\...\Run\WhatsUpMyNeighbor` | 不變 | 移除 |
@@ -34,10 +35,12 @@
 
 1. 更新 [VERSION](../VERSION)，例如 `0.1.0-beta.3`，並更新 [CHANGELOG.md](../CHANGELOG.md) 與 [RELEASE_NOTES.md](../RELEASE_NOTES.md)。
 2. 提交到 `main`，確認 `windows.yml` 通過。
-3. 建立並推送標籤 `v<VERSION>`，例如 `git tag v0.1.0-beta.3`、`git push origin v0.1.0-beta.3`。也可以在 Actions 頁面手動執行 **Release**，它會以 `v<VERSION>` 建立標籤（只允許從 `main` 執行）。
+3. 到 Actions 頁面選 **Release** → **Run workflow**，分支選 `main`。發布流程只能手動觸發，推送標籤不會啟動它；發布時會自動以 `v<VERSION>` 建立標籤（例如 `v0.1.0-beta.3`）。
 4. 流程依序執行：安裝 Inno Setup 6、檢查標籤與 `VERSION` 一致、建置、離線測試、UI 整合測試、打包、安裝測試、收集證據。
 5. 只有上述全部成功，`publish` 任務才會繼續：驗證安裝檔雜湊、清單的版本與 `sourceCommit`、安裝檔名稱，然後建立預發布版本。
 6. 若同一版本的 Release 已存在，流程會停止，不會覆蓋。要重新發布請提高 `VERSION`。
+
+標籤一律使用 `v<VERSION>`。`windows-v0.1.0-beta.1` 是從 macOS repo 搬遷時沿用的舊名稱，之後不再使用。
 
 Release 附件：
 
