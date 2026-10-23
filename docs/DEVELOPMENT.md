@@ -2,7 +2,7 @@
 
 這份文件說明如何在 Windows 上取得原始碼、建置、測試並打包安裝檔。
 
-對照版本：0.1.0-beta.2（見 [VERSION](../VERSION)）。
+對照版本：0.1.0-beta.3（見 [VERSION](../VERSION)）。
 
 ## 需要準備
 

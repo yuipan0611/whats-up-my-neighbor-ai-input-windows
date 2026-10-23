@@ -4,9 +4,9 @@
 
 小黑貓語音輸入工具（Windows 版）：按快捷鍵說話，再按一次完成，錄音送到 Groq 辨識，然後把文字貼到目前的輸入框。**只貼上，不會自動按 Enter 送出訊息。**
 
-目前版本：**0.1.0-beta.2（預發布測試版）**。實機驗收尚未完成，見 [VALIDATION.md](VALIDATION.md)。
+目前版本：**0.1.0-beta.3（預發布測試版）**。實機驗收尚未完成，見 [VALIDATION.md](VALIDATION.md)。
 
-本 repo 是 Windows 版的 fork，由 andrewchu0101 維護。原作者為 yuipan0611，授權為 MIT（見 [LICENSE](LICENSE)）。macOS 版在 [Mac repo](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-macos)。Windows 版與 macOS 版各自開發、各自發布；功能不完全對等，以本文件列出的內容為準。
+本 repo 是 Windows 版的正式 repo，由 yuipan0611 維護與發布，授權為 MIT（見 [LICENSE](LICENSE)）。Windows 版主要貢獻者：[andrewchu0101](https://github.com/andrewchu0101)。macOS 版在 [Mac repo](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-macos)。Windows 版與 macOS 版各自開發、各自發布；功能不完全對等，以本文件列出的內容為準。
 
 ## 桌面小黑貓（Windows 第一階段）
 
