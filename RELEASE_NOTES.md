@@ -2,7 +2,7 @@ What's up my neighbor Windows {{VERSION}}（預發布測試版）
 
 這是 Windows 版語音輸入工具的**預發布測試版**。下方的測試範圍分開列出；請特別注意「尚未完成的實機驗收」。
 
-Windows 版程式碼的原始專案與授權聲明來自 yuipan0611（見 LICENSE 與 MIGRATION.md）。本 Release 由 andrewchu0101 維護的 Windows fork 發布。
+Windows 版程式碼的原始專案與授權聲明來自 yuipan0611（見 LICENSE 與 MIGRATION.md）。本 Release 由本 repo 的 GitHub Actions 建置並發布；Windows 版主要貢獻者為 andrewchu0101。
 
 ## 一般使用者：下載一個檔案
 
@@ -39,10 +39,14 @@ Get-FileHash .\Neighbor-Setup-{{VERSION}}-x64.exe -Algorithm SHA256
 
 ## 本版變更
 
+- 新增第一階段桌面小黑貓（預設關閉）：散步、休息，可拖曳；錄音與辨識期間隱藏。
+- 錄音浮窗與桌面小黑貓改用逐像素透明，移除邊緣的紫色外框；錄音浮窗的貓圖改為快取，降低 CPU 用量。
+- 錄音浮窗的左右眼重新提供給輔助工具（MSAA 按鈕）；Narrator、NVDA 等螢幕閱讀器尚未實測。
 - 麥克風改用裝置自己的混音格式錄音，錄完再轉為 16 kHz 單聲道。先前直接要求 16 kHz 串流，部分麥克風會拒絕，導致錄音無法開始。
 - 版本號統一由 `VERSION` 檔案決定，安裝檔名稱、應用程式版本與發布標籤一致。
 - 發布流程改為：全部測試與安裝測試通過後，才建立預發布版本並附上校驗檔與測試紀錄。
-- 安裝程式的發行者、支援與更新網址指向原作者的 Windows repo；原作者署名與 MIT 授權保留。
+- 安裝程式的發行者、支援與更新網址指向本 repo；原作者署名與 MIT 授權保留。
+- 0.1.0-beta.2 只在貢獻者的 fork 發布過；本 repo 從 0.1.0-beta.3 開始發布。兩者 App 程式碼相同，差別在安裝程式的網址與說明文件。
 
 ## 升級
 
@@ -75,7 +79,7 @@ Get-FileHash .\Neighbor-Setup-{{VERSION}}-x64.exe -Algorithm SHA256
 
 測試紀錄見 `validation-evidence.zip`。
 
-**維護者在開發機上的手動驗證**：建置、離線測試、打包與安裝測試。UI 整合測試未在開發機執行，以 CI 結果為準。
+**貢獻者在開發機上的手動驗證**（andrewchu0101，針對 0.1.0-beta.2 的相同 App 程式碼）：建置、離線測試、打包與安裝測試，以及桌面小黑貓、錄音浮窗、聽寫與貼上的實際試用。試用的版本早於錄音浮窗的無障礙調整，該部分只有自動測試。UI 整合測試以 CI 結果為準。
 
 ## 尚未完成的實機驗收與限制
 

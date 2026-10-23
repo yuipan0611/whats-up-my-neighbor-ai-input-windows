@@ -1,41 +1,41 @@
 # 官網交付資料
 
-這份文件提供給原作者或官網維護者，用來上架 Windows 版下載資訊。
+這份文件提供給官網維護者，用來上架 Windows 版下載資訊。
 
-**狀態：尚未發布。** 下列下載網址是預計網址，目前不可下載。正式發布後，雜湊與檔案大小必須以 GitHub Actions 產生的附件為準，不可沿用本文件的數值。
+**狀態：尚未發布。** 下列下載網址是預計網址，執行 Release 流程後才可下載。檔案大小與雜湊一律以 GitHub Actions 產生的附件為準。
 
 ## 版本
 
 | 項目 | 內容 |
 |---|---|
 | 產品名稱 | What's up my neighbor（Windows 版） |
-| 版本 | 0.1.0-beta.2 |
+| 版本 | 0.1.0-beta.3 |
 | 發布類型 | 預發布測試版（beta） |
 | 授權 | MIT License，版權聲明 Copyright (c) 2026 yuipan0611 |
-| 原作者 | yuipan0611 |
-| Windows 版維護者 | andrewchu0101（本 fork） |
+| 維護與發布 | yuipan0611（本 repo） |
+| 主要貢獻者 | andrewchu0101 |
 
 ## 安裝檔
 
 | 項目 | 內容 |
 |---|---|
-| 檔案名稱 | `Neighbor-Setup-0.1.0-beta.2-x64.exe` |
-| 大小（本機打包） | 2,817,927 bytes（約 2.7 MB；上限 20,000,000 bytes） |
-| SHA-256（本機打包，僅供參考） | `959f01fc2e036b354ec60a01d34dec38ed55802a58b584073b59da59facd5548` |
+| 檔案名稱 | `Neighbor-Setup-0.1.0-beta.3-x64.exe` |
+| 大小與 SHA-256 | 發布後以同一 Release 的 `.sha256` 與 `build-manifest.json` 為準 |
 | 程式碼簽章 | 未簽章 |
-| 校驗檔 | 同一 Release 附 `Neighbor-Setup-0.1.0-beta.2-x64.exe.sha256` |
+| 校驗檔 | 同一 Release 附 `Neighbor-Setup-0.1.0-beta.3-x64.exe.sha256` |
 
-**正式發布時請替換**：上表的大小與 SHA-256 來自本機建置，對應的 commit 為 `9e767ea`，而且目前的改動尚未提交。正式版請以同一次 GitHub Actions 產生的 `Neighbor-Setup-<版本>-x64.exe.sha256` 與 `build-manifest.json` 為準。
+0.1.0-beta.2 只在貢獻者的 fork 發布過，雜湊與本 repo 的安裝檔不同。官網不要使用 beta.2 的檔案或雜湊。
 
 ## 下載網址
 
 | 項目 | 網址 | 狀態 |
 |---|---|---|
-| Release 頁面 | `https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases` | 預計網址（上游 repo，尚未建立 Release） |
-| 直接下載（預計） | `https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/v0.1.0-beta.2/Neighbor-Setup-0.1.0-beta.2-x64.exe` | 預計網址，**尚不可下載** |
-| 校驗檔（預計） | `.../releases/download/v0.1.0-beta.2/Neighbor-Setup-0.1.0-beta.2-x64.exe.sha256` | 預計網址，**尚不可下載** |
+| 版本頁面 | `https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/v0.1.0-beta.3` | 預計網址，**發布後才可開啟** |
+| 直接下載 | `https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/v0.1.0-beta.3/Neighbor-Setup-0.1.0-beta.3-x64.exe` | 預計網址，**發布後才可下載** |
+| 校驗檔 | `.../releases/download/v0.1.0-beta.3/Neighbor-Setup-0.1.0-beta.3-x64.exe.sha256` | 預計網址，**發布後才可下載** |
 
-發布後請用瀏覽器實際確認直接下載網址可以下載，再更新官網。
+- 官網請連到指定版本的頁面或檔案，不要用 `/releases/latest`：GitHub 的 latest 會略過預發布版本，連過去會找不到 beta。
+- 發布後請用瀏覽器實際確認直接下載網址可以下載，再更新官網。
 
 ## 系統需求
 
@@ -55,15 +55,17 @@
 
 這是預發布測試版。真實麥克風、各應用程式與中文輸入法等項目仍待實機驗收，詳見 VALIDATION.md。
 
-## 更新摘要（0.1.0-beta.2）
+## 更新摘要（0.1.0-beta.3，相對於 0.1.0-beta.1）
 
+- 新增第一階段桌面小黑貓（預設關閉）：散步、休息，可拖曳。
+- 錄音浮窗與桌面小黑貓改用逐像素透明，移除邊緣的紫色外框。
 - 錄音改為使用麥克風的混音格式擷取，再轉為 16 kHz 單聲道，解決部分麥克風不接受 16 kHz 串流的問題。
 - 版本號統一由 `VERSION` 決定，安裝檔、應用程式版本與發布標籤一致。
 - 發布流程改為全部測試通過後才發布，並附上校驗檔與測試紀錄。
-- 安裝程式的網址指向原作者的 Windows repo，原作者署名與 MIT 授權保留。
+- 安裝程式的支援與更新網址指向本 repo，原作者署名與 MIT 授權保留。
 
 完整內容見 [CHANGELOG.md](../CHANGELOG.md) 與 [RELEASE_NOTES.md](../RELEASE_NOTES.md)。
 
 ## 與 macOS 版的差異
 
-Windows 版與 macOS 版各自開發，功能不完全對等。Windows 版目前沒有 macOS 版的剪貼簿歷史、iPhone 接力與多人會議功能；桌面小黑貓僅有第一階段的散步與休息（預設關閉），沒有拖曳、舔掌與資料夾停靠。官網不應宣稱功能完全相同。
+Windows 版與 macOS 版各自開發，功能不完全對等。Windows 版目前沒有 macOS 版的剪貼簿歷史、iPhone 接力與多人會議功能；桌面小黑貓僅有第一階段的散步、休息與拖曳（預設關閉），沒有舔掌、抓起動畫與資料夾停靠。官網不應宣稱功能完全相同。

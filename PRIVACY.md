@@ -2,7 +2,7 @@
 
 使用者主動錄音後，音訊與額度內的啟用詞條會直接送至 Groq transcription API，模型為 `whisper-large-v3`。沒有開發者帳號系統、聊天改寫或供應商備援；Groq 的資料保存與帳務由其服務政策決定。
 
-API Key 存在目前帳號的 Windows 認證管理員，目標 `WhatsUpMyNeighbor/GroqApiKey`。設定、詞典與短詞修正紀錄位於 `%LOCALAPPDATA%\WhatsUpMyNeighbor`。App 不建立日常完整逐字稿或金鑰日誌。
+API Key 存在目前帳號的 Windows 認證管理員，目標 `WhatsUpMyNeighbor/GroqApiKey`。設定、詞典與短詞修正紀錄位於 `%LOCALAPPDATA%\WhatsUpMyNeighbor`。App 不建立日常完整逐字稿或金鑰日誌。桌面小黑貓無法建立或執行失敗時，App 會在同一資料夾寫入 `diagnostics.log`，只記錄錯誤類型、錯誤訊息與程式堆疊，不含金鑰、錄音或聽寫文字，也不會上傳。
 
 錄音成功複製、取消、捨棄或被新錄音取代時刪除；辨識、網路或剪貼簿失敗時最多保留兩分鐘供使用者重試，正常退出及下次啟動也清理。文字交付會使用 Windows 剪貼簿，其歷程與同步由 Windows 使用者設定管理。
 

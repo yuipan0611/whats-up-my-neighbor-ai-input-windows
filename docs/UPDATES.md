@@ -1,6 +1,6 @@
 # 發布、校驗與升級
 
-對照版本：0.1.0-beta.2。
+對照版本：0.1.0-beta.3。
 
 ## 使用者看到的行為
 
@@ -23,6 +23,7 @@
 | 設定 | `%LOCALAPPDATA%\WhatsUpMyNeighbor\settings.json` | 保留 | 保留 |
 | 詞典 | `%LOCALAPPDATA%\WhatsUpMyNeighbor\vocabulary.json` | 保留 | 保留 |
 | 暫存錄音 | `%LOCALAPPDATA%\WhatsUpMyNeighbor\Recordings` | 啟動時清理 | 刪除 |
+| 診斷紀錄 | `%LOCALAPPDATA%\WhatsUpMyNeighbor\diagnostics.log`（只在桌面小黑貓失敗時寫入） | 保留 | 保留 |
 | 程式檔案 | `%LOCALAPPDATA%\Programs\WhatsUpMyNeighbor` | 覆蓋為新版 | 刪除 |
 | 登入啟動項目 | `HKCU\...\Run\WhatsUpMyNeighbor` | 不變 | 移除 |
 
@@ -32,12 +33,14 @@
 
 發布由 `.github/workflows/release.yml` 執行。
 
-1. 更新 [VERSION](../VERSION)，例如 `0.1.0-beta.3`，並更新 [CHANGELOG.md](../CHANGELOG.md) 與 [RELEASE_NOTES.md](../RELEASE_NOTES.md)。
+1. 更新 [VERSION](../VERSION)，例如 `0.1.0-beta.4`，並更新 [CHANGELOG.md](../CHANGELOG.md) 與 [RELEASE_NOTES.md](../RELEASE_NOTES.md)。
 2. 提交到 `main`，確認 `windows.yml` 通過。
-3. 建立並推送標籤 `v<VERSION>`，例如 `git tag v0.1.0-beta.3`、`git push origin v0.1.0-beta.3`。也可以在 Actions 頁面手動執行 **Release**，它會以 `v<VERSION>` 建立標籤（只允許從 `main` 執行）。
-4. 流程依序執行：安裝 Inno Setup 6、檢查標籤與 `VERSION` 一致、建置、離線測試、UI 整合測試、打包、安裝測試、收集證據。
+3. 到 GitHub 的 Actions 頁面，選 **Release** → **Run workflow**，分支選 `main`。發布只能手動觸發，推送標籤不會啟動流程；流程會在發布時建立標籤 `v<VERSION>`。
+4. 流程依序執行：安裝 Inno Setup 6、讀取 `VERSION`、建置、離線測試、UI 整合測試、打包、安裝測試、收集證據。
 5. 只有上述全部成功，`publish` 任務才會繼續：驗證安裝檔雜湊、清單的版本與 `sourceCommit`、安裝檔名稱，然後建立預發布版本。
 6. 若同一版本的 Release 已存在，流程會停止，不會覆蓋。要重新發布請提高 `VERSION`。
+
+標籤命名：從 0.1.0-beta.3 起一律使用 `v<VERSION>`。`windows-v0.1.0-beta.1` 是從 macOS repo 搬來的歷史標籤，保留不改。
 
 Release 附件：
 
