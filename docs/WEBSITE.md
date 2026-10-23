@@ -9,7 +9,7 @@
 | 項目 | 內容 |
 |---|---|
 | 產品名稱 | What's up my neighbor（Windows 版） |
-| 版本 | 0.1.0-beta.2 |
+| 版本 | 0.1.0-beta.3 |
 | 發布類型 | 預發布測試版（beta） |
 | 授權 | MIT License，版權聲明 Copyright (c) 2026 yuipan0611 |
 | 原作者 | yuipan0611 |
@@ -19,11 +19,11 @@
 
 | 項目 | 內容 |
 |---|---|
-| 檔案名稱 | `Neighbor-Setup-0.1.0-beta.2-x64.exe` |
+| 檔案名稱 | `Neighbor-Setup-0.1.0-beta.3-x64.exe` |
 | 大小（本機打包） | 2,817,927 bytes（約 2.7 MB；上限 20,000,000 bytes） |
 | SHA-256（本機打包，僅供參考） | `959f01fc2e036b354ec60a01d34dec38ed55802a58b584073b59da59facd5548` |
 | 程式碼簽章 | 未簽章 |
-| 校驗檔 | 同一 Release 附 `Neighbor-Setup-0.1.0-beta.2-x64.exe.sha256` |
+| 校驗檔 | 同一 Release 附 `Neighbor-Setup-0.1.0-beta.3-x64.exe.sha256` |
 
 **正式發布時請替換**：上表的大小與 SHA-256 來自本機建置，對應的 commit 為 `9e767ea`，而且目前的改動尚未提交。正式版請以同一次 GitHub Actions 產生的 `Neighbor-Setup-<版本>-x64.exe.sha256` 與 `build-manifest.json` 為準。
 
@@ -32,8 +32,8 @@
 | 項目 | 網址 | 狀態 |
 |---|---|---|
 | Release 頁面 | `https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases` | 預計網址（上游 repo，尚未建立 Release） |
-| 直接下載（預計） | `https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/v0.1.0-beta.2/Neighbor-Setup-0.1.0-beta.2-x64.exe` | 預計網址，**尚不可下載** |
-| 校驗檔（預計） | `.../releases/download/v0.1.0-beta.2/Neighbor-Setup-0.1.0-beta.2-x64.exe.sha256` | 預計網址，**尚不可下載** |
+| 直接下載（預計） | `https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/v0.1.0-beta.3/Neighbor-Setup-0.1.0-beta.3-x64.exe` | 預計網址，**尚不可下載** |
+| 校驗檔（預計） | `.../releases/download/v0.1.0-beta.3/Neighbor-Setup-0.1.0-beta.3-x64.exe.sha256` | 預計網址，**尚不可下載** |
 
 發布後請用瀏覽器實際確認直接下載網址可以下載，再更新官網。
 
@@ -55,7 +55,7 @@
 
 這是預發布測試版。真實麥克風、各應用程式與中文輸入法等項目仍待實機驗收，詳見 VALIDATION.md。
 
-## 更新摘要（0.1.0-beta.2）
+## 更新摘要（0.1.0-beta.3）
 
 - 錄音改為使用麥克風的混音格式擷取，再轉為 16 kHz 單聲道，解決部分麥克風不接受 16 kHz 串流的問題。
 - 版本號統一由 `VERSION` 決定，安裝檔、應用程式版本與發布標籤一致。

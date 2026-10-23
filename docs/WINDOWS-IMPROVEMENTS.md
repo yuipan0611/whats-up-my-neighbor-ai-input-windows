@@ -2,7 +2,7 @@
 
 本文件整理 Windows 版自原作者 repo 拆分後，在 `andrewchu0101` 的 fork 中完成的改善，供原作者審查與決定是否合併。
 
-對照版本：0.1.0-beta.2（`VERSION`）。本文件所列的 commit 皆以上游 `main`（`9e767ea`）為基準。
+對照版本：0.1.0-beta.3（`VERSION`）。fork 曾以 0.1.0-beta.2 發布測試建置；本 repo 從 0.1.0-beta.3 開始發布，避免同一版本號對應兩個安裝檔。本文件所列的 commit 皆以上游 `main`（`9e767ea`）為基準。
 
 ## 1. 來源與署名
 
