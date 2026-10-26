@@ -8,6 +8,14 @@
 
 本 repo 是 Windows 版的正式 repo，由 yuipan0611 維護與發布，授權為 MIT（見 [LICENSE](LICENSE)）。Windows 版主要貢獻者：[andrewchu0101](https://github.com/andrewchu0101)。macOS 版在 [Mac repo](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-macos)。Windows 版與 macOS 版各自開發、各自發布；功能不完全對等，以本文件列出的內容為準。
 
+## NekoChat Lite：教室聊天與一鍵安裝（開發分支）
+
+教室雙機測試的新實作位於 [windows-lite/](windows-lite/README.md)：透明桌面貓咪、訊息氣泡、語音輸入／聊天草稿，以及「建立房間／貼邀請碼加入」。同學使用一個自帶執行元件的 `NekoChat-Setup-win-x64.exe`，不用安裝 Python 或編輯 JSON。
+
+此 Lite 目前是獨立試用 App，使用 `NekoChat.WindowsLite` 安裝／設定／憑證名稱，保留下面原版 Neighbor 的安裝身分、詞典與較小安裝包。原有 Neighbor 的 20 MB 上限仍照原 CI 驗證；Lite 自帶 .NET 與房間服務，使用獨立 CI artifact，尚未加入既有 Release 流程。測試語音時先退出另一個 App，以免快捷鍵衝突。
+
+從 [NekoChat Windows Lite CI](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml) 下載 `nekochat-windows-lite-setup`；詳細步驟見 [同學安裝與互傳](windows-lite/README.md)、[雙機驗收](nekochat/docs/LAN-TEST.md) 與 [Windows repo 搬移紀錄](nekochat/docs/WINDOWS-REPO-MIGRATION.md)。
+
 ## 桌面小黑貓（Windows 第一階段）
 
 預設關閉，與 macOS 版第一次使用的狀態一致。開啟後，小黑貓會在螢幕工作區底部散步與休息。右下角系統匣選單的「桌面小黑貓散步」可開關，設定會保存。貓咪視窗不搶焦點；只有貓咪身體接收滑鼠，可按住拖曳，放開後在新高度水平散步，透明區域仍會穿透到後面的視窗；錄音與辨識期間、鎖定、休眠及全螢幕時隱藏，恢復後繼續。Windows 實際桌面行為仍待人工驗收。

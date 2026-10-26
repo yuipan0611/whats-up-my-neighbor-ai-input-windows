@@ -5,3 +5,7 @@ dist/
 .codex/
 __pycache__/
 *.pyc
+
+# NekoChat Lite build outputs and local dependency environments
+build/
+.pytest_cache/
