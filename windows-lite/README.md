@@ -6,7 +6,7 @@ Windows 10/11 x64，桌面貓咪、好友文字聊天、全系統語音輸入與
 
 1. 在 PR 的 **NekoChat Windows Lite** Actions 下載 `nekochat-windows-lite-setup`，解開 GitHub artifact ZIP，雙擊 `NekoChat-Setup-win-x64.exe`。
 2. 按 **安裝並啟動**。安裝到目前使用者的 `%LOCALAPPDATA%\Programs\NekoChat.WindowsLite`，建立開始功能表捷徑，隨即開啟 App。內含 .NET 與房間服務，**不需另外安裝 Python、.NET、Git，也不用執行指令或改 JSON**。
-3. 在「開始使用」填自己的 Groq API Key，按儲存，即可在記事本以 `Ctrl + Alt + Space` 測試語音。文字聊天不需要 Groq Key。
+3. 沒有麥克風或只想聊天時，按 **跳過語音，先用文字聊天**，直接建立／加入房間。不需要 Groq Key；選擇會記住，語音按鈕與快捷鍵暫停。之後有麥克風時，再展開 **語音設定（可選，之後也能補）**，儲存自己的 Groq Key 即可恢復語音。
 
 這是尚未簽署的試用安裝檔。學校若阻擋，請交由教室管理者審核，不需停用安全機制。安裝不要求管理員，不設自動啟動、不改防火牆。更新前需從貓咪右鍵選單離開舊版；個人設定與 OS 憑證保留，舊程式資料夾保留在同一 Programs 目錄的 `.nekochat-previous-*` 供復原。
 

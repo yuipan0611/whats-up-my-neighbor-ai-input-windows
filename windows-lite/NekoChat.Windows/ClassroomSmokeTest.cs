@@ -16,8 +16,20 @@ internal static class ClassroomSmokeTest
     {
         Directory.CreateDirectory(directory);
         try {
-            Task.Run(RoundtripAsync).GetAwaiter().GetResult();
             var chat=new ChatWindow(new Settings());
+            bool? skipped=null;
+            chat.VoiceSetupChanged+=value=>skipped=value;
+            chat.SkipVoiceButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if(skipped!=true || chat.VoiceSetup.IsExpanded || chat.VoiceButton.IsEnabled ||
+                !chat.CreateRoomButton.IsEnabled || !chat.JoinRoomButton.IsEnabled)
+                throw new InvalidDataException("Text-only onboarding did not skip optional voice setup");
+            Capture(chat,Path.Combine(directory,"classroom-text-only.png"));
+            var restored=new ChatWindow(new Settings{VoiceSetupSkipped=true});
+            if(restored.VoiceSetup.IsExpanded || restored.VoiceButton.IsEnabled || !restored.CreateRoomButton.IsEnabled)
+                throw new InvalidDataException("Restored text-only preference blocked room actions");
+            restored.VoiceSetup.IsExpanded=true;
+            if(!restored.VoiceSetup.IsExpanded)throw new InvalidDataException("Optional voice settings cannot be reopened");
+            Task.Run(RoundtripAsync).GetAwaiter().GetResult();
             int creates=0;string? joined=null;int leaves=0;
             chat.CreateRoomRequested+=()=>creates++;
             chat.JoinRoomRequested+=code=>joined=code;
@@ -34,7 +46,7 @@ internal static class ClassroomSmokeTest
             chat.LeaveRoomButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             chat.SetClassroomState(false,false,"已離開房間。");
             if(leaves!=1 || chat.RoomCode.Text.Length!=0 || !chat.CreateRoomButton.IsEnabled)throw new InvalidDataException("Room UI cleanup failed");
-            File.WriteAllText(Path.Combine(directory,"classroom-result.txt"),"PASS: bundled Relay startup without Python, generated host/guest identities, invitation import, room discovery, bidirectional C# WebSocket messages/acks, parent shutdown revokes room, WPF create/join/leave actions and automatic recipient controls.");
+            File.WriteAllText(Path.Combine(directory,"classroom-result.txt"),"PASS: optional voice skip/restored text-only onboarding, keyless room actions, bundled Relay startup without Python, generated host/guest identities, invitation import, room discovery, bidirectional C# WebSocket messages/acks, parent shutdown revokes room, WPF create/join/leave actions and automatic recipient controls.");
             return 0;
         }catch(Exception ex){File.WriteAllText(Path.Combine(directory,"classroom-result.txt"),"FAIL: "+ex.GetType().Name+" "+ex.Message);return 1;}
     }

@@ -74,6 +74,10 @@ jobs:
           $smoke = Start-Process -FilePath $app -ArgumentList @('--smoke-test', "`"$proof`"") -Wait -PassThru
           Get-Content "$proof/result.txt"
           if ($smoke.ExitCode -ne 0) { exit 1 }
+          $textOnlyProof = Join-Path $proof 'text-only-startup'
+          $textOnly = Start-Process -FilePath $app -ArgumentList @('--text-only-startup-smoke-test', "`"$textOnlyProof`"") -Wait -PassThru
+          Get-Content "$textOnlyProof/startup-result.txt"
+          if ($textOnly.ExitCode -ne 0) { exit 1 }
           $rooms = Start-Process -FilePath $app -ArgumentList @('--room-smoke-test', "`"$proof`"") -Wait -PassThru
           Get-Content "$proof/classroom-result.txt"
           if ($rooms.ExitCode -ne 0) { exit 1 }

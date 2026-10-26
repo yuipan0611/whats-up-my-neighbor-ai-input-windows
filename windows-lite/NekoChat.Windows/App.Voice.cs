@@ -22,17 +22,31 @@ public partial class App
     private void InitializeVoice()
     {
         provider=new GroqWhisperProvider(transcriptionHttp);
-        hotkeys=new Hotkeys(pet);
-        hotkeys.Toggle+=async()=>await ToggleVoiceAsync(false);
-        hotkeys.Cancel+=async()=>await CancelVoiceAsync();
+        ConfigureVoiceHotkeys();
         pet.CancelRecording+=async()=>await CancelVoiceAsync();
         chat.VoiceRequested+=async()=>await ToggleVoiceAsync(true);
         chat.CancelRequested+=async()=>await CancelVoiceAsync();
         recordingLimit.Tick+=async(_,_)=>{recordingLimit.Stop();if(recorder is not null)await FinishVoiceAsync();};
+        chat.VoiceSetupChanged+=async skipped=> {
+            settings=settings with{VoiceSetupSkipped=skipped};
+            if(skipped && (recorder is not null || startingRecording || transcribing))await CancelVoiceAsync();
+            ConfigureVoiceHotkeys();
+            try{settings.Save();}catch(Exception){chat.SetStatus("目前設定已套用，但無法記住這次選擇；下次開啟時可再跳過語音。");}
+        };
+    }
+    private void ConfigureVoiceHotkeys()
+    {
+        if(settings.VoiceSetupSkipped){hotkeys?.Dispose();hotkeys=null;chat.VoiceButton.IsEnabled=false;return;}
+        chat.VoiceButton.IsEnabled=true;
+        if(hotkeys is not null)return;
+        hotkeys=new Hotkeys(pet);
+        hotkeys.Toggle+=async()=>await ToggleVoiceAsync(false);
+        hotkeys.Cancel+=async()=>await CancelVoiceAsync();
         if(!hotkeys.Registered)chat.SetStatus("Ctrl + Alt + Space 已被其他程式占用；聊天語音仍可使用。請關閉衝突程式後重開 NekoChat。");
     }
     private async Task ToggleVoiceAsync(bool chatMode)
     {
+        if(settings.VoiceSetupSkipped){chat.SetStatus("目前使用文字聊天。如需語音，可到『開始使用』展開語音設定，儲存自己的 Groq Key。");return;}
         if(startingRecording || transcribing || canceling){chat.SetStatus("正在準備錄音或轉錄；Esc 可取消。");return;}
         if(recorder is not null) {
             if(recordingChat!=chatMode){chat.SetStatus("另一種錄音正在進行，請先完成或取消。");return;}
@@ -42,7 +56,7 @@ public partial class App
         voiceCancel?.Dispose();voiceCancel=new();
         hotkeys?.EnableCancel(true);
         try {
-            if(string.IsNullOrWhiteSpace(CredentialStore.Load(CredentialStore.Groq)))throw new ArgumentException("請先在連線與語音頁面儲存自己的 Groq API Key。");
+            if(string.IsNullOrWhiteSpace(CredentialStore.Load(CredentialStore.Groq)))throw new ArgumentException("需要語音時，請在『開始使用』展開語音設定並儲存自己的 Groq API Key；文字聊天不需要金鑰。");
             recordingChat=chatMode;
             focusTarget=chatMode?null:await NativeInput.CaptureAsync();
             voiceCancel.Token.ThrowIfCancellationRequested();

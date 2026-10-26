@@ -10,6 +10,7 @@ internal record Settings
     public string VpsEndpoint { get; init; } = "wss://relay.example.invalid/nekochat/v1/ws";
     public string User { get; init; } = "";
     public string Coat { get; init; } = "original";
+    public bool VoiceSetupSkipped { get; init; }
     internal string Endpoint => Lan ? LanEndpoint : VpsEndpoint;
     internal static readonly string DirectoryPath=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NekoChat.WindowsLite");
     private static string FilePath=>Path.Combine(DirectoryPath,"settings.json");

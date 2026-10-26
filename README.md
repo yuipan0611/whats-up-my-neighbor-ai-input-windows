@@ -10,7 +10,7 @@
 
 ## NekoChat Lite：教室聊天與一鍵安裝（開發分支）
 
-教室雙機測試的新實作位於 [windows-lite/](windows-lite/README.md)：透明桌面貓咪、訊息氣泡、語音輸入／聊天草稿，以及「建立房間／貼邀請碼加入」。同學使用一個自帶執行元件的 `NekoChat-Setup-win-x64.exe`，不用安裝 Python 或編輯 JSON。
+教室雙機測試的新實作位於 [windows-lite/](windows-lite/README.md)：透明桌面貓咪、訊息氣泡、語音輸入／聊天草稿，以及「建立房間／貼邀請碼加入」。同學使用一個自帶執行元件的 `NekoChat-Setup-win-x64.exe`，不用安裝 Python 或編輯 JSON。沒有麥克風可按「跳過語音，先用文字聊天」，不需 Groq Key。
 
 此 Lite 目前是獨立試用 App，使用 `NekoChat.WindowsLite` 安裝／設定／憑證名稱，保留下面原版 Neighbor 的安裝身分、詞典與較小安裝包。原有 Neighbor 的 20 MB 上限仍照原 CI 驗證；Lite 自帶 .NET 與房間服務，使用獨立 CI artifact，尚未加入既有 Release 流程。測試語音時先退出另一個 App，以免快捷鍵衝突。
 

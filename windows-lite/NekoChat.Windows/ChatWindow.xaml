@@ -4,13 +4,19 @@
   <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Text="尚未連線" TextWrapping="Wrap" Margin="0,12,0,0" AutomationProperties.LiveSetting="Polite"/>
   <TabControl x:Name="Tabs">
    <TabItem Header="開始使用"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="12">
-    <TextBlock Text="先試語音，再與同學連線" FontSize="19" FontWeight="SemiBold" Margin="0,0,0,12"/>
-    <TextBlock Text="自己的 Groq API Key"/><PasswordBox x:Name="GroqKey" MaxLength="256" AutomationProperties.Name="Groq API Key"/>
-    <WrapPanel><Button Content="儲存 Groq Key" Click="SaveGroqClick"/><Button Content="刪除 Groq Key" Click="DeleteGroqClick"/></WrapPanel>
-    <TextBlock x:Name="GroqState" Text="尚未設定語音金鑰。文字聊天可以直接使用。" TextWrapping="Wrap" Margin="0,6,0,6"/>
-    <TextBlock Text="金鑰只存這台電腦的 Windows 認證管理員。錄音會送至 Groq 轉成文字；聊天語音先形成草稿，確認後再傳送。" TextWrapping="Wrap" Foreground="#666666" FontSize="12"/>
+    <TextBlock Text="開始與同學聊天" FontSize="19" FontWeight="SemiBold" Margin="0,0,0,8"/>
+    <TextBlock Text="沒有麥克風也能使用。文字聊天不需要 Groq Key，語音設定可以跳過。" TextWrapping="Wrap" Margin="0,0,0,8"/>
+    <Button x:Name="SkipVoiceButton" Content="跳過語音，先用文字聊天" Click="SkipVoiceClick" HorizontalAlignment="Left"/>
+    <Expander x:Name="VoiceSetup" Header="語音設定（可選，之後也能補）" IsExpanded="True" Margin="0,8,0,0">
+     <StackPanel Margin="0,8,0,0">
+      <TextBlock Text="自己的 Groq API Key"/><PasswordBox x:Name="GroqKey" MaxLength="256" AutomationProperties.Name="Groq API Key（可跳過）"/>
+      <WrapPanel><Button Content="儲存 Groq Key" Click="SaveGroqClick"/><Button Content="刪除 Groq Key" Click="DeleteGroqClick"/></WrapPanel>
+      <TextBlock Text="需要麥克風才設定。金鑰只存這台電腦的 Windows 認證管理員；錄音會送至 Groq 轉成文字。" TextWrapping="Wrap" Foreground="#666666" FontSize="12"/>
+     </StackPanel>
+    </Expander>
+    <TextBlock x:Name="GroqState" Text="尚未設定語音。可以直接建立或加入房間，互傳文字訊息。" TextWrapping="Wrap" Margin="0,6,0,6"/>
     <Separator Margin="0,16"/>
-    <TextBlock Text="與一位同學互傳訊息" FontSize="18" FontWeight="SemiBold"/>
+    <TextBlock x:Name="RoomHeading" Text="與一位同學互傳訊息" FontSize="18" FontWeight="SemiBold"/>
     <TextBlock Text="一台建立房間，另一台貼上邀請碼加入。不需要填帳號、好友 ID 或連線位址。" TextWrapping="Wrap" Margin="0,8"/>
     <Button x:Name="CreateRoomButton" Content="建立房間" Click="CreateRoomClick" HorizontalAlignment="Left"/>
     <StackPanel x:Name="ShareRoomPanel" Visibility="Collapsed">
@@ -22,7 +28,7 @@
     <TextBlock Text="同學給你的邀請碼" Margin="0,14,0,0"/>
     <TextBox x:Name="JoinRoomCode" Height="62" TextWrapping="Wrap" MaxLength="4096" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="同學給你的邀請碼"/>
     <WrapPanel><Button x:Name="JoinRoomButton" Content="加入房間" Click="JoinRoomClick"/><Button x:Name="LeaveRoomButton" Content="取消／離開房間" Click="LeaveRoomClick" IsEnabled="False"/></WrapPanel>
-    <TextBlock x:Name="RoomStatus" Text="未加入房間；可以先在記事本測試語音輸入。" TextWrapping="Wrap" Margin="0,8" AutomationProperties.LiveSetting="Polite"/>
+    <TextBlock x:Name="RoomStatus" Text="未加入房間。直接建立房間，或貼上同學的邀請碼即可聊天。" TextWrapping="Wrap" Margin="0,8" AutomationProperties.LiveSetting="Polite"/>
     <TextBlock Text="兩台需在可互連的教室網路。Windows 若詢問網路存取權，請依學校規範允許；網路隔離時需由管理者提供連線。" TextWrapping="Wrap" Foreground="#666666" FontSize="12"/>
    </StackPanel></ScrollViewer></TabItem>
    <TabItem Header="聊天"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="12">

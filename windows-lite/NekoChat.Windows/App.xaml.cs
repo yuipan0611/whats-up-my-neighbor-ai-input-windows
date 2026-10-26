@@ -22,7 +22,10 @@ public partial class App : Application
         if(e.Args.Length==2 && e.Args[0]=="--room-smoke-test") {Shutdown(ClassroomSmokeTest.Run(e.Args[1]));return;}
         if(e.Args.Length==2 && e.Args[0]=="--smoke-test") {Shutdown(SmokeTest.Run(e.Args[1]));return;}
         try {
-            settings=Settings.Load();pet=new PetWindow();chat=new ChatWindow(settings);
+            settings=Settings.Load();
+            bool textOnlySmoke=e.Args.Length==2 && e.Args[0]=="--text-only-startup-smoke-test";
+            if(textOnlySmoke)settings=settings with{VoiceSetupSkipped=true};
+            pet=new PetWindow();chat=new ChatWindow(settings);
             pet.OpenChat+=sender=>chat.ShowChat(sender);
             pet.SelectCoat+=id=> {
                 try{pet.SetArt(CatArtwork.Preset(id));settings=settings with{Coat=id};settings.Save();}
@@ -39,12 +42,16 @@ public partial class App : Application
             chat.SendRequested+=async()=>await SendAsync();
             if(Appearance.Presets.Contains(settings.Coat))pet.SetArt(CatArtwork.Preset(settings.Coat));
             pet.Show();InitializeVoice();InitializeClassroom();chat.Show();
-            if(e.Args.Length==2 && e.Args[0]=="--startup-smoke-test")
+            if(e.Args.Length==2 && e.Args[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test")
                 Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,new Action(()=> {
                     Directory.CreateDirectory(e.Args[1]);
                     bool visible=pet.IsVisible && chat.IsVisible;
-                    File.WriteAllText(Path.Combine(e.Args[1],"startup-result.txt"),visible?"PASS: actual App startup, visible desktop cat and onboarding, hotkey initialization and clean shutdown.":"FAIL: initial windows were not visible.");
-                    Shutdown(visible?0:1);
+                    bool optionalVoice=!textOnlySmoke || settings.VoiceSetupSkipped && hotkeys is null && recorder is null &&
+                        !chat.VoiceButton.IsEnabled && chat.CreateRoomButton.IsEnabled && chat.JoinRoomButton.IsEnabled;
+                    File.WriteAllText(Path.Combine(e.Args[1],"startup-result.txt"),visible&&optionalVoice?
+                        (textOnlySmoke?"PASS: text-only startup without voice hotkeys/microphone or Groq-key access; create/join remain available.":"PASS: actual App startup, visible desktop cat and onboarding, hotkey initialization and clean shutdown."):
+                        "FAIL: initial windows or optional voice state were incorrect.");
+                    Shutdown(visible&&optionalVoice?0:1);
                 }));
         }catch(Exception){MessageBox.Show("NekoChat 無法啟動，請確認所有解壓縮檔案都在同一資料夾。","NekoChat");Shutdown(1);}
     }

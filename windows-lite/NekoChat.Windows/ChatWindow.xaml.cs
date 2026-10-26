@@ -16,13 +16,17 @@ public partial class ChatWindow : Window
     internal event Action? CreateRoomRequested;
     internal event Action<string>? JoinRoomRequested;
     internal event Action? LeaveRoomRequested;
+    internal event Action<bool>? VoiceSetupChanged;
     internal ChatWindow(Settings initial)
     {
         settings=initial;InitializeComponent();Mode.SelectedIndex=initial.Lan?0:1;
         Endpoint.Text=initial.Endpoint;UserId.Text=initial.User;loaded=true;
         Closing+=OnClosing;
-        try{GroqState.Text=string.IsNullOrWhiteSpace(CredentialStore.Load(CredentialStore.Groq))?"尚未設定語音金鑰。文字聊天可以直接使用。":"語音金鑰已設定，可以在記事本按 Ctrl + Alt + Space 測試。";}
-        catch(Exception){GroqState.Text="目前無法讀取語音金鑰，請重新儲存。";}
+        if(initial.VoiceSetupSkipped)SetVoiceSetupSkipped(true);
+        else {
+            try{GroqState.Text=string.IsNullOrWhiteSpace(CredentialStore.Load(CredentialStore.Groq))?"尚未設定語音。可以直接建立或加入房間，互傳文字訊息。":"語音金鑰已設定，可以在記事本按 Ctrl + Alt + Space 測試。";}
+            catch(Exception){GroqState.Text="目前無法讀取語音金鑰；可以先跳過，使用文字聊天。";}
+        }
     }
     private void OnClosing(object? sender,CancelEventArgs e){e.Cancel=true;Hide();}
     internal void ShowChat(string? sender=null)
@@ -58,7 +62,7 @@ public partial class ChatWindow : Window
     {
         try {
             if(string.IsNullOrWhiteSpace(GroqKey.Password))throw new ArgumentException("請先輸入自己的 Groq Key。");
-            CredentialStore.Save(CredentialStore.Groq,GroqKey.Password.Trim());SetStatus("Groq Key 已存入 Windows 認證管理員。");GroqState.Text="語音金鑰已設定，可以在記事本按 Ctrl + Alt + Space 測試。";
+            CredentialStore.Save(CredentialStore.Groq,GroqKey.Password.Trim());SetVoiceSetupSkipped(false);VoiceSetupChanged?.Invoke(false);SetStatus("Groq Key 已存入 Windows 認證管理員。");GroqState.Text="語音金鑰已設定，可以在記事本按 Ctrl + Alt + Space 測試。";
         }catch(Exception ex){SetStatus(App.SafeError(ex));}finally{GroqKey.Clear();}
     }
     private void DeleteGroqClick(object sender,RoutedEventArgs e)
@@ -89,6 +93,20 @@ public partial class ChatWindow : Window
     private void CopyRoomCodeClick(object sender,RoutedEventArgs e)
     {
         if(RoomCode.Text.Length>0)SetStatus(NativeInput.Copy(RoomCode.Text,"已複製房間邀請碼，請私下交給同學"));
+    }
+
+    internal void SetVoiceSetupSkipped(bool skipped)
+    {
+        settings=settings with{VoiceSetupSkipped=skipped};
+        VoiceSetup.IsExpanded=!skipped;VoiceButton.IsEnabled=!skipped;
+        SkipVoiceButton.IsEnabled=!skipped;
+        if(skipped){GroqKey.Clear();GroqState.Text="已跳過語音設定。可以直接建立／加入房間，互傳文字；之後有麥克風再展開設定即可。";}
+    }
+    private void SkipVoiceClick(object sender,RoutedEventArgs e)
+    {
+        SetVoiceSetupSkipped(true);VoiceSetupChanged?.Invoke(true);
+        SetStatus("已跳過語音，不需要麥克風或 Groq Key。請直接建立或加入房間。");
+        RoomHeading.BringIntoView();
     }
 
 }

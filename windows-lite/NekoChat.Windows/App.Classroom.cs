@@ -62,7 +62,7 @@ public partial class App
     {
         chat.SetClassroomState(true,false,classroomHost is null?"已加入房間，收件人已設定為同學，可以互傳訊息。":"房間已建立，請把邀請碼私下交給一位同學，等待對方加入。",classroomHost is not null);
     }
-    private async Task LeaveClassroomAsync(string message="已離開房間；語音輸入仍可使用。")
+    private async Task LeaveClassroomAsync(string message="已離開房間，可以重新建立或加入房間。")
     {
         classroomCancel?.Cancel();classroomCancel?.Dispose();classroomCancel=null;
         await DisconnectAsync();
