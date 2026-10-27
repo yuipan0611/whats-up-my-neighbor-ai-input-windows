@@ -16,7 +16,17 @@
     </Expander>
     <TextBlock x:Name="GroqState" Text="尚未設定語音。可以直接建立或加入房間，互傳文字訊息。" TextWrapping="Wrap" Margin="0,6,0,6"/>
     <Separator Margin="0,16"/>
-    <TextBlock x:Name="RoomHeading" Text="全班共用教室房間" FontSize="18" FontWeight="SemiBold"/>
+    <TextBlock Text="教室 LAN · 只填 IP 就能聊天" FontSize="18" FontWeight="SemiBold"/>
+    <TextBlock Text="你的電腦：按「開啟 IP 聊天」，同學輸入你顯示的內網 IP。收到請求後，你可以接受或拒絕；不必傳很長的邀請碼。" TextWrapping="Wrap" Margin="0,7"/>
+    <Button x:Name="DirectHostButton" Content="開啟 IP 聊天（讓同學找到我）" Click="DirectHostClick" HorizontalAlignment="Left"/>
+    <TextBlock Text="同學的內網 IPv4（例如 192.168.24.116）" Margin="0,12,0,4"/>
+    <WrapPanel>
+     <TextBox x:Name="DirectHostIP" Width="174" MaxLength="15" AutomationProperties.Name="同學的內網 IPv4"/>
+     <Button x:Name="DirectJoinButton" Content="向這台電腦請求聊天" Click="DirectJoinClick" Margin="8,0,0,0"/>
+    </WrapPanel>
+    <TextBlock Text="雙方須在可互通的校內網路。請求送出後，等對方在 Windows App 接受，才會連線。" TextWrapping="Wrap" Foreground="#666666" FontSize="12" Margin="0,7"/>
+    <Separator Margin="0,16"/>
+    <TextBlock x:Name="RoomHeading" Text="進階：全班共用教室房間" FontSize="18" FontWeight="SemiBold"/>
     <TextBlock Text="老師建立房間，全班貼同一份邀請碼加入（最多 100 台）。可直接 Ping 老師，或填同學 IP 私訊。" TextWrapping="Wrap" Margin="0,8"/>
     <Button x:Name="CreateRoomButton" Content="建立教室房間（老師）" Click="CreateRoomClick" HorizontalAlignment="Left"/>
     <StackPanel x:Name="ShareRoomPanel" Visibility="Collapsed">
