@@ -28,6 +28,7 @@ public partial class ChatWindow : Window
             try{GroqState.Text=string.IsNullOrWhiteSpace(CredentialStore.Load(CredentialStore.Groq))?"尚未設定語音。可以直接建立或加入房間，互傳文字訊息。":"語音金鑰已設定，可以在記事本按 Ctrl + Alt + Space 測試。";}
             catch(Exception){GroqState.Text="目前無法讀取語音金鑰；可以先跳過，使用文字聊天。";}
         }
+        UpdateLocalIPDisplay();
     }
     private void OnClosing(object? sender,CancelEventArgs e){e.Cancel=true;Hide();}
     internal void ShowChat(string? sender=null)
@@ -85,12 +86,24 @@ public partial class ChatWindow : Window
         ShareRoomPanel.Visibility=hosting?Visibility.Visible:Visibility.Collapsed;
         ConnectButton.IsEnabled=!active&&!busy;RoomStatus.Text=text;
         Recipient.IsReadOnly=false;Recipient.Visibility=Visibility.Visible;
-        RecipientLabel.Text=active?"對方內網 IP（例如 192.168.1.23）":"好友 ID";
+        RecipientLabel.Text=active?"對方內網 IP（例如 192.168.1.23）":"對方內網 IP 或好友 ID";
         if(ownIP is not null){MyRoomAddress.Text="我的教室 IP："+ownIP+(teacherIP is not null?"　老師："+teacherIP:"");MyRoomAddress.Visibility=Visibility.Visible;}
         else if(!active&&!busy)MyRoomAddress.Visibility=Visibility.Collapsed;
         teacherAddress=active?teacherIP:null;
         TeacherButton.Visibility=active && teacherIP is not null && teacherIP!=ownIP?Visibility.Visible:Visibility.Collapsed;
         if(!active&&!busy){RoomCode.Clear();JoinRoomCode.Clear();}
+        UpdateLocalIPDisplay();
+    }
+    internal void UpdateLocalIPDisplay()
+    {
+        var ip=NekoChat.Core.LanInvitation.PrimaryLocalIP();
+        MyDirectIP.Text=string.IsNullOrWhiteSpace(ip)?"我的內網 IP：未連線":$"我的內網 IP：{ip}";
+    }
+    private void CopyMyIPClick(object sender,RoutedEventArgs e)
+    {
+        var ip=NekoChat.Core.LanInvitation.PrimaryLocalIP();
+        if(!string.IsNullOrWhiteSpace(ip))SetStatus(NativeInput.Copy(ip,"已複製我的內網 IP"));
+        else SetStatus("尚未偵測到內網 IP，請確認已連上 Wi-Fi 或網路線。");
     }
     private void PingTeacherClick(object sender,RoutedEventArgs e)
     {

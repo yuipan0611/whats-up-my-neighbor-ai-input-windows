@@ -116,6 +116,28 @@ using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(sampleReleaseJson)))
     var noRes = UpdateChecker.ParseReleases(stream, SemVersion.Parse("0.1.0-beta.3"), "nekochat-lite-v");
     Check(noRes.Success && !noRes.HasUpdate, "Lite no update when current");
 }
+await using (var directListener = new DirectLanListener(18768)) {
+    string? receivedIp = null;
+    string? receivedText = null;
+    directListener.MessageReceived += (ip, t) => { receivedIp = ip; receivedText = t; };
+    directListener.Start();
+    Check(directListener.Running, "direct LAN listener started");
+
+    bool delivered = await DirectLanMessaging.SendDirectAsync("127.0.0.1", "下課一起去吃宵夜 🐈", 18768);
+    Check(delivered, "direct message delivered");
+    Check(receivedIp is "127.0.0.1" or "::ffff:127.0.0.1", "direct message sender IP captured");
+    Check(receivedText == "下課一起去吃宵夜 🐈", "direct message text captured intact");
+
+    Reject(() => DirectLanMessaging.SendDirectAsync("8.8.8.8", "bad", 18768).GetAwaiter().GetResult(), "public IP rejected");
+    Reject(() => DirectLanMessaging.SendDirectAsync("127.0.0.1", "   ", 18768).GetAwaiter().GetResult(), "empty message rejected");
+}
+bool unreachableCaught = false;
+try {
+    await DirectLanMessaging.SendDirectAsync("127.0.0.1", "test", 18769);
+} catch (InvalidOperationException) {
+    unreachableCaught = true;
+}
+Check(unreachableCaught, "unreachable direct endpoint handled");
 checks += 5;
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
 

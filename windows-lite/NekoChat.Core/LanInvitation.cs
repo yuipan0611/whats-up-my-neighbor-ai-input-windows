@@ -29,6 +29,16 @@ public sealed record LanInvitation(int Version, string RoomId, string[] Hosts, i
         var a = ip.GetAddressBytes();
         return a[0] == 127 || a[0] == 10 || a[0] == 192 && a[1] == 168 || a[0] == 172 && a[1] is >= 16 and <= 31;
     }
+    public static string[] LocalAddresses() => System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+        .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up &&
+                    n.NetworkInterfaceType is not (System.Net.NetworkInformation.NetworkInterfaceType.Loopback or System.Net.NetworkInformation.NetworkInterfaceType.Tunnel))
+        .OrderByDescending(n => n.GetIPProperties().GatewayAddresses.Count > 0)
+        .SelectMany(n => n.GetIPProperties().UnicastAddresses)
+        .Where(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        .Select(a => a.Address.ToString())
+        .Where(a => PrivateIPv4(a) && !a.StartsWith("127.", StringComparison.Ordinal))
+        .Distinct(StringComparer.Ordinal).Take(7).ToArray();
+    public static string? PrimaryLocalIP() => LocalAddresses().FirstOrDefault();
     public void Validate()
     {
         if (Version != 1 || RoomId is null || RoomId.Length != 32 || RoomId.Any(c => !char.IsAsciiHexDigitLower(c)) ||

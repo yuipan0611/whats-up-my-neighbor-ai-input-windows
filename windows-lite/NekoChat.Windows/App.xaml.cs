@@ -12,6 +12,7 @@ public partial class App : Application
     private PetWindow pet=null!;
     private ChatWindow chat=null!;
     private RelayConnection? relay;
+    private DirectLanListener? directListener;
     private CancellationTokenSource? connectionCancel;
     private bool ready;
     private (string Id,string To,string Text)? pending;
@@ -41,6 +42,12 @@ public partial class App : Application
             chat.ConnectRequested+=async(s,t)=>{await LeaveClassroomAsync();await ConnectAsync(s,t);};
             chat.DisconnectRequested+=async()=>{if(classroomHost is not null || classroomUser is not null)await LeaveClassroomAsync();else await DisconnectAsync();};
             chat.SendRequested+=async()=>await SendAsync();
+            directListener=new DirectLanListener();
+            directListener.MessageReceived+=(senderIp,text)=>Dispatcher.Invoke(()=>{
+                chat.AddHistory($"{senderIp}：{text}");
+                pet.NotifyChat(text,senderIp,senderIp);
+            });
+            directListener.Start();
             if(Appearance.Presets.Contains(settings.Coat))pet.SetPreset(settings.Coat);
             pet.Show();InitializeVoice();InitializeClassroom();chat.Show();
             if(e.Args.Length==0)Task.Delay(3000).ContinueWith(_=>Dispatcher.Invoke(()=>_=CheckForUpdatesAsync(false)));
@@ -102,7 +109,7 @@ public partial class App : Application
         }catch(Exception ex){if(relay==local)chat.SetStatus(SafeError(ex));}
         finally {
             if(relay==local) {
-                relay=null;ready=false;chat.SendButton.IsEnabled=false;chat.ConnectButton.IsEnabled=true;
+                relay=null;ready=false;chat.SendButton.IsEnabled=true;chat.ConnectButton.IsEnabled=true;
                 if(pending is not null){pending=null;chat.SetStatus("連線中斷，上一則送達狀態不確定；草稿保留，請先向朋友確認。");}
                 else if(!cancel.IsCancellationRequested)chat.SetStatus(chat.Status.Text+" 已中斷，請重新連線。");
                 if(classroom)_=LeaveClassroomAsync("房間連線已中斷，請重新建立或加入房間。");
@@ -113,18 +120,47 @@ public partial class App : Application
     private async Task DisconnectAsync()
     {
         connectionCancel?.Cancel();connectionCancel?.Dispose();connectionCancel=null;
-        var old=relay;relay=null;ready=false;chat.SendButton.IsEnabled=false;chat.ConnectButton.IsEnabled=true;
+        var old=relay;relay=null;ready=false;chat.SendButton.IsEnabled=true;chat.ConnectButton.IsEnabled=true;
         chat.SetStatus(pending is null?"已中斷連線。":"已中斷；上一則送達狀態不確定，草稿保留。");pending=null;
         if(old is not null)await old.DisposeAsync();
     }
     private async Task SendAsync()
     {
-        if(!ready || relay is null || pending is not null)return;
+        var recipient=chat.Recipient.Text.Trim();
+        var text=chat.Draft.Text;
+        if(string.IsNullOrWhiteSpace(text)){chat.SetStatus("請先輸入訊息文字。");return;}
+        if(string.IsNullOrWhiteSpace(recipient)){chat.SetStatus("請輸入收件者的內網 IP（例如 192.168.1.25）或好友 ID。");return;}
+
+        bool isDirectIP=LanInvitation.PrivateIPv4(recipient);
+        if(relay is null) {
+            if(!isDirectIP) {
+                chat.SetStatus("未加入房間。請輸入對方的內網 IP（例如 192.168.1.25）即可直連傳訊。");
+                return;
+            }
+            var ownIps=LanInvitation.LocalAddresses();
+            if(ownIps.Contains(recipient)) {
+                chat.SetStatus("這是自己的 IP，請填對方的內網 IP。");
+                return;
+            }
+            chat.SendButton.IsEnabled=false;chat.SetStatus($"正在直連傳送至 {recipient}…");
+            try {
+                await DirectLanMessaging.SendDirectAsync(recipient,text);
+                chat.AddHistory($"我 → {recipient}：{text}");
+                chat.Draft.Clear();
+                chat.SetStatus($"已直連送達 {recipient}！");
+            } catch(Exception ex) {
+                chat.SetStatus(SafeError(ex)+"（草稿保留）");
+            } finally {
+                chat.SendButton.IsEnabled=true;
+            }
+            return;
+        }
+
+        if(!ready || pending is not null)return;
         try {
-            var recipient=chat.Recipient.Text.Trim();
             var to=classroomUser is not null?ClassroomInvitation.UserForIP(recipient):recipient;
             if(classroomUser==to)throw new ArgumentException("這是自己的 IP，請填要傳訊的同學 IP。");
-            var text=chat.Draft.Text;var id=Guid.NewGuid().ToString("N");
+            var id=Guid.NewGuid().ToString("N");
             _=Protocol.Send(to,text,id);
             pending=(id,to,text);chat.SendButton.IsEnabled=false;chat.SetStatus("等待 Relay 送達回條…");
             await relay.SendAsync(to,text,id,connectionCancel!.Token);
@@ -180,6 +216,7 @@ public partial class App : Application
     }
     protected override void OnExit(ExitEventArgs e)
     {
+        _ = directListener?.DisposeAsync();
         DisposeVoice();DisposeClassroom();connectionCancel?.Cancel();relay?.Abort();
         base.OnExit(e);
     }

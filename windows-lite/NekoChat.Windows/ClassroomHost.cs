@@ -22,13 +22,7 @@ internal sealed class ClassroomHost : IAsyncDisposable
         this.process=process;User=user;Token=token;Invitation=invitation;
         LocalEndpoint=RelayConnection.ValidateEndpoint($"ws://127.0.0.1:{invitation.Port}/nekochat/v1/ws",true);
     }
-    internal static string[] LocalAddresses() => NetworkInterface.GetAllNetworkInterfaces()
-        .Where(n=>n.OperationalStatus==OperationalStatus.Up && n.NetworkInterfaceType is not (NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel))
-        .OrderByDescending(n=>n.GetIPProperties().GatewayAddresses.Count>0)
-        .SelectMany(n=>n.GetIPProperties().UnicastAddresses)
-        .Where(a=>a.Address.AddressFamily==AddressFamily.InterNetwork)
-        .Select(a=>a.Address.ToString()).Where(a=>LanInvitation.PrivateIPv4(a) && !a.StartsWith("127.",StringComparison.Ordinal))
-        .Distinct(StringComparer.Ordinal).Take(7).ToArray();
+    internal static string[] LocalAddresses() => LanInvitation.LocalAddresses();
 
     internal static async Task<ClassroomHost> StartAsync(string[] addresses,CancellationToken cancellation)
     {

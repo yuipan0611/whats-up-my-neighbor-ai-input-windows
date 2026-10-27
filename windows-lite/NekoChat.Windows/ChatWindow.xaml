@@ -16,6 +16,16 @@
     </Expander>
     <TextBlock x:Name="GroqState" Text="尚未設定語音。可以直接建立或加入房間，互傳文字訊息。" TextWrapping="Wrap" Margin="0,6,0,6"/>
     <Separator Margin="0,16"/>
+    <Border Background="#EEF2F6" CornerRadius="8" Padding="12" Margin="0,0,0,16">
+     <StackPanel>
+      <TextBlock Text="💡 內網 IP 直連（免開房間、免邀請碼）" FontSize="16" FontWeight="SemiBold" Foreground="#1E3A8A" Margin="0,0,0,4"/>
+      <TextBlock Text="在同一個 Wi-Fi／教室內網，只要在「聊天」頁面輸入對方的內網 IP 即可互傳訊息與貓咪氣泡。" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#374151"/>
+      <WrapPanel VerticalAlignment="Center">
+       <TextBlock x:Name="MyDirectIP" Text="我的內網 IP：偵測中…" FontSize="14" FontWeight="Bold" Foreground="#111827" VerticalAlignment="Center" Margin="0,0,10,0"/>
+       <Button x:Name="CopyMyIPButton" Content="複製我的 IP" Click="CopyMyIPClick" Padding="8,2" HorizontalAlignment="Left"/>
+      </WrapPanel>
+     </StackPanel>
+    </Border>
     <TextBlock x:Name="RoomHeading" Text="全班共用教室房間" FontSize="18" FontWeight="SemiBold"/>
     <TextBlock Text="老師建立房間，全班貼同一份邀請碼加入（最多 100 台）。可直接 Ping 老師，或填同學 IP 私訊。" TextWrapping="Wrap" Margin="0,8"/>
     <Button x:Name="CreateRoomButton" Content="建立教室房間（老師）" Click="CreateRoomClick" HorizontalAlignment="Left"/>
@@ -32,11 +42,11 @@
     <TextBlock Text="全班電腦需能連到老師的教室主機。Windows 若詢問網路存取權，請依學校規範允許；網路隔離時需由管理者提供連線。" TextWrapping="Wrap" Foreground="#666666" FontSize="12"/>
    </StackPanel></ScrollViewer></TabItem>
    <TabItem Header="聊天"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="12">
-    <TextBlock x:Name="MyRoomAddress" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,10"/><TextBlock x:Name="RecipientLabel" Text="好友 ID"/><TextBox x:Name="Recipient" MaxLength="32" AutomationProperties.Name="傳訊對象"/>
+    <TextBlock x:Name="MyRoomAddress" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,10"/><TextBlock x:Name="RecipientLabel" Text="對方內網 IP 或好友 ID"/><TextBox x:Name="Recipient" MaxLength="32" AutomationProperties.Name="傳訊對象"/>
     <TextBox x:Name="History" IsReadOnly="True" Height="190" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="本次聊天紀錄"/>
     <TextBlock Text="訊息（語音先成為草稿，按傳送才送出）" TextWrapping="Wrap"/>
     <TextBox x:Name="Draft" AcceptsReturn="True" Height="100" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="訊息草稿"/>
-    <WrapPanel><Button x:Name="SendButton" Content="傳送" Click="SendClick" IsEnabled="False"/><Button x:Name="TeacherButton" Content="Ping 老師／傳送草稿" Click="PingTeacherClick" Visibility="Collapsed" IsEnabled="{Binding IsEnabled, ElementName=SendButton}"/><Button x:Name="VoiceButton" Content="🎙 語音草稿" Click="VoiceClick"/><Button Content="取消錄音" Click="CancelClick"/></WrapPanel>
+    <WrapPanel><Button x:Name="SendButton" Content="傳送" Click="SendClick" IsEnabled="True"/><Button x:Name="TeacherButton" Content="Ping 老師／傳送草稿" Click="PingTeacherClick" Visibility="Collapsed" IsEnabled="{Binding IsEnabled, ElementName=SendButton}"/><Button x:Name="VoiceButton" Content="🎙 語音草稿" Click="VoiceClick"/><Button Content="取消錄音" Click="CancelClick"/></WrapPanel>
     <TextBlock Text="全系統語音輸入：Ctrl + Alt + Space 開始／停止。Esc 取消。錄音最長 60 秒。" TextWrapping="Wrap" Margin="0,12,0,12"/>
     <TextBlock Text="最近轉錄（不儲存至磁碟）"/><TextBox x:Name="Transcript" IsReadOnly="True" Height="65" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="最近轉錄"/>
     <Button Content="複製最近轉錄" Click="CopyClick" HorizontalAlignment="Left"/>
