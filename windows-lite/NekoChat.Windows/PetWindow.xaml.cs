@@ -26,7 +26,7 @@ public partial class PetWindow : Window
     private readonly DispatcherTimer bubbleTimer=new(){Interval=TimeSpan.FromSeconds(12)};
     public PetWindow()
     {
-        InitializeComponent();Cat.Source=CatArtwork.Preset("original");
+        InitializeComponent();InitializeAnimation();
         Left=SystemParameters.WorkArea.Right-310;Top=SystemParameters.WorkArea.Bottom-330;
         SourceInitialized+=(_,_)=> {
             var handle=new WindowInteropHelper(this).Handle;
@@ -46,7 +46,7 @@ public partial class PetWindow : Window
         var exit=new MenuItem{Header="離開 NekoChat"};exit.Click+=(_,_)=>Application.Current.Shutdown();menu.Items.Add(exit);
         Cat.ContextMenu=menu;
     }
-    internal void SetArt(ImageSource image)=>Cat.Source=image;
+    internal void SetArt(ImageSource image)=>UseStaticArtwork(image);
     internal void Notify(string text,string? from=null,bool persistent=false,string? displayName=null)
     {
         if(currentChat is not null){chatNotices.AddFirst(currentChat);currentChat=null;TrimChatNotices();}
@@ -88,18 +88,21 @@ public partial class PetWindow : Window
         OpenChat?.Invoke(this.sender);
         if(currentChat is not null)AdvanceChatNotice();
     }
-    private void CatDown(object sender,MouseButtonEventArgs e){down=e.GetPosition(this);dragging=false;Cat.CaptureMouse();}
+    private void CatDown(object sender,MouseButtonEventArgs e){down=e.GetPosition(this);dragging=false;automaticMotion=false;nextAction=AnimationNow+5;if(animatedCoat is not null)animation.Press(AnimationNow);Cat.CaptureMouse();}
     private void CatMove(object sender,MouseEventArgs e)
     {
         if(e.LeftButton!=MouseButtonState.Pressed || !Cat.IsMouseCaptured)return;
         var point=e.GetPosition(this);var delta=point-down;
         if(dragging || Math.Abs(delta.X)>SystemParameters.MinimumHorizontalDragDistance || Math.Abs(delta.Y)>SystemParameters.MinimumVerticalDragDistance) {
+            if(animatedCoat is not null)animation.Drag(AnimationNow);
             dragging=true;Left+=delta.X;Top+=delta.Y;
         }
     }
     private void CatUp(object sender,MouseButtonEventArgs e)
     {
-        if(!Cat.IsMouseCaptured)return;Cat.ReleaseMouseCapture();
+        if(!Cat.IsMouseCaptured)return;
+        if(animatedCoat is not null)animation.Release(AnimationNow);
+        Cat.ReleaseMouseCapture();nextAction=AnimationNow+5;
         Left=Math.Clamp(Left,SystemParameters.VirtualScreenLeft,SystemParameters.VirtualScreenLeft+Math.Max(0,SystemParameters.VirtualScreenWidth-Width));
         Top=Math.Clamp(Top,SystemParameters.VirtualScreenTop,SystemParameters.VirtualScreenTop+Math.Max(0,SystemParameters.VirtualScreenHeight-Height));
         if(!dragging)OpenChat?.Invoke(null);

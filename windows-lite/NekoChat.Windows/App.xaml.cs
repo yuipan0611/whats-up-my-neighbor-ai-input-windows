@@ -28,7 +28,7 @@ public partial class App : Application
             pet=new PetWindow();chat=new ChatWindow(settings);
             pet.OpenChat+=sender=>chat.ShowChat(sender is not null && classroomUser is not null?ClassroomInvitation.IPForUser(sender):sender);
             pet.SelectCoat+=id=> {
-                try{pet.SetArt(CatArtwork.Preset(id));settings=settings with{Coat=id};settings.Save();}
+                try{pet.SetPreset(id);settings=settings with{Coat=id};settings.Save();}
                 catch(Exception ex){chat.SetStatus(SafeError(ex));}
             };
             pet.ImportCoat+=()=> {
@@ -40,7 +40,7 @@ public partial class App : Application
             chat.ConnectRequested+=async(s,t)=>{await LeaveClassroomAsync();await ConnectAsync(s,t);};
             chat.DisconnectRequested+=async()=>{if(classroomHost is not null || classroomUser is not null)await LeaveClassroomAsync();else await DisconnectAsync();};
             chat.SendRequested+=async()=>await SendAsync();
-            if(Appearance.Presets.Contains(settings.Coat))pet.SetArt(CatArtwork.Preset(settings.Coat));
+            if(Appearance.Presets.Contains(settings.Coat))pet.SetPreset(settings.Coat);
             pet.Show();InitializeVoice();InitializeClassroom();chat.Show();
             if(e.Args.Length==2 && e.Args[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test")
                 Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,new Action(()=> {

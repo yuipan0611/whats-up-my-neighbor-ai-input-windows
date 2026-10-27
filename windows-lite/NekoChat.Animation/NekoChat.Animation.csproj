@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
+ <ItemGroup><EmbeddedResource Include="$(IntermediateOutputPath)cat-animation.zip" LogicalName="NekoChat.Animation.assets.zip"/></ItemGroup>
+ <Target Name="PackNativeAnimation" BeforeTargets="PrepareForBuild" Inputs="@(NativeFrame)" Outputs="$(IntermediateOutputPath)cat-animation.zip">
+  <MakeDir Directories="$(IntermediateOutputPath)"/>
+  <ZipDirectory SourceDirectory="$(MSBuildProjectDirectory)/Assets" DestinationFile="$(IntermediateOutputPath)cat-animation.zip" Overwrite="true"/>
+ </Target>
+ <ItemGroup><NativeFrame Include="Assets/**"/></ItemGroup>
+</Project>

@@ -59,6 +59,13 @@ internal static class CatArtwork
         int w=original.PixelWidth,h=original.PixelHeight;
         var bytes=new byte[w*h*4];original.CopyPixels(bytes,w*4,0);
         var map=Unzip("anatomy.bin.gz");var masks=Unzip("tabby.bin.gz");
+        var tuxedo=appearance.Preset=="tuxedo"?new TuxedoMask(Unzip("tuxedo.bin.gz")):null;
+        bool blendFace=tuxedo is not null && appearance.Parts["head"].Pattern=="none" && appearance.Parts["muzzle"].Pattern=="none";
+        bool blendChest=tuxedo is not null && new[]{"body","chest","belly"}.All(p=>appearance.Parts[p].Pattern=="none");
+        var headColor=blendFace?Rgb(appearance.Parts["head"].Color):[];
+        var muzzleColor=blendFace?Rgb(appearance.Parts["muzzle"].Color):[];
+        var bodyColor=blendChest?Rgb(appearance.Parts["body"].Color):[];
+        var chestColor=blendChest?Rgb(appearance.Parts["chest"].Color):[];
         if(map.Length!=w*h*9 || masks.Length!=3*512*512) throw new InvalidDataException("花色素材不完整。");
         for(int n=0;n<w*h;n++) {
             int i=n*4;if(bytes[i+3]==0)continue;
@@ -84,6 +91,15 @@ internal static class CatArtwork
                         (left?Distance(.15,.87,.28,.28):Distance(.89-shift,.22,.24,.34))?secondary:Rgb("#393431");
                 } else if(style.Pattern=="calico" && dark)coat=Rgb("#393431");
             } else if(style.Pattern=="whiteSpots" && Ellipse(.48+shift,.65,.23,.42) || style.Pattern=="point" && Ellipse(.50,.76,.36,.23))coat=secondary;
+            if(tuxedo is not null) {
+                if(part is "head" or "muzzle" && blendFace) {
+                    var coverage=tuxedo.Coverage(false,u,v);
+                    coat=headColor.Zip(muzzleColor,(a,b)=>a+(b-a)*coverage).ToArray();
+                } else if(part is "body" or "chest" or "belly" && v<.48 && blendChest) {
+                    var coverage=tuxedo.Coverage(true,u,v);
+                    coat=bodyColor.Zip(chestColor,(a,b)=>a+(b-a)*coverage).ToArray();
+                }
+            }
             double luminance=(bytes[i]+bytes[i+1]+bytes[i+2])/3.0;
             double feature=Math.Clamp((luminance-65)/175,0,1),detail=Math.Clamp(.88+luminance*.006,.72,1.08);
             bool light=.299*coat[0]+.587*coat[1]+.114*coat[2]>150;

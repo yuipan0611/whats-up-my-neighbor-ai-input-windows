@@ -56,7 +56,7 @@ Windows CI 將 Python 服務凍結為獨立執行檔，發佈自帶 runtime 的 
 
 直接複用 `Examples/CatAppearance/*.json` 的九種版本 2 外觀與原版 SVG；PNG 由既有 Swift 繪製器匯出。右鍵可匯入 `cat.config.json`（版本 1/2）：支援 `appearance.preset`、`seed`、16 個部位的 `color`／`pattern`／`patternColor`，以及設定資料夾內的相對 PNG `image`。PNG 上限 5 MB、2048×2048；JSON 64 KiB。不下載 URL，不讀設定資料夾以外的圖片。
 
-預設九種花色使用原生匯出的圖片；自訂部位使用相同解剖座標與原生虎斑遮罩繪製，邊緣與抗鋸齒可能有細微差異。WPF 只顯示靜態坐姿；macOS 的走路／拎起動畫、招呼 triggers、字型、氣泡配置與冷卻秒數不在此 MVP 範圍。匯入外觀此次啟動有效，內建花色選擇會記住。
+預設九種花色使用原生匯出的圖片；自訂部位使用相同解剖座標與原生虎斑遮罩繪製，邊緣與抗鋸齒可能有細微差異。WPF 桌面貓已接入核准的九色原生動畫：散步、舔前掌、打哈欠、趴睡、好奇、被摸與抓起／放下。抓起 850ms、放下 400ms，坐好即停；播放中切色保留動作和位置。聊天氣泡／錄音提示顯示與右鍵選單開啟時暫停自主散步；系統關閉介面動畫時停用自主動作。自訂 PNG／部位匯入仍使用靜態圖，避免拿預設動畫覆蓋自訂作品；切回內建花色恢復動畫。macOS 的招呼 triggers、字型、氣泡配置與冷卻秒數仍不在 Lite 範圍。匯入外觀此次啟動有效，內建花色選擇會記住。
 
 Windows 建置直接使用已提交素材，不需要 Swift 或 macOS 原始碼。素材原始繪製器與匯出工具保留於 [macOS 原始來源](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-macos/tree/ed340c4556ae9794bb2bf9b81319d62ae1a857d9/windows-lite/tools)，此 Windows repo 不包含／依賴 Swift App。匯出與搬移來源見 [搬移紀錄](../nekochat/docs/WINDOWS-REPO-MIGRATION.md)。
 
@@ -67,3 +67,8 @@ CI 包含獨立房間服務與安裝器測試、Linux Relay／C# 真實 WebSocke
 手動驗收：見儲存庫 `nekochat/docs/LAN-TEST.md`。本機與 CI 的實際結果記錄於 `nekochat/docs/VALIDATION.md`；未經互動式 Windows 使用者驗證前，請視為試用 MVP。macOS App 尚未接上 NekoChat；現有 Office／VPS remote 協議不相容，不能拿 Office URL 當聊天 Relay。
 
 移除：先離開 App，在設定按刪除 Groq Key／Relay 憑證，刪除安裝資料夾、開始功能表捷徑及 `%LOCALAPPDATA%\NekoChat.WindowsLite`。也可在 Windows 認證管理員刪除 `NekoChat.WindowsLite/` 開頭的 Generic Credentials。解除安裝不撤銷 Relay 憑證；請管理者刪除帳號或輪替 token 後重啟 Relay。
+
+
+## 已整合的口鼻與動畫
+
+賓士貓口鼻白斑使用與 Mac 同源的曲線覆蓋，嘴線完整落在白毛內；其他八色與原畫輪廓不變。`NekoChat.Animation` 封裝九色原生 PNG 與時間表，作為單一內嵌資源，不增加安裝器檔案數限制、不需要 Swift、不下載素材。來源與重現步驟見 `NekoChat.Animation/README.md`。現有花色 ID、設定資料夾、語音／聊天憑證與手動連線流程不變。程式碼整合不等於新版安裝檔已正式發布。

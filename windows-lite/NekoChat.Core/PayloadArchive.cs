@@ -5,7 +5,7 @@ namespace NekoChat.Core;
 /// <summary>Extract a trusted installer payload into a NEW staging directory only.</summary>
 public static class PayloadArchive
 {
-    public static readonly string[] RequiredFiles = ["NekoChat.Windows.exe", "coreclr.dll", "hostfxr.dll", "PresentationFramework.dll", "Relay/NekoChatRelay.exe", "Relay/_internal/base_library.zip"];
+    public static readonly string[] RequiredFiles = ["NekoChat.Windows.exe", "NekoChat.Animation.dll", "coreclr.dll", "hostfxr.dll", "PresentationFramework.dll", "Relay/NekoChatRelay.exe", "Relay/_internal/base_library.zip"];
     private const long MaximumBytes = 512L * 1024 * 1024;
     private static string Normalize(string value)
     {

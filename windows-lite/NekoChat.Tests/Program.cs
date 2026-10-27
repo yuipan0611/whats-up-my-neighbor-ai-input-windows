@@ -6,9 +6,34 @@ using NekoChat.Core;
 int checks=0;
 void Check(bool result,string description) {checks++;if(!result)throw new Exception(description);}
 void Reject(Action action,string name) {bool rejected=false;try{action();}catch(Exception ex)when(ex is ArgumentException or InvalidDataException or JsonException or InvalidOperationException or FormatException){rejected=true;}Check(rejected,name);}
+using(var animation=new NekoChat.Animation.AnimationAssets()) {
+    var m=animation.Manifest;Check(m.Coats.SequenceEqual(Appearance.Presets),"animation and appearance preset order agree");
+    Check(Math.Abs(m.Times[m.CarryIndex]-.85)<1e-7&&Math.Abs(m.Times[^1]-m.Times[m.CarryIndex]-.4)<1e-7,"native pickup/landing timing preserved");
+    foreach(var id in m.Coats) {
+        var files=m.Sources.Select(s=>$"lift-{s:D2}.png").Concat(m.Clips.SelectMany(c=>Enumerable.Range(0,c.Value.Count).Select(i=>$"{c.Key}-{i:D3}.png")));
+        foreach(var frame in files) {
+            using var stream=animation.OpenFrame(id,frame);var header=new byte[24];stream.ReadExactly(header);
+            Check(header.AsSpan(0,8).SequenceEqual(new byte[]{137,80,78,71,13,10,26,10}),"bundled native frame is PNG");
+        }
+    }
+    var player=new NekoChat.Animation.AnimationPlayer(m);player.Press(0);player.Drag(0);player.Tick(.85);
+    Check(player.Mode=="carried","native carry transition");player.Release(1);player.Tick(1.4);Check(player.Frame=="lift-35.png","native landing stops at approved frame");
+}
 string Json(string id)=>File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"Coats",id+".json"));
 foreach(var id in Appearance.Presets) {
     var a=Appearance.Load(Json(id),Json);Check(a.Preset==id&&a.Parts.Count==16,"full existing coat "+id);
+}
+using(var file=File.OpenRead(Path.Combine(AppContext.BaseDirectory,"Assets","tuxedo.bin.gz")))
+using(var gzip=new System.IO.Compression.GZipStream(file,System.IO.Compression.CompressionMode.Decompress))
+using(var bytes=new MemoryStream()) {
+    gzip.CopyTo(bytes);var mask=new TuxedoMask(bytes.ToArray());
+    using var references=JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"Assets","tuxedo-reference.json")));
+    foreach(var item in references.RootElement.EnumerateArray()) {
+        var coverage=mask.Coverage(item.GetProperty("chest").GetBoolean(),item.GetProperty("u").GetDouble(),item.GetProperty("v").GetDouble());
+        Check(Math.Abs(coverage-item.GetProperty("expected").GetDouble())<.025,"native tuxedo curved-blaze coverage parity");
+    }
+    Check(mask.Coverage(false,.5,.82)==1&&mask.Coverage(false,.25,.68)==0,"complete white muzzle and protected dark eye region");
+    Reject(()=>new TuxedoMask(new byte[5]),"incomplete tuxedo coverage rejected");
 }
 var custom=Appearance.Load("""{"version":2,"appearance":{"preset":"white","seed":99,"parts":{"head":{"color":"#aabbcc","pattern":"tabby","patternColor":"#123456"}}}}""",Json);
 Check(custom.Seed==99&&custom.Parts["head"].Color=="#AABBCC"&&custom.Parts["tail"].Color=="#F4EFE5","part override and fallback");
