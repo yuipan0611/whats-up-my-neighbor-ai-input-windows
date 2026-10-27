@@ -1,137 +1,193 @@
+using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using NekoChat.Core;
 
 namespace NekoChat.Windows;
 
 public partial class ChatWindow : Window
 {
     private Settings settings;
-    private bool loaded;
-    private string? teacherAddress;
-    internal event Action? SendRequested;
-    internal event Action? VoiceRequested;
-    internal event Action? CancelRequested;
-    internal event Action<Settings,string>? ConnectRequested;
-    internal event Action? DisconnectRequested;
-    internal event Action? CreateRoomRequested;
-    internal event Action<string>? JoinRoomRequested;
-    internal event Action? LeaveRoomRequested;
-    internal event Action<bool>? VoiceSetupChanged;
+    private bool updatingCombo;
+
+    internal event Action<string, string>? SendRequested;
+    internal event Action<bool>? AutoStartChanged;
+
     internal ChatWindow(Settings initial)
     {
-        settings=initial;InitializeComponent();Mode.SelectedIndex=initial.Lan?0:1;
-        Endpoint.Text=initial.Endpoint;UserId.Text=initial.User;loaded=true;
-        Closing+=OnClosing;
-        if(initial.VoiceSetupSkipped)SetVoiceSetupSkipped(true);
-        else {
-            try{GroqState.Text=string.IsNullOrWhiteSpace(CredentialStore.Load(CredentialStore.Groq))?"尚未設定語音。可以直接建立或加入房間，互傳文字訊息。":"語音金鑰已設定，可以在記事本按 Ctrl + Alt + Space 測試。";}
-            catch(Exception){GroqState.Text="目前無法讀取語音金鑰；可以先跳過，使用文字聊天。";}
+        settings = initial;
+        InitializeComponent();
+        Closing += OnClosing;
+
+        AutoStartCheck.IsChecked = settings.AutoStartOnLogin;
+        if (!string.IsNullOrWhiteSpace(settings.LastRecipientIp))
+        {
+            RecipientIp.Text = settings.LastRecipientIp;
+            var match = settings.Contacts.FirstOrDefault(c => c.Ip == settings.LastRecipientIp);
+            if (match is not null) ContactName.Text = match.Name;
         }
+
+        PopulateContactsCombo();
         UpdateLocalIPDisplay();
     }
-    private void OnClosing(object? sender,CancelEventArgs e){e.Cancel=true;Hide();}
-    internal void ShowChat(string? sender=null)
+
+    private void OnClosing(object? sender, CancelEventArgs e)
     {
-        if(sender is not null){Recipient.Text=sender;Tabs.SelectedIndex=1;}
-        Show();if(WindowState==WindowState.Minimized)WindowState=WindowState.Normal;Activate();
+        e.Cancel = true;
+        Hide();
     }
-    internal void SetStatus(string status)=>Status.Text=status;
+
+    internal void ShowChat(string? targetIp = null)
+    {
+        if (!string.IsNullOrWhiteSpace(targetIp))
+        {
+            RecipientIp.Text = targetIp.Trim();
+            var match = settings.Contacts.FirstOrDefault(c => c.Ip == targetIp.Trim());
+            ContactName.Text = match?.Name ?? "";
+            UpdateComboSelection(targetIp.Trim());
+        }
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+        Draft.Focus();
+    }
+
+    internal void SetStatus(string text) => Status.Text = text;
+
     internal void AddHistory(string text)
     {
-        History.AppendText(text+Environment.NewLine);
-        if(History.Text.Length>24000)History.Text=History.Text[^20000..];
+        History.AppendText(text + Environment.NewLine);
+        if (History.Text.Length > 30000) History.Text = History.Text[^20000..];
         History.ScrollToEnd();
     }
-    private void SendClick(object sender,RoutedEventArgs e)=>SendRequested?.Invoke();
-    private void VoiceClick(object sender,RoutedEventArgs e)=>VoiceRequested?.Invoke();
-    private void CancelClick(object sender,RoutedEventArgs e)=>CancelRequested?.Invoke();
-    private void DisconnectClick(object sender,RoutedEventArgs e)=>DisconnectRequested?.Invoke();
-    private void ModeChanged(object sender,SelectionChangedEventArgs e)
-    {
-        if(!loaded)return;
-        // Keep independent LAN/VPS endpoints while switching the selector.
-        settings=settings.Lan?settings with{LanEndpoint=Endpoint.Text}:settings with{VpsEndpoint=Endpoint.Text};
-        settings=settings with{Lan=Mode.SelectedIndex==0};Endpoint.Text=settings.Endpoint;
-    }
-    private void ConnectClick(object sender,RoutedEventArgs e)
-    {
-        settings=settings with{Lan=Mode.SelectedIndex==0,User=UserId.Text.Trim()};
-        settings=settings.Lan?settings with{LanEndpoint=Endpoint.Text.Trim()}:settings with{VpsEndpoint=Endpoint.Text.Trim()};
-        var token=RelayToken.Password;RelayToken.Clear();ConnectRequested?.Invoke(settings,token);
-    }
-    private void SaveGroqClick(object sender,RoutedEventArgs e)
-    {
-        try {
-            if(string.IsNullOrWhiteSpace(GroqKey.Password))throw new ArgumentException("請先輸入自己的 Groq Key。");
-            CredentialStore.Save(CredentialStore.Groq,GroqKey.Password.Trim());SetVoiceSetupSkipped(false);VoiceSetupChanged?.Invoke(false);SetStatus("Groq Key 已存入 Windows 認證管理員。");GroqState.Text="語音金鑰已設定，可以在記事本按 Ctrl + Alt + Space 測試。";
-        }catch(Exception ex){SetStatus(App.SafeError(ex));}finally{GroqKey.Clear();}
-    }
-    private void DeleteGroqClick(object sender,RoutedEventArgs e)
-    {
-        try{CredentialStore.Delete(CredentialStore.Groq);GroqKey.Clear();SetStatus("Groq Key 已刪除。");GroqState.Text="尚未設定語音金鑰。文字聊天仍可使用。";}catch(Exception ex){SetStatus(App.SafeError(ex));}
-    }
-    private void DeleteRelayClick(object sender,RoutedEventArgs e)
-    {
-        try{CredentialStore.Delete(CredentialStore.Relay(NekoChat.Core.RelayConnection.ValidateEndpoint(Endpoint.Text.Trim(),Mode.SelectedIndex==0).AbsoluteUri,UserId.Text.Trim()));RelayToken.Clear();SetStatus("已刪除此連線的憑證；現有連線請另按中斷。");}catch(Exception ex){SetStatus(App.SafeError(ex));}
-    }
-    private void CopyClick(object sender,RoutedEventArgs e)
-    {
-        if(Transcript.Text.Length>0)SetStatus(NativeInput.Copy(Transcript.Text));
-    }
-    internal void SetClassroomState(bool active,bool busy,string text,bool hosting=false,string? ownIP=null,string? teacherIP=null)
-    {
-        CreateRoomButton.IsEnabled=!active&&!busy;JoinRoomButton.IsEnabled=!active&&!busy;
-        JoinRoomCode.IsEnabled=!active&&!busy;LeaveRoomButton.IsEnabled=active||busy;
-        ShareRoomPanel.Visibility=hosting?Visibility.Visible:Visibility.Collapsed;
-        ConnectButton.IsEnabled=!active&&!busy;RoomStatus.Text=text;
-        Recipient.IsReadOnly=false;Recipient.Visibility=Visibility.Visible;
-        RecipientLabel.Text=active?"對方內網 IP（例如 192.168.1.23）":"對方內網 IP 或好友 ID";
-        if(ownIP is not null){MyRoomAddress.Text="我的教室 IP："+ownIP+(teacherIP is not null?"　老師："+teacherIP:"");MyRoomAddress.Visibility=Visibility.Visible;}
-        else if(!active&&!busy)MyRoomAddress.Visibility=Visibility.Collapsed;
-        teacherAddress=active?teacherIP:null;
-        TeacherButton.Visibility=active && teacherIP is not null && teacherIP!=ownIP?Visibility.Visible:Visibility.Collapsed;
-        if(!active&&!busy){RoomCode.Clear();JoinRoomCode.Clear();}
-        UpdateLocalIPDisplay();
-    }
+
     internal void UpdateLocalIPDisplay()
     {
-        var ip=NekoChat.Core.LanInvitation.PrimaryLocalIP();
-        MyDirectIP.Text=string.IsNullOrWhiteSpace(ip)?"我的內網 IP：未連線":$"我的內網 IP：{ip}";
-    }
-    private void CopyMyIPClick(object sender,RoutedEventArgs e)
-    {
-        var ip=NekoChat.Core.LanInvitation.PrimaryLocalIP();
-        if(!string.IsNullOrWhiteSpace(ip))SetStatus(NativeInput.Copy(ip,"已複製我的內網 IP"));
-        else SetStatus("尚未偵測到內網 IP，請確認已連上 Wi-Fi 或網路線。");
-    }
-    private void PingTeacherClick(object sender,RoutedEventArgs e)
-    {
-        if(teacherAddress is null)return;
-        Recipient.Text=teacherAddress;
-        if(string.IsNullOrWhiteSpace(Draft.Text)){SetStatus("請先輸入想對老師說的話，再按 Ping 老師。");Draft.Focus();return;}
-        SendRequested?.Invoke();
-    }
-    private void CreateRoomClick(object sender,RoutedEventArgs e)=>CreateRoomRequested?.Invoke();
-    private void JoinRoomClick(object sender,RoutedEventArgs e)=>JoinRoomRequested?.Invoke(JoinRoomCode.Text);
-    private void LeaveRoomClick(object sender,RoutedEventArgs e)=>LeaveRoomRequested?.Invoke();
-    private void CopyRoomCodeClick(object sender,RoutedEventArgs e)
-    {
-        if(RoomCode.Text.Length>0)SetStatus(NativeInput.Copy(RoomCode.Text,"已複製房間邀請碼，請私下交給同學"));
+        var ip = LanInvitation.PrimaryLocalIP();
+        MyDirectIP.Text = string.IsNullOrWhiteSpace(ip) ? "我的 IP：未連線" : $"我的 IP：{ip}";
     }
 
-    internal void SetVoiceSetupSkipped(bool skipped)
+    private void CopyMyIPClick(object sender, RoutedEventArgs e)
     {
-        settings=settings with{VoiceSetupSkipped=skipped};
-        VoiceSetup.IsExpanded=!skipped;VoiceButton.IsEnabled=!skipped;
-        SkipVoiceButton.IsEnabled=!skipped;
-        if(skipped){GroqKey.Clear();GroqState.Text="已跳過語音設定。可以直接建立／加入房間，互傳文字；之後有麥克風再展開設定即可。";}
-    }
-    private void SkipVoiceClick(object sender,RoutedEventArgs e)
-    {
-        SetVoiceSetupSkipped(true);VoiceSetupChanged?.Invoke(true);
-        SetStatus("已跳過語音，不需要麥克風或 Groq Key。請直接建立或加入房間。");
-        RoomHeading.BringIntoView();
+        var ip = LanInvitation.PrimaryLocalIP();
+        if (!string.IsNullOrWhiteSpace(ip))
+            SetStatus(NativeInput.Copy(ip, "我的 IP 已複製"));
+        else
+            SetStatus("尚未偵測到內網 IP，請確認網路連線。");
     }
 
+    private void PopulateContactsCombo()
+    {
+        updatingCombo = true;
+        ContactsCombo.Items.Clear();
+        ContactsCombo.Items.Add("常用名單…");
+        foreach (var contact in settings.Contacts)
+        {
+            ContactsCombo.Items.Add($"{contact.Name} ({contact.Ip})");
+        }
+        ContactsCombo.SelectedIndex = 0;
+        updatingCombo = false;
+    }
+
+    private void UpdateComboSelection(string ip)
+    {
+        updatingCombo = true;
+        for (int i = 1; i < ContactsCombo.Items.Count; i++)
+        {
+            if (ContactsCombo.Items[i]?.ToString()?.Contains($"({ip})") == true)
+            {
+                ContactsCombo.SelectedIndex = i;
+                updatingCombo = false;
+                return;
+            }
+        }
+        ContactsCombo.SelectedIndex = 0;
+        updatingCombo = false;
+    }
+
+    private void ContactsComboChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (updatingCombo || ContactsCombo.SelectedIndex <= 0) return;
+        var selected = settings.Contacts.ElementAtOrDefault(ContactsCombo.SelectedIndex - 1);
+        if (selected is not null)
+        {
+            RecipientIp.Text = selected.Ip;
+            ContactName.Text = selected.Name;
+            Draft.Focus();
+        }
+    }
+
+    private void SaveContactClick(object sender, RoutedEventArgs e)
+    {
+        var ip = RecipientIp.Text.Trim();
+        var name = ContactName.Text.Trim();
+        if (string.IsNullOrWhiteSpace(ip) || !LanInvitation.PrivateIPv4(ip))
+        {
+            SetStatus("請先輸入有效的內網 IP（例如 192.168.1.25）。");
+            RecipientIp.Focus();
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            SetStatus("請輸入備註名稱（例如 隔壁小明）。");
+            ContactName.Focus();
+            return;
+        }
+
+        settings = settings.WithContact(ip, name);
+        settings.Save();
+        PopulateContactsCombo();
+        UpdateComboSelection(ip);
+        SetStatus($"已記住：{name} ({ip})");
+    }
+
+    private void DraftKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
+        {
+            e.Handled = true;
+            SendClick(sender, e);
+        }
+    }
+
+    private void SendClick(object sender, RoutedEventArgs e)
+    {
+        var targetIp = RecipientIp.Text.Trim();
+        var text = Draft.Text;
+        if (string.IsNullOrWhiteSpace(targetIp))
+        {
+            SetStatus("請輸入收件同學的內網 IP。");
+            RecipientIp.Focus();
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            SetStatus("請先輸入訊息文字。");
+            Draft.Focus();
+            return;
+        }
+
+        settings = settings with { LastRecipientIp = targetIp };
+        settings.Save();
+        SendRequested?.Invoke(targetIp, text);
+    }
+
+    private void AutoStartChecked(object sender, RoutedEventArgs e)
+    {
+        settings = settings with { AutoStartOnLogin = true };
+        settings.Save();
+        AutoStartChanged?.Invoke(true);
+        SetStatus("已開啟開機啟動。");
+    }
+
+    private void AutoStartUnchecked(object sender, RoutedEventArgs e)
+    {
+        settings = settings with { AutoStartOnLogin = false };
+        settings.Save();
+        AutoStartChanged?.Invoke(false);
+        SetStatus("已關閉開機啟動。");
+    }
 }

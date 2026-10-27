@@ -8,24 +8,22 @@
 
 本 repo 是 Windows 版的正式 repo，由 yuipan0611 維護與發布，授權為 MIT（見 [LICENSE](LICENSE)）。Windows 版主要貢獻者：[andrewchu0101](https://github.com/andrewchu0101)。macOS 版在 [Mac repo](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-macos)。Windows 版與 macOS 版各自開發、各自發布；功能不完全對等，以本文件列出的內容為準。
 
-## NekoChat Lite：教室聊天與一鍵安裝（教室試用版）
+## NekoChat Lite：教室聊天與綠色版（教室輕量版）
 
-教室多人測試的新實作位於 [windows-lite/](windows-lite/README.md)：透明桌面貓咪、訊息氣泡、語音輸入／聊天草稿，以及「全班共用房間／Ping 老師／依內網 IP 私訊」。訊息只轉送指定收件人；老師以 Teams 分享自己的畫面即可呈現收到的學生發言。同學使用一個自帶執行元件的 `NekoChat-Setup-win-x64.exe`，不用安裝 Python 或編輯 JSON。沒有麥克風可按「跳過語音，先用文字聊天」，不需 Groq Key。
+教室環境專屬的輕量化實作位於 [windows-lite/](windows-lite/README.md)：透明桌面貓咪、9 種花色隨選、訊息氣泡，以及「免邀請碼、純內網 IP 直連通信」。
 
-此 Lite 目前是獨立試用 App，使用 `NekoChat.WindowsLite` 安裝／設定／憑證名稱，保留下面原版 Neighbor 的安裝身分、詞典與較小安裝包。原有 Neighbor 的 20 MB 上限仍照原 CI 驗證；Lite 自帶 .NET 與房間服務，使用獨立的 NekoChat Lite 測試版 Release 提供下載。測試語音時先退出另一個 App，以免快捷鍵衝突。
+- **雙版本體系**：
+  - **標準版 (`Neighbor.Windows`)**：全域快捷鍵 AI 語音輸入（Groq Whisper）、自訂詞庫、智慧學習、桌面小黑貓。
+  - **教室 Lite 版 (`NekoChat.WindowsLite`)**：純內網 IP 直接通訊、9 種花色貓咪調色盤、免邀請碼、免語音輸入、免外網、開機自啟動、本機 IP 通訊錄名稱管理。
+- **免安裝隨開即用**：提供單一綠色執行檔 `NekoChat-Lite.exe` 與一鍵安裝包 `NekoChat-Setup-win-x64.exe`，不需安裝 Python、.NET 執行環境或設定 API Key。
+- **通訊方式**：直接在輸入框填入對方的內網 IP（例如 `192.168.1.25`）並發送，對方桌面的貓咪即時冒出對話氣泡；支援在介面記住「同學姓名／座位」儲存於本機 `settings.json`。
 
-教室測試請先用「老師＋兩位同學」測通，再讓全班加入。所有人安裝同一份 Lite 測試包，語音／Groq Key 可以跳過。
-
-| 要做什麼 | 操作單／下載 |
+| 要做什麼 | 下載／說明 |
 |---|---|
-| 老師安裝、建立教室、接收發言及 Teams 分享 | [老師操作單](nekochat/docs/CLASSROOM-QUICKSTART.zh-TW.md#老師操作) |
-| 同學安裝、加入教室、Ping 老師及 IP 私訊 | [同學操作單](nekochat/docs/CLASSROOM-QUICKSTART.zh-TW.md#同學操作) |
-| 帶到教室列印，含三台電腦驗收表 | [下載兩頁 A4 操作單 PDF](nekochat/docs/NekoChat-Classroom-Quickstart.zh-TW.pdf?raw=1) |
-| 安裝本次已驗證的教室版 | [下載 Windows 一鍵安裝檔 EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.3/NekoChat-Setup-win-x64.exe) |
+| 下載免安裝綠色執行檔（下載點開即用） | [下載 NekoChat-Lite.exe](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) |
+| 下載一鍵安裝檔 | [下載 NekoChat-Setup-win-x64.exe](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) |
+| 詳細功能與教室使用指南 | [Lite 教室版完整說明](windows-lite/README.md) |
 
-本次教室版為 [NekoChat Windows Lite 0.1.0-beta.3](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.3)。直接下載 `NekoChat-Setup-win-x64.exe`，雙擊並按「安裝並啟動」，不用解壓縮。Release 附件不受 Actions 測試產物的保存期限影響；老師可依學校允許的方式分發同一安裝檔給全班。Release 同時提供 SHA-256 校驗碼、兩頁操作單與建置來源紀錄。後續 CI 測試產物仍見 [NekoChat Windows Lite CI](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml)。
-
-詳細功能見 [同學安裝與互傳](windows-lite/README.md)、[教室完整驗收](nekochat/docs/LAN-TEST.md) 與 [Windows repo 搬移紀錄](nekochat/docs/WINDOWS-REPO-MIGRATION.md)。
 
 ## 桌面小黑貓（Windows 第一階段）
 

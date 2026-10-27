@@ -21,7 +21,7 @@ internal static class Program
         var window=new Window{Title="安裝 NekoChat Windows Lite",Width=460,Height=350,ResizeMode=ResizeMode.NoResize,WindowStartupLocation=WindowStartupLocation.CenterScreen,
             Background=new SolidColorBrush(Color.FromRgb(250,249,247))};
         var panel=new StackPanel{Margin=new Thickness(28)};
-        panel.Children.Add(new TextBlock{Text="讓小黑貓陪你聊天、語音輸入",FontSize=22,FontWeight=FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap});
+        panel.Children.Add(new TextBlock{Text="讓桌面貓咪陪你教室聊天、內網通訊",FontSize=22,FontWeight=FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap});
         panel.Children.Add(new TextBlock{Text="安裝至目前 Windows 使用者，建立開始功能表捷徑。執行所需元件已包含，不需要另外安裝 Python 或 .NET。",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,16,0,16)});
         var button=new Button{Content="安裝並啟動",Padding=new Thickness(16,10,16,10),HorizontalAlignment=HorizontalAlignment.Left};panel.Children.Add(button);
         var status=new TextBlock{Text="個人金鑰與設定會保留。",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,16,0,0)};panel.Children.Add(status);

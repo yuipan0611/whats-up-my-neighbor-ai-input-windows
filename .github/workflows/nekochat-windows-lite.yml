@@ -31,7 +31,7 @@ jobs:
   windows:
     name: NekoChat Lite Windows
     runs-on: windows-2025
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -39,34 +39,25 @@ jobs:
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: '10.0.x'
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.12'
-      - run: python -m pip install -r nekochat/relay/requirements-build.txt -r nekochat/relay/requirements-dev.txt
       - run: dotnet run --project windows-lite/NekoChat.Tests -c Release
       - run: dotnet run --project windows-lite/NekoChat.Animation.Tests -c Release -- windows-lite/NekoChat.Animation/Assets/manifest.json
-      - run: dotnet build windows-lite/NekoChat.Windows -c Release -p:RestoreLockedMode=true
-      - name: Freeze the private desktop room Relay
-        run: python -m PyInstaller --noconfirm --onedir --console --name NekoChatRelay --distpath build/frozen-relay --workpath build/pyinstaller --specpath build --paths . --collect-submodules uvicorn --collect-submodules websockets --hidden-import anyio._backends._asyncio --recursive-copy-metadata fastapi --recursive-copy-metadata uvicorn --copy-metadata websockets nekochat/relay/desktop.py
-      - name: Test frozen Relay and C# transport
+      - run: dotnet build windows-lite/NekoChat.Windows -c Release
+      - name: Publish single-file portable EXE (Zero-Setup Classroom App)
         shell: pwsh
         run: |
-          $env:NEKOCHAT_FROZEN_RELAY = "$env:GITHUB_WORKSPACE/build/frozen-relay/NekoChatRelay/NekoChatRelay.exe"
-          $env:NEKOCHAT_DOTNET = 'dotnet'
-          python -m pytest nekochat/relay/tests -q
+          dotnet publish windows-lite/NekoChat.Windows -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o build/windows-lite-portable
           if ($LASTEXITCODE -ne 0) { exit 1 }
-      - name: Publish self-contained x64 App with bundled Relay
+          Move-Item build/windows-lite-portable/NekoChat.Windows.exe build/windows-lite-portable/NekoChat-Lite.exe
+          (Get-FileHash build/windows-lite-portable/NekoChat-Lite.exe -Algorithm SHA256).Hash | Out-File build/windows-lite-portable/NekoChat-Lite.exe.sha256 -Encoding ascii
+      - name: Publish self-contained x64 package
         shell: pwsh
         run: |
           dotnet publish windows-lite/NekoChat.Windows -c Release -r win-x64 --self-contained true -o build/windows-lite-package
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          Copy-Item build/frozen-relay/NekoChatRelay build/windows-lite-package/Relay -Recurse
           Copy-Item windows-lite/README.md build/windows-lite-package/README.md
           Copy-Item LICENSE build/windows-lite-package/LICENSE
           Copy-Item windows-lite/THIRD-PARTY.md build/windows-lite-package/THIRD-PARTY.md
-          $pythonLicense = python -c "import sys; from pathlib import Path; print(Path(sys.base_prefix)/'LICENSE.txt')"
-          Copy-Item $pythonLicense build/windows-lite-package/Relay/Python-LICENSE.txt
-      - name: Verify installed App and rooms without Python or .NET on PATH
+      - name: Verify installed App without external runtimes
         shell: pwsh
         run: |
           $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
@@ -76,13 +67,10 @@ jobs:
           $smoke = Start-Process -FilePath $app -ArgumentList @('--smoke-test', "`"$proof`"") -Wait -PassThru
           Get-Content "$proof/result.txt"
           if ($smoke.ExitCode -ne 0) { exit 1 }
-          $textOnlyProof = Join-Path $proof 'text-only-startup'
-          $textOnly = Start-Process -FilePath $app -ArgumentList @('--text-only-startup-smoke-test', "`"$textOnlyProof`"") -Wait -PassThru
+          $textOnlyProof = Join-Path $proof 'startup-smoke'
+          $textOnly = Start-Process -FilePath $app -ArgumentList @('--startup-smoke-test', "`"$textOnlyProof`"") -Wait -PassThru
           Get-Content "$textOnlyProof/startup-result.txt"
           if ($textOnly.ExitCode -ne 0) { exit 1 }
-          $rooms = Start-Process -FilePath $app -ArgumentList @('--room-smoke-test', "`"$proof`"") -Wait -PassThru
-          Get-Content "$proof/classroom-result.txt"
-          if ($rooms.ExitCode -ne 0) { exit 1 }
       - name: Build single-file per-user installer
         shell: pwsh
         run: |
@@ -106,6 +94,14 @@ jobs:
           Get-Content "$target/result.txt"
           if ($check.ExitCode -ne 0) { exit 1 }
           Copy-Item "$target/result.txt" build/windows-lite-smoke/installer-result.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nekochat-windows-lite-portable
+          path: |
+            build/windows-lite-portable/NekoChat-Lite.exe
+            build/windows-lite-portable/NekoChat-Lite.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nekochat-windows-lite-setup
