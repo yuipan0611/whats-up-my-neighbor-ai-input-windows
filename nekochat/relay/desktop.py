@@ -25,6 +25,7 @@ class ClassroomConfig(BaseModel):
     join_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     host_user: str = Field(pattern=r'^ip-[0-9-]{7,15}$')
     host_ip: str
+    direct_enabled: bool = False
 
 
 class DesktopBootstrap(BaseModel):
@@ -32,6 +33,7 @@ class DesktopBootstrap(BaseModel):
     version: int = Field(ge=1, le=1)
     room_id: str = Field(pattern=r'^[a-f0-9]{32}$')
     bind_hosts: list[str] = Field(min_length=1, max_length=8)
+    bind_port: int = Field(default=0, ge=0, le=65535)
     policy: Policy
     classroom: ClassroomConfig | None = None
 
@@ -46,7 +48,11 @@ class DesktopBootstrap(BaseModel):
                 raise ValueError('Classroom host and admission need separate credentials')
             if len(set(self.bind_hosts)) != len(self.bind_hosts) or not all(private_ipv4(x) for x in self.bind_hosts):
                 raise ValueError('Only unique private IPv4 bindings are allowed')
+            if (c.direct_enabled and self.bind_port != 48361) or (not c.direct_enabled and self.bind_port != 0):
+                raise ValueError('Direct pairing requires dedicated LAN port 48361')
             return self
+        if self.bind_port != 0:
+            raise ValueError('Two-peer rooms cannot bind the classroom direct-pairing port')
         if self.policy.mode != 'lan' or len(self.policy.users) != 2:
             raise ValueError('Desktop rooms require exactly two LAN peers')
         if len(set(self.bind_hosts)) != len(self.bind_hosts) or not all(private_ipv4(x) for x in self.bind_hosts):
@@ -70,7 +76,7 @@ def run():
             raise ValueError('Bootstrap too large')
         settings = DesktopBootstrap.model_validate(json.loads(line, object_pairs_hook=unique_object))
         hosts = list(dict.fromkeys(['127.0.0.1'] + settings.bind_hosts))
-        port = 0
+        port = settings.bind_port
         for host in hosts:
             listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sockets.append(listener)
@@ -80,7 +86,7 @@ def run():
         classroom = None
         if settings.classroom:
             c = settings.classroom
-            classroom = ClassroomRoom(settings.room_id, c.join_sha256, c.host_user, c.host_ip, settings.policy.users[c.host_user])
+            classroom = ClassroomRoom(settings.room_id, c.join_sha256, c.host_user, c.host_ip, settings.policy.users[c.host_user], c.direct_enabled)
         app = create_app(settings.policy, room_id=settings.room_id, classroom=classroom)
         server = uvicorn.Server(uvicorn.Config(app, log_level='critical', access_log=False,
             ws='websockets-sansio', ws_max_size=16384, lifespan='off', proxy_headers=False))
