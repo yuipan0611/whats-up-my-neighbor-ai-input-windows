@@ -15,6 +15,8 @@ public partial class ChatWindow : Window
     internal event Action<Settings,string>? ConnectRequested;
     internal event Action? DisconnectRequested;
     internal event Action? CreateRoomRequested;
+    internal event Action? DirectHostRequested;
+    internal event Action<string>? DirectJoinRequested;
     internal event Action<string>? JoinRoomRequested;
     internal event Action? LeaveRoomRequested;
     internal event Action<bool>? VoiceSetupChanged;
@@ -78,11 +80,13 @@ public partial class ChatWindow : Window
     {
         if(Transcript.Text.Length>0)SetStatus(NativeInput.Copy(Transcript.Text));
     }
-    internal void SetClassroomState(bool active,bool busy,string text,bool hosting=false,string? ownIP=null,string? teacherIP=null)
+    internal void SetClassroomState(bool active,bool busy,string text,bool hosting=false,string? ownIP=null,string? teacherIP=null,bool direct=false)
     {
         CreateRoomButton.IsEnabled=!active&&!busy;JoinRoomButton.IsEnabled=!active&&!busy;
+        DirectHostButton.IsEnabled=!active&&!busy;DirectJoinButton.IsEnabled=!active&&!busy;
+        DirectHostIP.IsEnabled=!active&&!busy;
         JoinRoomCode.IsEnabled=!active&&!busy;LeaveRoomButton.IsEnabled=active||busy;
-        ShareRoomPanel.Visibility=hosting?Visibility.Visible:Visibility.Collapsed;
+        ShareRoomPanel.Visibility=hosting&&!direct?Visibility.Visible:Visibility.Collapsed;
         ConnectButton.IsEnabled=!active&&!busy;RoomStatus.Text=text;
         Recipient.IsReadOnly=false;Recipient.Visibility=Visibility.Visible;
         RecipientLabel.Text=active?"對方內網 IP（例如 192.168.1.23）":"好友 ID";
@@ -100,6 +104,8 @@ public partial class ChatWindow : Window
         SendRequested?.Invoke();
     }
     private void CreateRoomClick(object sender,RoutedEventArgs e)=>CreateRoomRequested?.Invoke();
+    private void DirectHostClick(object sender,RoutedEventArgs e)=>DirectHostRequested?.Invoke();
+    private void DirectJoinClick(object sender,RoutedEventArgs e)=>DirectJoinRequested?.Invoke(DirectHostIP.Text.Trim());
     private void JoinRoomClick(object sender,RoutedEventArgs e)=>JoinRoomRequested?.Invoke(JoinRoomCode.Text);
     private void LeaveRoomClick(object sender,RoutedEventArgs e)=>LeaveRoomRequested?.Invoke();
     private void CopyRoomCodeClick(object sender,RoutedEventArgs e)
