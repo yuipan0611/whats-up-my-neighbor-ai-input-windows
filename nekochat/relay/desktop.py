@@ -7,6 +7,7 @@ import threading
 import uvicorn
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from nekochat.relay.app import Policy, create_app, unique_object
+from nekochat.relay.classroom import ClassroomRoom, ip_user
 
 
 def private_ipv4(value: str) -> bool:
@@ -19,15 +20,33 @@ def private_ipv4(value: str) -> bool:
         return False
 
 
+class ClassroomConfig(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    join_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    host_user: str = Field(pattern=r'^ip-[0-9-]{7,15}$')
+    host_ip: str
+
+
 class DesktopBootstrap(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     version: int = Field(ge=1, le=1)
     room_id: str = Field(pattern=r'^[a-f0-9]{32}$')
     bind_hosts: list[str] = Field(min_length=1, max_length=8)
     policy: Policy
+    classroom: ClassroomConfig | None = None
 
     @model_validator(mode='after')
     def validate_room(self):
+        if self.classroom is not None:
+            c = self.classroom
+            if self.policy.mode != 'lan' or set(self.policy.users) != {c.host_user} or c.host_ip not in self.bind_hosts or c.host_user != ip_user(c.host_ip):
+                raise ValueError('Invalid classroom host')
+            host = self.policy.users[c.host_user]
+            if host.friends or host.token_sha256 == c.join_sha256:
+                raise ValueError('Classroom host and admission need separate credentials')
+            if len(set(self.bind_hosts)) != len(self.bind_hosts) or not all(private_ipv4(x) for x in self.bind_hosts):
+                raise ValueError('Only unique private IPv4 bindings are allowed')
+            return self
         if self.policy.mode != 'lan' or len(self.policy.users) != 2:
             raise ValueError('Desktop rooms require exactly two LAN peers')
         if len(set(self.bind_hosts)) != len(self.bind_hosts) or not all(private_ipv4(x) for x in self.bind_hosts):
@@ -58,7 +77,11 @@ def run():
             listener.bind((host, port))
             port = listener.getsockname()[1]
             listener.listen(128)
-        app = create_app(settings.policy, room_id=settings.room_id)
+        classroom = None
+        if settings.classroom:
+            c = settings.classroom
+            classroom = ClassroomRoom(settings.room_id, c.join_sha256, c.host_user, c.host_ip, settings.policy.users[c.host_user])
+        app = create_app(settings.policy, room_id=settings.room_id, classroom=classroom)
         server = uvicorn.Server(uvicorn.Config(app, log_level='critical', access_log=False,
             ws='websockets-sansio', ws_max_size=16384, lifespan='off', proxy_headers=False))
 

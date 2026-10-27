@@ -52,13 +52,18 @@ def unique_object(pairs):
     return result
 
 
-def create_app(policy: Policy, room_id: str | None = None) -> FastAPI:
+def create_app(policy: Policy, room_id: str | None = None, classroom=None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     peers: dict[str, Peer] = {}
+    if classroom is not None:
+        if policy.mode != "lan" or room_id != classroom.room_id:
+            raise ValueError("Classroom admission is LAN-only")
+        classroom.install(app)
 
     @app.get("/healthz")
     async def health():
-        return {"protocol": "nekochat", "version": 1, **({"room_id": room_id} if room_id else {})}
+        return {"protocol": "nekochat", "version": 1, **({"room_id": room_id} if room_id else {}),
+            **({"room_mode": "classroom", "admission_version": 1} if classroom else {})}
 
     @app.websocket("/nekochat/v1/ws")
     async def websocket(ws: WebSocket):
@@ -68,7 +73,7 @@ def create_app(policy: Policy, room_id: str | None = None) -> FastAPI:
             return
         auth = ws.headers.get("authorization", "")
         user, separator, token = auth.removeprefix("Bearer ").partition(":")
-        account = policy.users.get(user)
+        account = classroom.account(user, ws.client.host if ws.client else "") if classroom else policy.users.get(user)
         if not auth.startswith("Bearer ") or not separator or not account or not hmac.compare_digest(
             hashlib.sha256(token.encode()).hexdigest(), account.token_sha256
         ):
@@ -81,6 +86,8 @@ def create_app(policy: Policy, room_id: str | None = None) -> FastAPI:
         # for the same identity must not both pass the duplicate-session check.
         peer = Peer(ws)
         peers[user] = peer
+        if classroom:
+            classroom.activate(user)
         seen: OrderedDict[str, None] = OrderedDict()
         rate = deque()
         try:
@@ -119,7 +126,9 @@ def create_app(policy: Policy, room_id: str | None = None) -> FastAPI:
                     await peer.send(event("pong", message.id))
                     continue
                 friend = policy.users.get(message.to)
-                if message.to not in account.friends or not friend or user not in friend.friends:
+                authorized = classroom.authorized(user, message.to) if classroom else (
+                    message.to in account.friends and friend and user in friend.friends)
+                if not authorized:
                     await peer.send(event("error", message.id, code="forbidden"))
                     continue
                 if message.id in seen:
@@ -143,6 +152,8 @@ def create_app(policy: Policy, room_id: str | None = None) -> FastAPI:
         finally:
             if peers.get(user) is peer:
                 del peers[user]
+                if classroom:
+                    classroom.release(user)
             try:
                 await ws.close()
             except (RuntimeError, OSError):

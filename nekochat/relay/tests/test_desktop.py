@@ -37,12 +37,12 @@ def test_room_requires_mutual_distinct_credentials():
     with pytest.raises(ValidationError): DesktopBootstrap.model_validate(value)
 
 class RoomProcess:
-    def __init__(self):
+    def __init__(self, settings=None):
         executable=os.environ.get('NEKOCHAT_FROZEN_RELAY')
         command=[executable] if executable else [sys.executable,'-m','nekochat.relay.desktop']
         self.process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,
             cwd=Path(__file__).resolve().parents[3])
-        self.process.stdin.write(json.dumps(bootstrap())+'\n');self.process.stdin.flush()
+        self.process.stdin.write(json.dumps(settings if settings is not None else bootstrap())+'\n');self.process.stdin.flush()
         output=queue.Queue()
         threading.Thread(target=lambda:output.put(self.process.stdout.readline()),daemon=True).start()
         try:

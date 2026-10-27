@@ -77,3 +77,8 @@ python -m nekochat.relay.protocol
 ```
 
 C# 與真實 Relay 整合：先 `dotnet run --project windows-lite/NekoChat.Tests -c Release` 建置，再設定 `NEKOCHAT_DOTNET` 為 dotnet 執行檔路徑執行 pytest；未設定時該項明確 skip。測試自建 localhost Relay，使用假憑證，無外部服務／秘密。通訊細節見 `../protocol/README.md`。
+
+
+## Windows 內建教室房間
+
+一鍵 App 的教室模式由 `desktop.py` 以 stdin 啟動，私有 IPv4 綁定、代理標頭關閉、記憶體入房授權與個別臨時憑證。老師建立一個最多 100 台的房間，全班共用邀請、依對方 IP 傳訊；沒有廣播。此模式不需同學跑 Python 或改此頁的手動政策。入房契約與權限見 `../protocol/README.md`，教室實測見 `../docs/LAN-TEST.md`。本頁原有手動 LAN／VPS policy 不開放動態入房 API。
