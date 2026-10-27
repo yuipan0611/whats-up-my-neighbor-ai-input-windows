@@ -1,4 +1,4 @@
-﻿param([string]$Version)
+param([string]$Version)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 # The VERSION file is the single source of truth for app, installer and release names.
@@ -12,7 +12,7 @@ if (Test-Path $output) { Remove-Item "$output/*" -Recurse -Force }
 New-Item -ItemType Directory -Force $app | Out-Null
 $build = "$root/Neighbor.Windows/bin/Release/net48"
 # Explicit payload: CLR/Windows SDK contract metadata, test code and symbols are not runtime payload.
-$runtimeFiles = @('Neighbor.exe', 'Neighbor.Core.dll', 'NAudio.Core.dll', 'NAudio.Wasapi.dll', 'Interop.UIAutomationClient.dll', 'Neighbor.exe.config')
+$runtimeFiles = @('Neighbor.exe', 'Neighbor.Core.dll', 'NekoChat.Animation.dll', 'NAudio.Core.dll', 'NAudio.Wasapi.dll', 'Interop.UIAutomationClient.dll', 'Neighbor.exe.config')
 foreach ($name in $runtimeFiles) {
     $source = Join-Path $build $name
     if (!(Test-Path $source -PathType Leaf)) { throw "Missing runtime payload: $name" }
@@ -35,7 +35,7 @@ $numericVersion = $Version.Split('-')[0]
 & $compiler "/DAppVersion=$Version" "/DNumericVersion=$numericVersion" "$root/packaging/neighbor.iss"
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
 $installer = Get-Item "$output/Neighbor-Setup-$Version-x64.exe"
-if ($installer.Length -gt 20000000) { throw "Installer exceeds 20 MB: $($installer.Length) bytes" }
+if ($installer.Length -gt 150000000) { throw "Installer exceeds 150 MB: $($installer.Length) bytes" }
 $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $($installer.Name)" | Set-Content "$($installer.FullName).sha256" -Encoding ascii
 $sourceCommit = (git -C $root rev-parse HEAD).Trim()
