@@ -49,9 +49,9 @@ internal static class ClassroomChecks
                 }stream.Position=0;return stream;
             }
             using(var valid=Payload())PayloadArchive.Extract(valid,Path.Combine(root,"installed"));
-            Check(File.ReadAllText(Path.Combine(root,"installed","Relay","NekoChatRelay.exe"))=="test-only-payload","full app/relay install payload");
+            Check(File.ReadAllText(Path.Combine(root,"installed","NekoChat.Windows.exe"))=="test-only-payload","full app install payload");
             using(var valid=Payload())Reject(()=>PayloadArchive.Extract(valid,Path.Combine(root,"installed")),"never overwrite an existing folder");
-            foreach(var unsafeName in new[]{"../escape.txt","C:/escape.txt","/absolute.txt","Relay/../../escape.txt","Relay/file:secret","Relay/CON.txt","Relay/trailing.","nekochat.windows.exe"}){
+            foreach(var unsafeName in new[]{"../escape.txt","C:/escape.txt","/absolute.txt","sub/../../escape.txt","sub/file:secret","sub/CON.txt","sub/trailing.","nekochat.windows.exe"}){
                 using var bad=Payload(unsafeName);
                 var target=Path.Combine(root,Guid.NewGuid().ToString("N"));
                 Reject(()=>PayloadArchive.Extract(bad,target),"unsafe install path "+unsafeName);
@@ -59,7 +59,7 @@ internal static class ClassroomChecks
             }
             using(var incomplete=new MemoryStream()){
                 using(var zip=new ZipArchive(incomplete,ZipArchiveMode.Create,true))zip.CreateEntry("readme.txt");incomplete.Position=0;
-                Reject(()=>PayloadArchive.Extract(incomplete,Path.Combine(root,"incomplete")),"missing bundled Relay rejected");
+                Reject(()=>PayloadArchive.Extract(incomplete,Path.Combine(root,"incomplete")),"missing required files rejected");
             }
         }finally{Directory.Delete(root,true);}
         return checks;
