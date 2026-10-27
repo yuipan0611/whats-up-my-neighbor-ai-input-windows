@@ -4,9 +4,9 @@ Windows 10/11 x64，桌面貓咪、好友文字聊天、全系統語音輸入與
 
 ## 同學安裝：一個安裝檔
 
-帶到教室可先開 [老師操作單](../nekochat/docs/CLASSROOM-QUICKSTART.zh-TW.md#老師操作)、[同學操作單](../nekochat/docs/CLASSROOM-QUICKSTART.zh-TW.md#同學操作)，或 [下載兩頁 A4 PDF](../nekochat/docs/NekoChat-Classroom-Quickstart.zh-TW.pdf?raw=1)。本次已驗證的 [一鍵安裝包 ZIP](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/runs/40432119742/artifacts/12703125158) 保存至 2026-11-10，請先下載。
+帶到教室可先開 [老師操作單](../nekochat/docs/CLASSROOM-QUICKSTART.zh-TW.md#老師操作)、[同學操作單](../nekochat/docs/CLASSROOM-QUICKSTART.zh-TW.md#同學操作)，或 [下載兩頁 A4 PDF](../nekochat/docs/NekoChat-Classroom-Quickstart.zh-TW.pdf?raw=1)。本次 [Windows 一鍵安裝檔 EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.1/NekoChat-Setup-win-x64.exe) 已改用 [GitHub Release](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.1)，不受 Actions 的保存期限影響。
 
-1. 在 PR 的 **NekoChat Windows Lite** Actions 下載 `nekochat-windows-lite-setup`，解開 GitHub artifact ZIP，雙擊 `NekoChat-Setup-win-x64.exe`。
+1. 從 [NekoChat Lite Release](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.1) 直接下載 `NekoChat-Setup-win-x64.exe`，雙擊開啟，不用解壓縮。
 2. 按 **安裝並啟動**。安裝到目前使用者的 `%LOCALAPPDATA%\Programs\NekoChat.WindowsLite`，建立開始功能表捷徑，隨即開啟 App。內含 .NET 與房間服務，**不需另外安裝 Python、.NET、Git，也不用執行指令或改 JSON**。
 3. 沒有麥克風或只想聊天時，按 **跳過語音，先用文字聊天**，直接建立／加入房間。不需要 Groq Key；選擇會記住，語音按鈕與快捷鍵暫停。之後有麥克風時，再展開 **語音設定（可選，之後也能補）**，儲存自己的 Groq Key 即可恢復語音。
 
