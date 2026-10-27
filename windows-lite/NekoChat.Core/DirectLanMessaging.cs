@@ -82,15 +82,18 @@ public sealed class DirectLanListener : IAsyncDisposable
 
     private async Task ListenLoopAsync(CancellationToken cancellation)
     {
-        while (!cancellation.IsCancellationRequested)
+        while (!cancellation.IsCancellationRequested && Running)
         {
             try
             {
                 var client = await listener.AcceptTcpClientAsync(cancellation);
                 _ = HandleClientAsync(client, cancellation);
             }
-            catch when (cancellation.IsCancellationRequested) { break; }
-            catch { /* Continue accepting */ }
+            catch when (cancellation.IsCancellationRequested || !Running) { break; }
+            catch (ObjectDisposedException) { break; }
+            catch (InvalidOperationException) { break; }
+            catch (SocketException) when (cancellation.IsCancellationRequested || !Running) { break; }
+            catch { /* Continue accepting if still active */ }
         }
     }
 
@@ -213,9 +216,13 @@ public sealed class DirectLanListener : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        Running = false;
         lifetime.Cancel();
         try { listener.Stop(); } catch { }
-        if (loop != null) { try { await loop; } catch { } }
+        if (loop != null)
+        {
+            try { await loop.WaitAsync(TimeSpan.FromSeconds(2)); } catch { }
+        }
         lifetime.Dispose();
     }
 }

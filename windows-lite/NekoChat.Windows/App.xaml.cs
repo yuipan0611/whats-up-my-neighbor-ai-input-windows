@@ -21,7 +21,7 @@ public partial class App : Application
 
         if (e.Args.Length == 2 && e.Args[0] == "--smoke-test")
         {
-            Shutdown(SmokeTest.Run(e.Args[1]));
+            Environment.Exit(SmokeTest.Run(e.Args[1]));
             return;
         }
 
@@ -109,7 +109,7 @@ public partial class App : Application
                     bool listenerRunning = directListener.Running;
                     File.WriteAllText(Path.Combine(e.Args[1], "startup-result.txt"),
                         visible && listenerRunning ? "PASS: Lite edition direct LAN startup and UI rendered." : "FAIL: initial windows or listener state were incorrect.");
-                    Shutdown(visible && listenerRunning ? 0 : 1);
+                    Environment.Exit(visible && listenerRunning ? 0 : 1);
                 }));
             }
         }
