@@ -16,6 +16,11 @@ public partial class PetWindow : Window
     internal event Action? ImportCoat;
     internal event Action? CancelRecording;
     private string? sender;
+    private sealed record ChatNotice(string Text,string From,string Name);
+    private readonly LinkedList<ChatNotice> chatNotices=new();
+    private ChatNotice? currentChat;
+    private bool persistentNotice;
+    internal int PendingChatCount=>chatNotices.Count;
     private Point down;
     private bool dragging;
     private readonly DispatcherTimer bubbleTimer=new(){Interval=TimeSpan.FromSeconds(12)};
@@ -27,7 +32,7 @@ public partial class PetWindow : Window
             var handle=new WindowInteropHelper(this).Handle;
             SetWindowLongPtr(handle,-20,GetWindowLongPtr(handle,-20)|0x08000000|0x00000080);
         };
-        bubbleTimer.Tick+=(_,_)=>{Bubble.Visibility=Visibility.Collapsed;bubbleTimer.Stop();};
+        bubbleTimer.Tick+=(_,_)=>AdvanceChatNotice();
         var menu=new ContextMenu();
         var open=new MenuItem{Header="聊天與連線設定…"};open.Click+=(_,_)=>OpenChat?.Invoke(null);menu.Items.Add(open);
         var coats=new MenuItem{Header="選擇花色"};
@@ -44,10 +49,45 @@ public partial class PetWindow : Window
     internal void SetArt(ImageSource image)=>Cat.Source=image;
     internal void Notify(string text,string? from=null,bool persistent=false,string? displayName=null)
     {
+        if(currentChat is not null){chatNotices.AddFirst(currentChat);currentChat=null;TrimChatNotices();}
+        persistentNotice=persistent;
         sender=from;BubbleText.Text=from is null?text:$"{displayName??from}：{text}\n點擊回覆";
         Bubble.Visibility=Visibility.Visible;bubbleTimer.Stop();if(!persistent)bubbleTimer.Start();
     }
-    private void BubbleClick(object sender,RoutedEventArgs e)=>OpenChat?.Invoke(this.sender);
+    internal void NotifyChat(string text,string from,string displayName)
+    {
+        chatNotices.AddLast(new ChatNotice(text,from,displayName));TrimChatNotices();
+        if(currentChat is null && !persistentNotice)AdvanceChatNotice();
+        else if(currentChat is not null)RenderChatNotice();
+    }
+    private void TrimChatNotices()
+    {
+        // The chat page also keeps recent messages. Bound pending visual notifications.
+        while(chatNotices.Count>100)chatNotices.RemoveLast();
+    }
+    private void RenderChatNotice()
+    {
+        if(currentChat is null)return;
+        sender=currentChat.From;
+        BubbleText.Text=$"{currentChat.Name}：{currentChat.Text}\n點擊回覆"+(chatNotices.Count>0?$" · 另有 {chatNotices.Count} 則，聊天頁可查看":"");
+    }
+    internal void AdvanceChatNotice()
+    {
+        bubbleTimer.Stop();currentChat=null;persistentNotice=false;
+        if(chatNotices.First is not { } next){sender=null;Bubble.Visibility=Visibility.Collapsed;return;}
+        currentChat=next.Value;chatNotices.RemoveFirst();RenderChatNotice();
+        Bubble.Visibility=Visibility.Visible;bubbleTimer.Start();
+    }
+    internal void ClearChatNotices()
+    {
+        chatNotices.Clear();
+        if(currentChat is not null){currentChat=null;sender=null;bubbleTimer.Stop();Bubble.Visibility=Visibility.Collapsed;}
+    }
+    private void BubbleClick(object sender,RoutedEventArgs e)
+    {
+        OpenChat?.Invoke(this.sender);
+        if(currentChat is not null)AdvanceChatNotice();
+    }
     private void CatDown(object sender,MouseButtonEventArgs e){down=e.GetPosition(this);dragging=false;Cat.CaptureMouse();}
     private void CatMove(object sender,MouseEventArgs e)
     {

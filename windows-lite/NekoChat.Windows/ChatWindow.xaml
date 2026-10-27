@@ -16,27 +16,27 @@
     </Expander>
     <TextBlock x:Name="GroqState" Text="尚未設定語音。可以直接建立或加入房間，互傳文字訊息。" TextWrapping="Wrap" Margin="0,6,0,6"/>
     <Separator Margin="0,16"/>
-    <TextBlock x:Name="RoomHeading" Text="與一位同學互傳訊息" FontSize="18" FontWeight="SemiBold"/>
-    <TextBlock Text="一台建立房間，另一台貼上邀請碼加入。不需要填帳號、好友 ID 或連線位址。" TextWrapping="Wrap" Margin="0,8"/>
-    <Button x:Name="CreateRoomButton" Content="建立房間" Click="CreateRoomClick" HorizontalAlignment="Left"/>
+    <TextBlock x:Name="RoomHeading" Text="全班共用教室房間" FontSize="18" FontWeight="SemiBold"/>
+    <TextBlock Text="老師建立房間，全班貼同一份邀請碼加入（最多 100 台）。可直接 Ping 老師，或填同學 IP 私訊。" TextWrapping="Wrap" Margin="0,8"/>
+    <Button x:Name="CreateRoomButton" Content="建立教室房間（老師）" Click="CreateRoomClick" HorizontalAlignment="Left"/>
     <StackPanel x:Name="ShareRoomPanel" Visibility="Collapsed">
      <TextBlock Text="給同學的邀請碼" Margin="0,8,0,0"/>
      <TextBox x:Name="RoomCode" IsReadOnly="True" Height="75" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="給同學的邀請碼"/>
      <Button Content="複製邀請碼" Click="CopyRoomCodeClick" HorizontalAlignment="Left"/>
-     <TextBlock Text="把邀請碼私下給要互傳訊息的同學，即授權對方加入。房主離開後失效。" TextWrapping="Wrap" Foreground="#666666" FontSize="12"/>
+     <TextBlock Text="只把邀請碼分享給這個教室的同學，即授權加入後彼此傳訊。房主離開後失效。" TextWrapping="Wrap" Foreground="#666666" FontSize="12"/>
     </StackPanel>
     <TextBlock Text="同學給你的邀請碼" Margin="0,14,0,0"/>
     <TextBox x:Name="JoinRoomCode" Height="62" TextWrapping="Wrap" MaxLength="4096" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="同學給你的邀請碼"/>
     <WrapPanel><Button x:Name="JoinRoomButton" Content="加入房間" Click="JoinRoomClick"/><Button x:Name="LeaveRoomButton" Content="取消／離開房間" Click="LeaveRoomClick" IsEnabled="False"/></WrapPanel>
     <TextBlock x:Name="RoomStatus" Text="未加入房間。直接建立房間，或貼上同學的邀請碼即可聊天。" TextWrapping="Wrap" Margin="0,8" AutomationProperties.LiveSetting="Polite"/>
-    <TextBlock Text="兩台需在可互連的教室網路。Windows 若詢問網路存取權，請依學校規範允許；網路隔離時需由管理者提供連線。" TextWrapping="Wrap" Foreground="#666666" FontSize="12"/>
+    <TextBlock Text="全班電腦需能連到老師的教室主機。Windows 若詢問網路存取權，請依學校規範允許；網路隔離時需由管理者提供連線。" TextWrapping="Wrap" Foreground="#666666" FontSize="12"/>
    </StackPanel></ScrollViewer></TabItem>
    <TabItem Header="聊天"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="12">
-    <TextBlock x:Name="RecipientLabel" Text="好友 ID"/><TextBox x:Name="Recipient" MaxLength="32" AutomationProperties.Name="好友 ID"/>
+    <TextBlock x:Name="MyRoomAddress" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,10"/><TextBlock x:Name="RecipientLabel" Text="好友 ID"/><TextBox x:Name="Recipient" MaxLength="32" AutomationProperties.Name="傳訊對象"/>
     <TextBox x:Name="History" IsReadOnly="True" Height="190" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="本次聊天紀錄"/>
     <TextBlock Text="訊息（語音先成為草稿，按傳送才送出）" TextWrapping="Wrap"/>
     <TextBox x:Name="Draft" AcceptsReturn="True" Height="100" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="訊息草稿"/>
-    <WrapPanel><Button x:Name="SendButton" Content="傳送" Click="SendClick" IsEnabled="False"/><Button x:Name="VoiceButton" Content="🎙 語音草稿" Click="VoiceClick"/><Button Content="取消錄音" Click="CancelClick"/></WrapPanel>
+    <WrapPanel><Button x:Name="SendButton" Content="傳送" Click="SendClick" IsEnabled="False"/><Button x:Name="TeacherButton" Content="Ping 老師／傳送草稿" Click="PingTeacherClick" Visibility="Collapsed" IsEnabled="{Binding IsEnabled, ElementName=SendButton}"/><Button x:Name="VoiceButton" Content="🎙 語音草稿" Click="VoiceClick"/><Button Content="取消錄音" Click="CancelClick"/></WrapPanel>
     <TextBlock Text="全系統語音輸入：Ctrl + Alt + Space 開始／停止。Esc 取消。錄音最長 60 秒。" TextWrapping="Wrap" Margin="0,12,0,12"/>
     <TextBlock Text="最近轉錄（不儲存至磁碟）"/><TextBox x:Name="Transcript" IsReadOnly="True" Height="65" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="最近轉錄"/>
     <Button Content="複製最近轉錄" Click="CopyClick" HorizontalAlignment="Left"/>

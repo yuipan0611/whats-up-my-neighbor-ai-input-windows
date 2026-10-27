@@ -15,9 +15,9 @@ internal sealed class ClassroomHost : IAsyncDisposable
     private int stopped;
     internal string User {get;}
     internal string Token {get;}
-    internal LanInvitation Invitation {get;}
+    internal ClassroomInvitation Invitation {get;}
     internal Uri LocalEndpoint {get;}
-    private ClassroomHost(Process process,string user,string token,LanInvitation invitation)
+    private ClassroomHost(Process process,string user,string token,ClassroomInvitation invitation)
     {
         this.process=process;User=user;Token=token;Invitation=invitation;
         LocalEndpoint=RelayConnection.ValidateEndpoint($"ws://127.0.0.1:{invitation.Port}/nekochat/v1/ws",true);
@@ -36,14 +36,14 @@ internal sealed class ClassroomHost : IAsyncDisposable
             throw new InvalidDataException("找不到可用的教室網路。請先連上 Wi-Fi 或網路線，再建立房間。");
         var executable=Path.Combine(AppContext.BaseDirectory,"Relay","NekoChatRelay.exe");
         if(!File.Exists(executable))throw new InvalidDataException("缺少內建房間服務，請使用完整的一鍵安裝包重新安裝。");
-        string hostUser=LanInvitation.NewUser(),guestUser=LanInvitation.NewUser();
-        string hostToken=LanInvitation.NewToken(),guestToken=LanInvitation.NewToken(),room=Guid.NewGuid().ToString("N");
+        string hostUser=ClassroomInvitation.UserForIP(addresses[0]);
+        string hostToken=LanInvitation.NewToken(),joinToken=LanInvitation.NewToken(),room=Guid.NewGuid().ToString("N");
         var bootstrap=new {
             version=1,room_id=room,bind_hosts=addresses,
             policy=new {mode="lan",users=new Dictionary<string,object>{
-                [hostUser]=new{token_sha256=LanInvitation.Digest(hostToken),friends=new[]{guestUser}},
-                [guestUser]=new{token_sha256=LanInvitation.Digest(guestToken),friends=new[]{hostUser}}
-            }}
+                [hostUser]=new{token_sha256=LanInvitation.Digest(hostToken),friends=Array.Empty<string>()}
+            }},
+            classroom=new{join_sha256=LanInvitation.Digest(joinToken),host_user=hostUser,host_ip=addresses[0]}
         };
         var start=new ProcessStartInfo(executable) {
             WorkingDirectory=AppContext.BaseDirectory,UseShellExecute=false,CreateNoWindow=true,
@@ -62,7 +62,7 @@ internal sealed class ClassroomHost : IAsyncDisposable
             int port=ready.RootElement.GetProperty("port").GetInt32();
             if(ready.RootElement.GetProperty("version").GetInt32()!=1 || ready.RootElement.GetProperty("room_id").GetString()!=room)
                 throw new InvalidDataException("房間服務回應不正確。");
-            var invite=new LanInvitation(1,room,addresses,port,guestUser,hostUser,guestToken);invite.Validate();
+            var invite=new ClassroomInvitation(1,room,addresses,port,joinToken);invite.Validate();
             var result=new ClassroomHost(process,hostUser,hostToken,invite);
             using var http=new HttpClient(new HttpClientHandler{AllowAutoRedirect=false,UseProxy=false});
             var local=invite with{Hosts=["127.0.0.1"]};

@@ -26,7 +26,7 @@ public partial class App : Application
             bool textOnlySmoke=e.Args.Length==2 && e.Args[0]=="--text-only-startup-smoke-test";
             if(textOnlySmoke)settings=settings with{VoiceSetupSkipped=true};
             pet=new PetWindow();chat=new ChatWindow(settings);
-            pet.OpenChat+=sender=>chat.ShowChat(sender);
+            pet.OpenChat+=sender=>chat.ShowChat(sender is not null && classroomUser is not null?ClassroomInvitation.IPForUser(sender):sender);
             pet.SelectCoat+=id=> {
                 try{pet.SetArt(CatArtwork.Preset(id));settings=settings with{Coat=id};settings.Save();}
                 catch(Exception ex){chat.SetStatus(SafeError(ex));}
@@ -38,7 +38,7 @@ public partial class App : Application
                 catch(Exception ex){chat.SetStatus(SafeError(ex));}
             };
             chat.ConnectRequested+=async(s,t)=>{await LeaveClassroomAsync();await ConnectAsync(s,t);};
-            chat.DisconnectRequested+=async()=>{if(classroomHost is not null || classroomPeer is not null)await LeaveClassroomAsync();else await DisconnectAsync();};
+            chat.DisconnectRequested+=async()=>{if(classroomHost is not null || classroomUser is not null)await LeaveClassroomAsync();else await DisconnectAsync();};
             chat.SendRequested+=async()=>await SendAsync();
             if(Appearance.Presets.Contains(settings.Coat))pet.SetArt(CatArtwork.Preset(settings.Coat));
             pet.Show();InitializeVoice();InitializeClassroom();chat.Show();
@@ -85,16 +85,16 @@ public partial class App : Application
                 switch(message.Kind) {
                     case "chat.message":
                         // Incoming text only enters display controls. Never call dictation or input APIs.
-                        if(classroom && message.Sender!=classroomPeer)throw new InvalidDataException("房間的同學身分不符，請重新加入。");
-                        chat.AddHistory($"{(classroom?"同學":message.Sender)}：{message.Text}");
-                        pet.Notify(message.Text!,message.Sender,displayName:classroom?"同學":null);break;
+                        var senderName=classroom?ClassroomInvitation.IPForUser(message.Sender!):message.Sender!;
+                        chat.AddHistory($"{senderName}：{message.Text}");
+                        pet.NotifyChat(message.Text!,message.Sender!,senderName);break;
                     case "chat.ack" when pending is { } sent && sent.Id==message.Id:
-                        chat.AddHistory($"我 → {(classroom?"同學":sent.To)}：{sent.Text}");
-                        if(chat.Draft.Text==sent.Text && chat.Recipient.Text.Trim()==sent.To)chat.Draft.Clear();
+                        chat.AddHistory($"我 → {(classroom?ClassroomInvitation.IPForUser(sent.To):sent.To)}：{sent.Text}");
+                        if(chat.Draft.Text==sent.Text && chat.Recipient.Text.Trim()==(classroom?ClassroomInvitation.IPForUser(sent.To):sent.To))chat.Draft.Clear();
                         pending=null;chat.SendButton.IsEnabled=true;chat.SetStatus("已送達對方連線（非已讀）。");break;
                     case "error":
                         if(pending?.Id==message.Id){pending=null;chat.SendButton.IsEnabled=true;}
-                        chat.SetStatus(message.Code switch{"offline"=>"朋友目前離線；草稿已保留。","forbidden"=>"尚未取得雙向好友授權。","rate_limited"=>"傳送過於頻繁，請稍後重新連線。",_=>"Relay 拒絕訊息格式。"});break;
+                        chat.SetStatus(message.Code switch{"offline"=>"朋友目前離線；草稿已保留。","forbidden"=>classroom?"這個 IP 尚未加入同一教室，或選到了自己；請確認對方 IP 與房間。":"尚未取得雙向好友授權。","rate_limited"=>"傳送過於頻繁，請稍後重新連線。",_=>"Relay 拒絕訊息格式。"});break;
                 }
             }),cancel);
         }catch(Exception ex){if(relay==local)chat.SetStatus(SafeError(ex));}
@@ -119,7 +119,10 @@ public partial class App : Application
     {
         if(!ready || relay is null || pending is not null)return;
         try {
-            var to=chat.Recipient.Text.Trim();var text=chat.Draft.Text;var id=Guid.NewGuid().ToString("N");
+            var recipient=chat.Recipient.Text.Trim();
+            var to=classroomUser is not null?ClassroomInvitation.UserForIP(recipient):recipient;
+            if(classroomUser==to)throw new ArgumentException("這是自己的 IP，請填要傳訊的同學 IP。");
+            var text=chat.Draft.Text;var id=Guid.NewGuid().ToString("N");
             _=Protocol.Send(to,text,id);
             pending=(id,to,text);chat.SendButton.IsEnabled=false;chat.SetStatus("等待 Relay 送達回條…");
             await relay.SendAsync(to,text,id,connectionCancel!.Token);

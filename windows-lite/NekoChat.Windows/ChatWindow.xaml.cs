@@ -8,6 +8,7 @@ public partial class ChatWindow : Window
 {
     private Settings settings;
     private bool loaded;
+    private string? teacherAddress;
     internal event Action? SendRequested;
     internal event Action? VoiceRequested;
     internal event Action? CancelRequested;
@@ -77,15 +78,26 @@ public partial class ChatWindow : Window
     {
         if(Transcript.Text.Length>0)SetStatus(NativeInput.Copy(Transcript.Text));
     }
-    internal void SetClassroomState(bool active,bool busy,string text,bool hosting=false)
+    internal void SetClassroomState(bool active,bool busy,string text,bool hosting=false,string? ownIP=null,string? teacherIP=null)
     {
         CreateRoomButton.IsEnabled=!active&&!busy;JoinRoomButton.IsEnabled=!active&&!busy;
         JoinRoomCode.IsEnabled=!active&&!busy;LeaveRoomButton.IsEnabled=active||busy;
         ShareRoomPanel.Visibility=hosting?Visibility.Visible:Visibility.Collapsed;
         ConnectButton.IsEnabled=!active&&!busy;RoomStatus.Text=text;
-        Recipient.IsReadOnly=active;Recipient.Visibility=active?Visibility.Collapsed:Visibility.Visible;
-        RecipientLabel.Text=active?"傳送給：已配對的同學":"好友 ID";
+        Recipient.IsReadOnly=false;Recipient.Visibility=Visibility.Visible;
+        RecipientLabel.Text=active?"對方內網 IP（例如 192.168.1.23）":"好友 ID";
+        if(ownIP is not null){MyRoomAddress.Text="我的教室 IP："+ownIP+(teacherIP is not null?"　老師："+teacherIP:"");MyRoomAddress.Visibility=Visibility.Visible;}
+        else if(!active&&!busy)MyRoomAddress.Visibility=Visibility.Collapsed;
+        teacherAddress=active?teacherIP:null;
+        TeacherButton.Visibility=active && teacherIP is not null && teacherIP!=ownIP?Visibility.Visible:Visibility.Collapsed;
         if(!active&&!busy){RoomCode.Clear();JoinRoomCode.Clear();}
+    }
+    private void PingTeacherClick(object sender,RoutedEventArgs e)
+    {
+        if(teacherAddress is null)return;
+        Recipient.Text=teacherAddress;
+        if(string.IsNullOrWhiteSpace(Draft.Text)){SetStatus("請先輸入想對老師說的話，再按 Ping 老師。");Draft.Focus();return;}
+        SendRequested?.Invoke();
     }
     private void CreateRoomClick(object sender,RoutedEventArgs e)=>CreateRoomRequested?.Invoke();
     private void JoinRoomClick(object sender,RoutedEventArgs e)=>JoinRoomRequested?.Invoke(JoinRoomCode.Text);

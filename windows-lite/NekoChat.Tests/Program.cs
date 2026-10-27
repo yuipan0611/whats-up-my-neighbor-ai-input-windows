@@ -60,6 +60,7 @@ if(args.Length==2&&args[0]=="--live") {
     cancel.Cancel();try{await Task.WhenAll(at,bt);}catch(OperationCanceledException){}
 }
 checks += await ClassroomChecks.Run();
+checks += await ClassroomGroupChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
 
 sealed class FakeHandler:HttpMessageHandler {

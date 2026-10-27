@@ -36,3 +36,10 @@ Local follow-up baseline: 30 original Relay tests and 48 original C# checks pass
 ## Text-only classroom onboarding
 
 Voice setup is explicitly optional: students without microphones select “跳過語音，先用文字聊天”. The preference is saved, voice settings collapse and voice buttons/hotkey registration pause, while create/join/text messages remain available without a Groq key. Saving a key later re-enables voice. CI now covers skip/restored UI state, reopening optional settings and actual text-only App startup with no voice hotkeys or recorder; physical microphone checks remain optional for computers with microphones.
+
+
+## Shared classroom and teacher display follow-up (2026-10-27)
+
+The Lite default is now one LAN classroom (limit 100 PCs including the teacher). `NEKOCLASS1-` admission produces per-member credentials bound to the Relay-observed IPv4. Teacher is the host; students can Ping the teacher with a nonempty draft or enter another joined member's IP. Only the recipient socket receives each message; teacher Teams sharing displays the teacher's received text outside the chat protocol. Incoming cat bubbles queue with their original sender for click-to-reply. Static policy/VPS mutual friends and legacy paired Relay behavior remain covered; no broadcast, Agent, remote control, release or deployment was added.
+
+Local baseline: 92 C# checks, 39 Python tests passed / one C# interop test skipped without its environment variable. After the change: 134 C# behavior checks and WPF cross-build pass (zero warnings/errors); 44 Python tests pass including C# transport interop and three-client ASGI directed delivery, with the real multi-IP TCP test skipped on macOS because extra loopback aliases are unavailable. Windows/Linux CI must execute that real multi-IP test (the skip is macOS-only), frozen Relay checks, C# classroom admission/delivery and WPF teacher-target/queued-reply tests. Physical school LAN, 100-PC load, Teams sharing and interactive teacher/student acceptance remain pending.

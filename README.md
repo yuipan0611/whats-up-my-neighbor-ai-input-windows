@@ -10,11 +10,11 @@
 
 ## NekoChat Lite：教室聊天與一鍵安裝（開發分支）
 
-教室雙機測試的新實作位於 [windows-lite/](windows-lite/README.md)：透明桌面貓咪、訊息氣泡、語音輸入／聊天草稿，以及「建立房間／貼邀請碼加入」。同學使用一個自帶執行元件的 `NekoChat-Setup-win-x64.exe`，不用安裝 Python 或編輯 JSON。沒有麥克風可按「跳過語音，先用文字聊天」，不需 Groq Key。
+教室多人測試的新實作位於 [windows-lite/](windows-lite/README.md)：透明桌面貓咪、訊息氣泡、語音輸入／聊天草稿，以及「全班共用房間／Ping 老師／依內網 IP 私訊」。訊息只轉送指定收件人；老師以 Teams 分享自己的畫面即可呈現收到的學生發言。同學使用一個自帶執行元件的 `NekoChat-Setup-win-x64.exe`，不用安裝 Python 或編輯 JSON。沒有麥克風可按「跳過語音，先用文字聊天」，不需 Groq Key。
 
 此 Lite 目前是獨立試用 App，使用 `NekoChat.WindowsLite` 安裝／設定／憑證名稱，保留下面原版 Neighbor 的安裝身分、詞典與較小安裝包。原有 Neighbor 的 20 MB 上限仍照原 CI 驗證；Lite 自帶 .NET 與房間服務，使用獨立 CI artifact，尚未加入既有 Release 流程。測試語音時先退出另一個 App，以免快捷鍵衝突。
 
-從 [NekoChat Windows Lite CI](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml) 下載 `nekochat-windows-lite-setup`；詳細步驟見 [同學安裝與互傳](windows-lite/README.md)、[雙機驗收](nekochat/docs/LAN-TEST.md) 與 [Windows repo 搬移紀錄](nekochat/docs/WINDOWS-REPO-MIGRATION.md)。
+從 [NekoChat Windows Lite CI](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml) 下載 `nekochat-windows-lite-setup`；詳細步驟見 [同學安裝與互傳](windows-lite/README.md)、[教室驗收](nekochat/docs/LAN-TEST.md) 與 [Windows repo 搬移紀錄](nekochat/docs/WINDOWS-REPO-MIGRATION.md)。
 
 ## 桌面小黑貓（Windows 第一階段）
 
