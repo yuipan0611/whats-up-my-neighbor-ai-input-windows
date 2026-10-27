@@ -30,6 +30,7 @@ public static class ClassroomDirect
 
         var baseUrl = $"http://{hostIP}:{Port}";
         string roomId;
+        string teacherIP;
         using (var healthResponse = await http.GetAsync(
             baseUrl + "/healthz", HttpCompletionOption.ResponseHeadersRead, cancellation))
         {
@@ -40,11 +41,12 @@ public static class ClassroomDirect
             {
                 var root = health.RootElement;
                 roomId = root.GetProperty("room_id").GetString() ?? "";
+                teacherIP = root.GetProperty("host_ip").GetString() ?? "";
                 if (root.GetProperty("protocol").GetString() != "nekochat" ||
                     root.GetProperty("version").GetInt32() != 1 ||
                     root.GetProperty("room_mode").GetString() != "classroom" ||
                     root.GetProperty("ip_pairing_version").GetInt32() != 1 ||
-                    root.GetProperty("host_ip").GetString() != hostIP ||
+                    !LanInvitation.PrivateIPv4(teacherIP) ||
                     roomId.Length != 32 || roomId.Any(c => !char.IsAsciiHexDigitLower(c)))
                     throw new InvalidDataException("該 IP 的房間版本或位址不相容。");
             }
@@ -109,7 +111,7 @@ public static class ClassroomDirect
                 var session = JsonSerializer.Deserialize<ClassroomSession>(json.RootElement.GetRawText(), JsonOptions)
                     ?? throw new JsonException();
                 if (session.Protocol != "nekochat" || session.Version != 1 || session.RoomId != roomId ||
-                    session.TeacherIP != hostIP || session.User != ClassroomInvitation.UserForIP(session.Ip) ||
+                    session.TeacherIP != teacherIP || session.User != ClassroomInvitation.UserForIP(session.Ip) ||
                     session.Token is null || session.Token.Length != 43 ||
                     session.Token.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('-' or '_')))
                     throw new InvalidDataException("對方回傳的個人連線憑證不正確。");
