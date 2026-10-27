@@ -14,7 +14,18 @@
 
 此 Lite 目前是獨立試用 App，使用 `NekoChat.WindowsLite` 安裝／設定／憑證名稱，保留下面原版 Neighbor 的安裝身分、詞典與較小安裝包。原有 Neighbor 的 20 MB 上限仍照原 CI 驗證；Lite 自帶 .NET 與房間服務，使用獨立 CI artifact，尚未加入既有 Release 流程。測試語音時先退出另一個 App，以免快捷鍵衝突。
 
-從 [NekoChat Windows Lite CI](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml) 下載 `nekochat-windows-lite-setup`；詳細步驟見 [同學安裝與互傳](windows-lite/README.md)、[教室驗收](nekochat/docs/LAN-TEST.md) 與 [Windows repo 搬移紀錄](nekochat/docs/WINDOWS-REPO-MIGRATION.md)。
+教室測試請先用「老師＋兩位同學」測通，再讓全班加入。所有人安裝同一份 Lite 測試包，語音／Groq Key 可以跳過。
+
+| 要做什麼 | 操作單／下載 |
+|---|---|
+| 老師安裝、建立教室、接收發言及 Teams 分享 | [老師操作單](nekochat/docs/CLASSROOM-QUICKSTART.zh-TW.md#老師操作) |
+| 同學安裝、加入教室、Ping 老師及 IP 私訊 | [同學操作單](nekochat/docs/CLASSROOM-QUICKSTART.zh-TW.md#同學操作) |
+| 帶到教室列印，含三台電腦驗收表 | [下載兩頁 A4 操作單 PDF](nekochat/docs/NekoChat-Classroom-Quickstart.zh-TW.pdf?raw=1) |
+| 安裝本次已驗證的教室版 | [下載一鍵安裝包 ZIP](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/runs/40432119742/artifacts/12703125158) |
+
+安裝包是原始碼 `a48e587` 通過 Windows／Linux CI 後產出的 `nekochat-windows-lite-setup`。下載後先全部解壓縮，執行 `NekoChat-Setup-win-x64.exe`，按「安裝並啟動」。GitHub 下載可能需登入；老師可依學校允許的方式分發同一安裝檔給全班。這個 Actions 安裝包連結保存至 **2026-11-10**，出發前請先保存；後續產物見 [NekoChat Windows Lite CI](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml)。
+
+詳細功能見 [同學安裝與互傳](windows-lite/README.md)、[教室完整驗收](nekochat/docs/LAN-TEST.md) 與 [Windows repo 搬移紀錄](nekochat/docs/WINDOWS-REPO-MIGRATION.md)。
 
 ## 桌面小黑貓（Windows 第一階段）
 
