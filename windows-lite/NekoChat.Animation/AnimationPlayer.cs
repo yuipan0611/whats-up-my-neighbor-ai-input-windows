@@ -1,4 +1,9 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+#if !NETFRAMEWORK
 using System.Text.Json;
+#endif
 
 namespace NekoChat.Animation;
 
@@ -6,8 +11,10 @@ public sealed record Clip(double Duration, int Count, bool Loop);
 public sealed record Manifest(int Version, double[] Times, int[] Sources, int CarryIndex,
     string[] Coats, string[] CoatNames, Dictionary<string, Clip> Clips)
 {
+#if !NETFRAMEWORK
     public static Manifest Load(string path) => JsonSerializer.Deserialize<Manifest>(File.ReadAllText(path),
         new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? throw new InvalidDataException("缺少動畫資料。");
+#endif
 }
 
 /// Pure frame playback: no settings, input injection, chat, credentials or network access.

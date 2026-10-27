@@ -1,5 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
- <PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
+ <PropertyGroup>
+  <TargetFrameworks>net10.0;net48</TargetFrameworks>
+  <LangVersion>latest</LangVersion>
+  <Nullable>enable</Nullable>
+ </PropertyGroup>
+ <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+  <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  <Reference Include="System.IO.Compression" />
+  <Reference Include="System.IO.Compression.FileSystem" />
+  <Reference Include="System.Web.Extensions" />
+ </ItemGroup>
  <ItemGroup><EmbeddedResource Include="$(IntermediateOutputPath)cat-animation.zip" LogicalName="NekoChat.Animation.assets.zip"/></ItemGroup>
  <Target Name="PackNativeAnimation" BeforeTargets="PrepareForBuild" Inputs="@(NativeFrame)" Outputs="$(IntermediateOutputPath)cat-animation.zip">
   <MakeDir Directories="$(IntermediateOutputPath)"/>

@@ -15,6 +15,8 @@ public partial class PetWindow : Window
     internal event Action<string>? SelectCoat;
     internal event Action? ImportCoat;
     internal event Action? CancelRecording;
+    internal event Action? CheckUpdates;
+    internal readonly Dictionary<string, MenuItem> CoatMenuItems = new();
     private string? sender;
     private sealed record ChatNotice(string Text,string From,string Name);
     private readonly LinkedList<ChatNotice> chatNotices=new();
@@ -38,13 +40,25 @@ public partial class PetWindow : Window
         var coats=new MenuItem{Header="選擇花色"};
         string[] names=["原版黑貓","黑貓","白貓","灰貓","橘虎斑","賓士貓","三花貓","玳瑁貓","重點色貓"];
         for(int i=0;i<names.Length;i++) {
-            var id=Appearance.Presets[i];var item=new MenuItem{Header=names[i]};item.Click+=(_,_)=>SelectCoat?.Invoke(id);coats.Items.Add(item);
+            var id=Appearance.Presets[i];
+            var item=new MenuItem{Header=names[i],IsCheckable=true,IsChecked=id=="original"};
+            item.Click+=(_,_)=> {
+                UpdateCoatChecked(id);
+                SelectCoat?.Invoke(id);
+            };
+            CoatMenuItems[id]=item;
+            coats.Items.Add(item);
         }
         menu.Items.Add(coats);
         var import=new MenuItem{Header="匯入 cat.config.json…"};import.Click+=(_,_)=>ImportCoat?.Invoke();menu.Items.Add(import);
         var cancel=new MenuItem{Header="取消錄音／轉錄（Esc）"};cancel.Click+=(_,_)=>CancelRecording?.Invoke();menu.Items.Add(cancel);
+        var checkUpdate=new MenuItem{Header="檢查更新…"};checkUpdate.Click+=(_,_)=>CheckUpdates?.Invoke();menu.Items.Add(checkUpdate);
         var exit=new MenuItem{Header="離開 NekoChat"};exit.Click+=(_,_)=>Application.Current.Shutdown();menu.Items.Add(exit);
         Cat.ContextMenu=menu;
+    }
+    internal void UpdateCoatChecked(string? activeId)
+    {
+        foreach(var (id,item) in CoatMenuItems) item.IsChecked = id == activeId;
     }
     internal void SetArt(ImageSource image)=>UseStaticArtwork(image);
     internal void Notify(string text,string? from=null,bool persistent=false,string? displayName=null)

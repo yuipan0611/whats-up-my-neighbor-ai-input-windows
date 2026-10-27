@@ -6,10 +6,11 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Xml;
 using Neighbor.Core;
+using NekoChat.Animation;
 
 namespace Neighbor.Windows.UI
 {
-    /// <summary>Renders the bundled original SVG paths; no runtime downloads or SVG dependency.</summary>
+    /// <summary>Renders the bundled original SVG paths and native animation frames.</summary>
     public sealed class DesktopPetArtwork : IDisposable
     {
         private sealed class Shape : IDisposable
@@ -20,6 +21,60 @@ namespace Neighbor.Windows.UI
             public void Dispose() { Path.Dispose(); }
         }
         private readonly Dictionary<string, List<Shape>> images = new Dictionary<string, List<Shape>>();
+        private readonly AnimationAssets animationAssets = new AnimationAssets();
+        private readonly Dictionary<string, Bitmap> frameCache = new Dictionary<string, Bitmap>();
+        private readonly Queue<string> frameOrder = new Queue<string>();
+
+        public Manifest Manifest => animationAssets.Manifest;
+
+        public Bitmap GetFrame(string coat, string frameName)
+        {
+            string key = coat + "/" + frameName;
+            if (frameCache.TryGetValue(key, out var cached)) return cached;
+
+            using (var stream = animationAssets.OpenFrame(coat, frameName))
+            using (var source = new Bitmap(stream))
+            {
+                var bmp = new Bitmap(source.Width, source.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.DrawImage(source, 0, 0, source.Width, source.Height);
+                }
+                if (frameCache.Count >= 64 && frameOrder.Count > 0)
+                {
+                    string oldest = frameOrder.Dequeue();
+                    if (frameCache.TryGetValue(oldest, out var oldBmp))
+                    {
+                        frameCache.Remove(oldest);
+                        oldBmp.Dispose();
+                    }
+                }
+                frameCache[key] = bmp;
+                frameOrder.Enqueue(key);
+                return bmp;
+            }
+        }
+
+        public void DrawFrame(Graphics g, int size, string coat, string frameName, bool facingLeft)
+        {
+            var bmp = GetFrame(coat, frameName);
+            var state = g.Save();
+            try
+            {
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                if (!facingLeft)
+                {
+                    g.TranslateTransform(size, 0);
+                    g.ScaleTransform(-1, 1);
+                }
+                g.DrawImage(bmp, 0, 0, size, size);
+            }
+            finally
+            {
+                g.Restore(state);
+            }
+        }
         public DesktopPetArtwork()
         {
             try
@@ -110,6 +165,13 @@ namespace Neighbor.Windows.UI
             }
             finally { g.Restore(original); }
         }
-        public void Dispose() { foreach (var list in images.Values) foreach (var shape in list) shape.Dispose(); images.Clear(); }
+        public void Dispose()
+        {
+            foreach (var list in images.Values) foreach (var shape in list) shape.Dispose();
+            images.Clear();
+            foreach (var bmp in frameCache.Values) bmp.Dispose();
+            frameCache.Clear();
+            animationAssets.Dispose();
+        }
     }
 }

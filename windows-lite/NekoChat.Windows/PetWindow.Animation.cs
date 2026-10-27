@@ -45,6 +45,7 @@ public partial class PetWindow
         if(animatedCoat is null){animation.Reset(AnimationNow);automaticMotion=false;nextAction=AnimationNow+2;}
         animatedCoat=id;frames.Clear();frameOrder.Clear();currentFrame="";
         Cat.Width=208;Cat.Height=192;RenderAnimation();
+        UpdateCoatChecked(id);
         if(IsLoaded)frameTimer.Start();
     }
     private void UseStaticArtwork(System.Windows.Media.ImageSource image)
@@ -52,6 +53,7 @@ public partial class PetWindow
         animatedCoat=null;frameTimer.Stop();frames.Clear();frameOrder.Clear();currentFrame="";
         animation.Reset(AnimationNow);automaticMotion=false;
         Cat.Width=190;Cat.Height=190;Cat.Source=image;
+        UpdateCoatChecked(null);
     }
     private void RenderAnimation()
     {
@@ -89,10 +91,18 @@ public partial class PetWindow
     internal void VerifyAnimationIntegration()
     {
         frameTimer.Stop();animation.Reset(0);animation.Press(0);animation.Drag(0);animation.Tick(.85);
-        foreach(var id in animationAssets.Manifest.Coats){SetPreset(id);if(animation.Mode!="carried")throw new InvalidDataException("切換花色重設了動作。");RenderAnimation();}
+        foreach(var id in animationAssets.Manifest.Coats){
+            SetPreset(id);
+            if(animation.Mode!="carried")throw new InvalidDataException("切換花色重設了動作。");
+            if(!CoatMenuItems[id].IsChecked || CoatMenuItems.Values.Count(m=>m.IsChecked)!=1)throw new InvalidDataException("花色勾選狀態不符。");
+            RenderAnimation();
+        }
         animation.Release(1);animation.Tick(1.4);RenderAnimation();
         if(animation.Frame!="lift-35.png")throw new InvalidDataException("落地影格不符。");
         var custom=Cat.Source!;SetArt(custom);if(animatedCoat is not null || frameTimer.IsEnabled)throw new InvalidDataException("自訂圖片被動畫取代。");
-        SetPreset("original");animation.Reset(AnimationNow);nextAction=AnimationNow+2;RenderAnimation();
+        if(CoatMenuItems.Values.Any(m=>m.IsChecked))throw new InvalidDataException("自訂圖片未清除內建花色勾選。");
+        SetPreset("original");
+        if(!CoatMenuItems["original"].IsChecked || CoatMenuItems.Values.Count(m=>m.IsChecked)!=1)throw new InvalidDataException("原版黑貓勾選狀態未還原。");
+        animation.Reset(AnimationNow);nextAction=AnimationNow+2;RenderAnimation();
     }
 }

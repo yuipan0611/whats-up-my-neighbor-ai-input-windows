@@ -12,7 +12,9 @@ namespace Neighbor.Tests
             public event Action<Exception> Failed;
             public int ConfigureCalls, DisposeCalls;
             public bool LastVisible, LastBusy;
+            public string LastCoat;
             public void Configure(bool visible, bool isBusy) { ConfigureCalls++; LastVisible = visible; LastBusy = isBusy; }
+            public void SetCoat(string coat) { LastCoat = coat; }
             public void Hide() { }
             public void Dispose() { DisposeCalls++; }
             public void Raise(Exception error) { Failed?.Invoke(error); }
@@ -81,6 +83,8 @@ namespace Neighbor.Tests
             check(harness.View.ConfigureCalls == 0, "Creating the companion does not show or configure it");
             controller.SetEnabled(true);
             check(harness.View.LastVisible && !harness.View.LastBusy, "Enabling passes visible=true and busy=false");
+            controller.SetCoat("orange-tabby");
+            check(harness.View.LastCoat == "orange-tabby", "Setting coat reaches the view");
             controller.SetBusy(true);
             check(harness.View.LastVisible && harness.View.LastBusy, "Busy state reaches the view while enabled");
             controller.SetEnabled(false);

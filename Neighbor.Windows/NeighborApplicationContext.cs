@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Media;
@@ -73,6 +74,7 @@ namespace Neighbor.Windows
                 (stage, error) => DiagnosticLog.Record(DiagnosticLog.DefaultPath, stage, error),
                 message => Post(() => Notify(message)));
             desktopPet.Create();
+            desktopPet.SetCoat(settings.Coat ?? "original");
             tray = new NotifyIcon { Icon = Theme.LoadIcon(), Text = ProductName, ContextMenuStrip = menu, Visible = true };
             BuildMenu();
             hotkeys.Pressed += id => Run(() => ToggleAsync(id == 2));
@@ -85,7 +87,7 @@ namespace Neighbor.Windows
             coordinator.LevelChanged += (_, e) => hud.UpdateLevel(e.Decibels, e.IsKnown);
             coordinator.PromptChanged += value => { latestPrompt = value; vocabularyForm?.UpdatePrompt(value); };
             coordinator.Delivered += result => {
-                SystemSounds.Asterisk.Play();
+                if (settings.SoundEffectsEnabled) SystemSounds.Asterisk.Play();
                 learningStatus = string.IsNullOrWhiteSpace(result.Message) ? "未啟用自動學習；可手動新增詞條。" : result.Message;
                 RefreshLearningStatus();
                 if (!result.PasteSent || !result.PasteVerified) Notify(result.Message);
@@ -99,6 +101,7 @@ namespace Neighbor.Windows
                 if (!hotkeys.TryApply(settings.PrimaryShortcut, settings.AlternateShortcut, out string error)) Post(() => Notify(error + " 可從系統匣開啟設定或開始錄音。"));
                 Post(FirstRun);
                 desktopPet.SetEnabled(settings.DesktopPetEnabled);
+                Task.Delay(3000).ContinueWith(_ => Run(() => CheckForUpdatesAsync(false)));
             }
         }
         private void BuildMenu()
@@ -119,9 +122,35 @@ namespace Neighbor.Windows
                 catch { Notify("無法儲存桌面小黑貓設定。"); }
             };
             menu.Items.Add(petItem);
+            var coatMenu = new ToolStripMenuItem("選擇貓咪花色");
+            string[] coatIds = { "original", "black", "white", "blue", "orange-tabby", "tuxedo", "calico", "tortoiseshell", "colorpoint" };
+            string[] coatNames = { "原版黑貓", "黑貓", "白貓", "灰貓", "橘虎斑", "賓士貓", "三花貓", "玳瑁貓", "重點色貓" };
+            var coatItems = new List<ToolStripMenuItem>();
+            for (int i = 0; i < coatIds.Length; i++)
+            {
+                var id = coatIds[i];
+                var item = new ToolStripMenuItem(coatNames[i]) { Checked = (settings.Coat ?? "original") == id };
+                item.Click += (_, e) => {
+                    var updated = settings.Clone();
+                    updated.Coat = id;
+                    try
+                    {
+                        settingsStore.Save(updated);
+                        settings = updated;
+                        desktopPet.SetCoat(id);
+                        foreach (var ci in coatItems) ci.Checked = (ci.Tag as string) == id;
+                    }
+                    catch { Notify("無法儲存貓咪花色設定。"); }
+                };
+                item.Tag = id;
+                coatItems.Add(item);
+                coatMenu.DropDownItems.Add(item);
+            }
+            menu.Items.Add(coatMenu);
             menu.Items.Add("詞典與學習狀態…", null, (_, e) => OpenVocabulary());
             menu.Items.Add("設定／更換 Groq 金鑰…", null, (_, e) => OpenKey());
             menu.Items.Add("Windows 麥克風隱私設定", null, (_, e) => { try { System.Diagnostics.Process.Start("ms-settings:privacy-microphone"); } catch { Notify("請開啟 Windows 設定 → 隱私權與安全性 → 麥克風。"); } });
+            menu.Items.Add("檢查更新…", null, (_, e) => Run(() => CheckForUpdatesAsync(true)));
             menu.Items.Add("使用說明", null, (_, e) => OpenHelp());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("結束", null, (_, e) => Run(ExitAsync));
@@ -160,8 +189,11 @@ namespace Neighbor.Windows
             retryItem.Enabled = e.State == DictationState.RetainedAudio;
             cancelItem.Enabled = e.State != DictationState.Idle;
             hideHud.Stop(); hud.UpdateState(e.State, e.Message); hud.Show();
-            if (e.State == DictationState.Recording) SystemSounds.Asterisk.Play();
-            if (e.State == DictationState.Transcribing) SystemSounds.Beep.Play();
+            if (settings.SoundEffectsEnabled)
+            {
+                if (e.State == DictationState.Recording) SystemSounds.Asterisk.Play();
+                if (e.State == DictationState.Transcribing) SystemSounds.Beep.Play();
+            }
             if (e.State == DictationState.Idle) hideHud.Start();
             if (e.State == DictationState.RetainedAudio) Notify(e.Message);
         }
@@ -275,6 +307,91 @@ namespace Neighbor.Windows
         {
             string file = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "使用說明.txt");
             try { System.Diagnostics.Process.Start(file); } catch { Notify("快捷鍵 Ctrl + Alt + Space：開始／完成錄音。從系統匣可調整設定與金鑰。"); }
+        }
+        private string GetCurrentVersion()
+        {
+            try
+            {
+                var asm = typeof(NeighborApplicationContext).Assembly;
+                var infoVer = (System.Reflection.AssemblyInformationalVersionAttribute)
+                    Attribute.GetCustomAttribute(asm, typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+                if (infoVer != null && !string.IsNullOrWhiteSpace(infoVer.InformationalVersion))
+                    return infoVer.InformationalVersion.Split('+')[0].Trim();
+                return asm.GetName().Version.ToString(3);
+            }
+            catch
+            {
+                return "0.1.0-beta.3";
+            }
+        }
+        private async Task CheckForUpdatesAsync(bool manual)
+        {
+            if (exiting) return;
+            string currentVer = GetCurrentVersion();
+            UpdateCheckResult result;
+            using (var checker = new UpdateChecker())
+            {
+                result = await checker.CheckForUpdatesAsync(currentVer, "v");
+            }
+            if (exiting) return;
+            if (result.HasUpdate)
+            {
+                string url = !string.IsNullOrWhiteSpace(result.HtmlUrl)
+                    ? result.HtmlUrl
+                    : "https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases";
+
+                string prompt = string.Format(
+                    "發現新版本 What's up my neighbor v{0}！（目前版本：v{1}）\n\n{2}\n是否開啟瀏覽器前往下載頁面？",
+                    result.LatestVersion,
+                    result.CurrentVersion,
+                    string.IsNullOrWhiteSpace(result.ReleaseTitle) ? "" : result.ReleaseTitle + "\n"
+                );
+
+                if (manual)
+                {
+                    var answer = MessageBox.Show(prompt, ProductName + " — 檢查更新", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                    if (answer == DialogResult.Yes)
+                    {
+                        OpenUpdatePage(url);
+                    }
+                }
+                else
+                {
+                    Notify(string.Format("發現新版本 v{0}！可由系統匣「檢查更新」前往下載。", result.LatestVersion));
+                }
+            }
+            else if (manual)
+            {
+                if (result.Success)
+                {
+                    MessageBox.Show(
+                        string.Format("目前已是最新版本（v{0}）。", result.CurrentVersion),
+                        ProductName + " — 檢查更新",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information
+                    );
+                }
+                else
+                {
+                    MessageBox.Show(
+                        "無法檢查更新：" + result.ErrorMessage + "\n\n請確認網路連線或稍後再試。",
+                        ProductName + " — 檢查更新",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning
+                    );
+                }
+            }
+        }
+        private void OpenUpdatePage(string url)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch
+            {
+                Notify("無法開啟瀏覽器，請手動前往：" + url);
+            }
         }
         private void Notify(string message)
         {

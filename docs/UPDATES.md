@@ -4,8 +4,11 @@
 
 ## 使用者看到的行為
 
-- App 不會自動檢查更新，也不會背景下載或安裝。
-- 要升級時，到 [Releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) 下載新版的 `Neighbor-Setup-<版本>-x64.exe` 並執行。
+- **程式內檢查更新**：
+  - 手動檢查：從系統匣選單（或 NekoChat Lite 桌面貓右鍵選單）點選 **檢查更新…**。
+  - 背景通知：App 啟動 3 秒後會在背景非同步比對 GitHub Releases 最新版本。
+  - **只檢查／通知，不默默安裝**：發現新版時會提示新版本號並詢問是否開啟瀏覽器前往 GitHub 下載；若已是最新版或背景檢查無新版時保持安靜，絕不在背景自動下載或覆蓋安裝。
+- 要升級時，依提示或到 [Releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) 下載新版安裝檔執行覆蓋升級。
 - 安裝程式會保留設定（`%LOCALAPPDATA%\WhatsUpMyNeighbor`）、詞典與 Windows 認證管理員中的 API Key。
 - 安裝程式會關閉正在執行的 App（`CloseApplications=yes`），升級後不會自動重新啟動。
 

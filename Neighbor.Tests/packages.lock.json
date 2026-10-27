@@ -62,10 +62,14 @@
           "Interop.UIAutomationClient": "[10.19041.0, )",
           "Microsoft.Windows.SDK.Contracts": "[10.0.19041.1, )",
           "NAudio.Wasapi": "[2.2.1, )",
-          "Neighbor.Core": "[1.0.0, )"
+          "Neighbor.Core": "[1.0.0, )",
+          "NekoChat.Animation": "[1.0.0, )"
         }
       },
       "neighbor.core": {
+        "type": "Project"
+      },
+      "nekochat.animation": {
         "type": "Project"
       }
     },

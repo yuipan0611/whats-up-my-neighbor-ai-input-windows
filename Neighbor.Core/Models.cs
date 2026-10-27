@@ -29,6 +29,8 @@ namespace Neighbor.Core
         public bool LaunchAtLogin { get; set; }
         public bool IntroductionShown { get; set; }
         public bool DesktopPetEnabled { get; set; } // Off by default, matching macOS first-run behavior.
+        public string Coat { get; set; } = "original";
+        public bool SoundEffectsEnabled { get; set; } // Default false: silent for classroom / lecture environments.
         public AppSettings Clone()
         {
             return new AppSettings {
@@ -36,7 +38,9 @@ namespace Neighbor.Core
                 Mode = Mode, ConvertChineseNumerals = ConvertChineseNumerals, AutomaticLanguageRetry = AutomaticLanguageRetry,
                 SilenceSeconds = SilenceSeconds, PrimaryShortcut = PrimaryShortcut?.Clone(), AlternateShortcut = AlternateShortcut?.Clone(),
                 AlternateMode = AlternateMode, InputDeviceId = InputDeviceId, HudAtTop = HudAtTop,
-                LaunchAtLogin = LaunchAtLogin, IntroductionShown = IntroductionShown, DesktopPetEnabled = DesktopPetEnabled
+                LaunchAtLogin = LaunchAtLogin, IntroductionShown = IntroductionShown, DesktopPetEnabled = DesktopPetEnabled,
+                Coat = Coat ?? "original",
+                SoundEffectsEnabled = SoundEffectsEnabled
             };
         }
     }

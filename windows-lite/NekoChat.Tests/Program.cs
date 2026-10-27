@@ -86,6 +86,37 @@ if(args.Length==2&&args[0]=="--live") {
 }
 checks += await ClassroomChecks.Run();
 checks += await ClassroomGroupChecks.Run();
+
+// UpdateChecker behavioral checks
+Check(SemVersion.TryParse("0.1.0-beta.2", out var liteV1) && liteV1.Major == 0 && liteV1.Minor == 1 && liteV1.Patch == 0 && liteV1.Prerelease == "beta.2", "NekoChat SemVersion prerelease");
+Check(SemVersion.Parse("0.1.0-beta.3").CompareTo(SemVersion.Parse("0.1.0-beta.2")) > 0, "beta.3 newer than beta.2");
+Check(SemVersion.Parse("0.1.0").CompareTo(SemVersion.Parse("0.1.0-beta.3")) > 0, "0.1.0 release newer than prerelease");
+var sampleReleaseJson = """
+[
+  {
+    "tag_name": "v0.1.0-beta.4",
+    "name": "Neighbor Beta 4",
+    "draft": false
+  },
+  {
+    "tag_name": "nekochat-lite-v0.1.0-beta.3",
+    "name": "NekoChat Lite Beta 3",
+    "draft": false,
+    "html_url": "https://example.com/lite-b3",
+    "assets": [{"name": "NekoChat-Setup-win-x64.exe", "browser_download_url": "https://example.com/dl.exe"}]
+  }
+]
+""";
+using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(sampleReleaseJson))) {
+    var liteRes = UpdateChecker.ParseReleases(stream, SemVersion.Parse("0.1.0-beta.2"), "nekochat-lite-v");
+    Check(liteRes.Success && liteRes.HasUpdate && liteRes.LatestVersion == "0.1.0-beta.3", "Lite detected update");
+    Check(liteRes.DownloadUrl == "https://example.com/dl.exe", "Lite download url extracted");
+}
+using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(sampleReleaseJson))) {
+    var noRes = UpdateChecker.ParseReleases(stream, SemVersion.Parse("0.1.0-beta.3"), "nekochat-lite-v");
+    Check(noRes.Success && !noRes.HasUpdate, "Lite no update when current");
+}
+checks += 5;
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
 
 sealed class FakeHandler:HttpMessageHandler {

@@ -18,6 +18,7 @@ namespace Neighbor.Windows.UI
         private readonly CheckBox numbers = new CheckBox { Text = "將中文數字轉成阿拉伯數字", AutoSize = true };
         private readonly CheckBox retry = new CheckBox { Text = "語言疑似誤判時，自動重試一次", AutoSize = true };
         private readonly CheckBox startup = new CheckBox { Text = "登入 Windows 時啟動", AutoSize = true };
+        private readonly CheckBox soundEffects = new CheckBox { Text = "播放錄音與辨識提示音效（上課／安靜環境建議關閉）", AutoSize = true };
         private readonly CheckBox alternateEnabled = new CheckBox { Text = "啟用第二組快捷鍵", AutoSize = true };
         private readonly ShortcutEditor firstShortcut = new ShortcutEditor(), secondShortcut = new ShortcutEditor();
         private readonly Label validation = Theme.Label("", true);
@@ -37,7 +38,7 @@ namespace Neighbor.Windows.UI
                 Theme.Label("使用預設裝置時，會在每次開始錄音時重新選擇。", true),
                 Theme.Label("靜音自動停止"), silence,
                 Theme.Label("每段最長五分鐘；也可隨時按快捷鍵或貓咪右眼完成。", true),
-                Theme.Label("小黑貓位置"), position, startup);
+                Theme.Label("小黑貓位置"), position, startup, soundEffects);
             devices.Items.Add(new AudioDevice { Id = null, Name = "Windows 預設麥克風" });
             foreach (var device in audioDevices ?? new AudioDevice[0]) devices.Items.Add(device);
             devices.SelectedIndex = 0;
@@ -54,6 +55,7 @@ namespace Neighbor.Windows.UI
             position.Items.AddRange(new object[] { "畫面下方", "畫面上方" });
             position.SelectedIndex = settings.HudAtTop ? 1 : 0;
             startup.Checked = settings.LaunchAtLogin;
+            soundEffects.Checked = settings.SoundEffectsEnabled;
 
             primary.Items.AddRange(LanguageNames);
             primary.SelectedIndex = Math.Max(0, Array.IndexOf(LanguageCodes, settings.PrimaryLanguage));
@@ -116,6 +118,7 @@ namespace Neighbor.Windows.UI
             result.InputDeviceId = ((AudioDevice)devices.SelectedItem).Id;
             result.HudAtTop = position.SelectedIndex == 1;
             result.LaunchAtLogin = startup.Checked;
+            result.SoundEffectsEnabled = soundEffects.Checked;
             result.PrimaryShortcut = first; result.AlternateShortcut = second;
             try { SettingsStore.Validate(result); }
             catch (ArgumentException exception) { Theme.Error(this, exception.Message); return; }

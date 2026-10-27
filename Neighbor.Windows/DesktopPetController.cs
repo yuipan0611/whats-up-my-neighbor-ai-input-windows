@@ -7,6 +7,7 @@ namespace Neighbor.Windows
     {
         event Action<Exception> Failed;
         void Configure(bool visible, bool isBusy);
+        void SetCoat(string coat);
         void Hide();
     }
 
@@ -37,6 +38,7 @@ namespace Neighbor.Windows
         public bool Busy { get; private set; }
         public bool Failed { get; private set; }
         public bool Created { get { return view != null; } }
+        public string Coat { get; private set; } = "original";
 
         // Creates the view hidden; nothing is shown until SetEnabled(true).
         public void Create()
@@ -46,8 +48,15 @@ namespace Neighbor.Windows
             {
                 view = factory();
                 view.Failed += OnViewFailed;
+                Apply();
             }
             catch (Exception error) { Fail(CreateStage, error, CreateMessage); }
+        }
+
+        public void SetCoat(string coat)
+        {
+            Coat = coat ?? "original";
+            Apply();
         }
 
         public void SetEnabled(bool enabled)
@@ -82,6 +91,7 @@ namespace Neighbor.Windows
         private void Apply()
         {
             if (disposed || Failed || view == null) return;
+            view.SetCoat(Coat);
             view.Configure(Enabled, Busy);
         }
 

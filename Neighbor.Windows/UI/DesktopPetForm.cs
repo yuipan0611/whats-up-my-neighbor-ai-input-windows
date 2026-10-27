@@ -2,32 +2,38 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 using Microsoft.Win32;
 using Neighbor.Core;
 using Neighbor.Windows;
+using NekoChat.Animation;
 
 namespace Neighbor.Windows.UI
 {
     /// <summary>
-    /// Non-activating companion on a per-pixel alpha layered window. Transparent pixels pass
-    /// clicks through; the cat body can be dragged, then walks horizontally at the dropped height.
+    /// Non-activating companion on a per-pixel alpha layered window.
+    /// Features 9 native coats, smooth animation playback (pickup, drop, petted, idle),
+    /// horizontal roaming, and pass-through transparency.
     /// </summary>
     public sealed class DesktopPetForm : NonActivatingForm, IDesktopPetView
     {
         private const int Sprite = 128;
         private const int WsExLayered = 0x00080000;
-        private const int MinimumAlpha = 24; // Pixels at or below this alpha do not grab the mouse.
+        private const int MinimumAlpha = 24;
         private readonly DesktopPetArtwork artwork = new DesktopPetArtwork();
-        private readonly DesktopPetMotion motion = new DesktopPetMotion();
-        private readonly Timer timer = new Timer { Interval = 83 };
+        private readonly AnimationPlayer player;
+        private readonly Timer timer = new Timer { Interval = 40 }; // 25 fps
         private readonly Stopwatch clock = Stopwatch.StartNew();
-        private double previous;
-        private bool enabled, busy, locked, suspended, placed;
+        private double previous, nextAction;
+        private int actionIndex;
+        private bool enabled, busy, locked, suspended, placed, automaticMotion;
+        private string coat = "original";
+        private Point grabOffset;
         private Bitmap frame;
-        /// <summary>Raised once when the companion stops itself after an unexpected error.</summary>
+
         public event Action<Exception> Failed;
 
         public DesktopPetForm()
@@ -35,6 +41,7 @@ namespace Neighbor.Windows.UI
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
             StartPosition = FormStartPosition.Manual; AutoScaleMode = AutoScaleMode.None;
             ClientSize = new Size(Sprite, Sprite); AccessibleName = "桌面散步小黑貓";
+            player = new AnimationPlayer(artwork.Manifest);
             timer.Tick += (_, __) => RefreshPet();
             SystemEvents.SessionSwitch += SessionChanged;
             SystemEvents.PowerModeChanged += PowerChanged;
@@ -50,10 +57,23 @@ namespace Neighbor.Windows.UI
         {
             if (IsDisposed) return;
             enabled = visible; busy = isBusy;
-            // Off means no timer at all, so a disabled companion costs nothing while the app runs.
-            if (!enabled) { motion.CancelDrag(); Capture = false; timer.Stop(); Hide(); return; }
+            if (!enabled)
+            {
+                if (player.Pressed) { player.Cancel(clock.Elapsed.TotalSeconds); Capture = false; }
+                timer.Stop(); Hide(); return;
+            }
             if (!timer.Enabled) { previous = clock.Elapsed.TotalSeconds; timer.Start(); }
             RefreshPet();
+        }
+
+        public void SetCoat(string newCoat)
+        {
+            if (IsDisposed) return;
+            if (!string.IsNullOrWhiteSpace(newCoat) && artwork.Manifest.Coats.Contains(newCoat))
+            {
+                coat = newCoat;
+                RefreshPet();
+            }
         }
 
         private void RefreshPet()
@@ -63,10 +83,11 @@ namespace Neighbor.Windows.UI
             catch (Exception error) { Stop(error); }
         }
 
-        // Stop quietly instead of letting one failing tick raise an error dialog every 83 ms.
         private void Stop(Exception error)
         {
-            enabled = false; motion.CancelDrag(); Capture = false; timer.Stop();
+            enabled = false;
+            if (player.Pressed) { player.Cancel(clock.Elapsed.TotalSeconds); Capture = false; }
+            timer.Stop();
             if (!IsDisposed && Visible) Hide();
             Failed?.Invoke(error);
         }
@@ -74,35 +95,70 @@ namespace Neighbor.Windows.UI
         private void Step()
         {
             double now = clock.Elapsed.TotalSeconds, elapsed = now - previous; previous = now;
+            double dt = Math.Max(0, Math.Min(elapsed, 0.05));
             int size = Math.Max(96, (int)(Sprite * DeviceDpi / 96.0));
-            double scale = size / (double)Sprite;
             bool hidden = !enabled || busy || locked || suspended || FullScreenForeground();
-            if (hidden) { motion.CancelDrag(); Capture = false; }
-            // While dragging, the cursor's monitor decides the bounds, so the cat can cross screens.
-            var area = motion.Dragging
-                ? Screen.FromPoint(Cursor.Position).WorkingArea
-                : Screen.FromPoint(new Point(Location.X + size / 2, Location.Y + size / 2)).WorkingArea;
-            if (!placed) { motion.PlaceInitially(area.Left, area.Top, area.Right, area.Bottom, scale); placed = true; }
-            if (motion.Dragging) motion.DragTo(Cursor.Position.X, Cursor.Position.Y, area.Left, area.Top, area.Right, area.Bottom, scale);
+            if (hidden)
+            {
+                if (player.Pressed) { player.Cancel(now); Capture = false; }
+                Hide();
+                return;
+            }
+
+            var area = Screen.FromPoint(new Point(Location.X + size / 2, Location.Y + size / 2)).WorkingArea;
+            if (!placed)
+            {
+                Location = new Point(area.Right - size - 40, area.Bottom - size);
+                placed = true;
+            }
+
+            player.Tick(now);
+
             bool animate;
-            if (!SystemParametersInfo(0x1042, 0, out animate, 0)) animate = true; // SPI_GETCLIENTAREAANIMATION
-            // Advance keeps the cat inside the full work area on both axes.
-            motion.Advance(elapsed, area.Left, area.Top, area.Right, area.Bottom, scale, hidden || !animate);
-            if (hidden) { Hide(); return; }
+            if (!SystemParametersInfo(0x1042, 0, out animate, 0)) animate = true;
+
+            if (!animate || hidden)
+            {
+                if (automaticMotion) { player.Reset(now); automaticMotion = false; }
+                nextAction = now + 2;
+            }
+            else if (!player.Pressed && player.Mode != "lifting" && player.Mode != "landing" && player.Mode != "carried" && now >= nextAction)
+            {
+                (string Name, double Seconds)[] actions = [
+                    ("standing", 1.8), ("walk-left", 4.0), ("grooming", 3.2), ("yawning", 3.2),
+                    ("loafing", 5.0), ("sleeping", 20.0), ("curious", 2.2), ("walk-right", 4.0)
+                ];
+                var action = actions[actionIndex++ % actions.Length];
+                player.Play(action.Name, now);
+                automaticMotion = true;
+                nextAction = now + action.Seconds;
+            }
+
+            if (automaticMotion && player.Mode == "clip" && (player.ClipName == "walk-left" || player.ClipName == "walk-right"))
+            {
+                double target = Location.X + (player.ClipName == "walk-left" ? -1 : 1) * 70 * dt;
+                double clamped = Math.Max(area.Left, Math.Min(target, area.Right - size));
+                Location = new Point((int)Math.Round(clamped), Location.Y);
+                if (Math.Abs(clamped - target) > 0.01)
+                {
+                    player.Reset(now); automaticMotion = false; nextAction = now + 2;
+                }
+            }
+
             if (ClientSize.Width != size) ClientSize = new Size(size, size);
-            Location = new Point((int)Math.Round(motion.X), (int)Math.Round(motion.Y));
             Draw(size);
             if (!Visible) Show();
         }
 
-        // Renders one premultiplied frame and presents it; the frame is kept for click tests.
         private void Draw(int size)
         {
             var next = new Bitmap(size, size, PixelFormat.Format32bppPArgb);
             using (var graphics = Graphics.FromImage(next))
             {
                 graphics.Clear(Color.Transparent);
-                artwork.Draw(graphics, size, motion.Walking, motion.FacingLeft, motion.Distance);
+                string frameName = player.Frame;
+                bool facingLeft = player.ClipName != "walk-right";
+                artwork.DrawFrame(graphics, size, coat, frameName, facingLeft);
             }
             if (frame != null) frame.Dispose();
             frame = next;
@@ -119,8 +175,9 @@ namespace Neighbor.Windows.UI
         {
             base.OnMouseDown(e);
             if (e.Button != MouseButtons.Left || !enabled || !Visible || !CatAt(e.Location)) return;
-            // Grab offset is taken from the current position, so the cat does not jump to the pointer.
-            motion.BeginDrag(Cursor.Position.X, Cursor.Position.Y);
+            double now = clock.Elapsed.TotalSeconds;
+            player.Press(now);
+            grabOffset = new Point(Cursor.Position.X - Location.X, Cursor.Position.Y - Location.Y);
             Capture = true;
             RefreshPet();
         }
@@ -128,23 +185,34 @@ namespace Neighbor.Windows.UI
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            if (motion.Dragging) RefreshPet();
+            if (player.Pressed && Capture)
+            {
+                double now = clock.Elapsed.TotalSeconds;
+                player.Drag(now);
+                var area = Screen.FromPoint(Cursor.Position).WorkingArea;
+                int size = ClientSize.Width;
+                int targetX = Math.Max(area.Left, Math.Min(Cursor.Position.X - grabOffset.X, area.Right - size));
+                int targetY = Math.Max(area.Top, Math.Min(Cursor.Position.Y - grabOffset.Y, area.Bottom - size));
+                Location = new Point(targetX, targetY);
+                RefreshPet();
+            }
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
-            if (e.Button != MouseButtons.Left || !motion.Dragging) return;
-            motion.EndDrag();
+            if (e.Button != MouseButtons.Left || !player.Pressed) return;
+            double now = clock.Elapsed.TotalSeconds;
+            player.Release(now);
             Capture = false;
             RefreshPet();
         }
 
-        // Losing mouse capture (for example Alt+Tab or a modal dialog) must never leave the drag stuck.
         private void OnCaptureChanged(object sender, EventArgs e)
         {
-            if (Capture || !motion.Dragging) return;
-            motion.CancelDrag();
+            if (Capture || !player.Pressed) return;
+            double now = clock.Elapsed.TotalSeconds;
+            player.Cancel(now);
             RefreshPet();
         }
 
@@ -172,7 +240,6 @@ namespace Neighbor.Windows.UI
             GetClassName(window, name, name.Capacity);
             if (name.ToString() == "Progman" || name.ToString() == "WorkerW") return false;
             var screen = Screen.FromHandle(window);
-            // Only suppress borderless full-screen windows, not maximized working-area windows.
             return rect.Left <= screen.Bounds.Left && rect.Top <= screen.Bounds.Top && rect.Right >= screen.Bounds.Right && rect.Bottom >= screen.Bounds.Bottom;
         }
 
