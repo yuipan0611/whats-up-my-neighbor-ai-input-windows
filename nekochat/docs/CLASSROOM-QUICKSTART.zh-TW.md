@@ -1,6 +1,6 @@
 # NekoChat 教室測試操作單
 
-日期：2026-10-27｜適用版本：NekoChat Windows Lite 0.1.0-beta.1｜Windows 10/11 x64
+日期：2026-10-27｜適用版本：NekoChat Windows Lite 0.1.0-beta.2｜Windows 10/11 x64
 
 老師建立一個教室房間，全班加入。學生可 Ping 老師，或輸入同學內網 IP 私訊。訊息只送指定收件人的 App；老師以 Teams 分享自己的畫面時，全班才能透過分享看到老師收到的發言。
 
@@ -8,7 +8,7 @@
 
 ## 下載與準備
 
-- [直接下載 Windows 安裝檔 EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.1/NekoChat-Setup-win-x64.exe)；[Release 版本頁](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.1) 同時提供校驗碼與操作單。公開 Release 附件不需 GitHub 帳號，也不受 Actions 測試產物保存期限影響。
+- [直接下載 Windows 安裝檔 EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.2/NekoChat-Setup-win-x64.exe)；[Release 版本頁](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.2) 同時提供校驗碼與操作單。公開 Release 附件不需 GitHub 帳號，也不受 Actions 測試產物保存期限影響。
 - 老師可先下載一次，依學校允許的方式把同一份 EXE 安裝檔交給全班；學生也可直接使用上述連結下載。
 - 先準備老師＋兩位學生的電腦，測通後再擴大到全班。所有人用同一版 App，並能連到老師的教室主機。
 - 若已有舊版 NekoChat 在執行，先右鍵貓咪 →「離開 NekoChat」，再更新。學校若阻擋安裝或網路存取，請教室管理者協助，不停用安全防護。
@@ -60,7 +60,7 @@
 
 ### 1. 安裝
 
-1. [直接下載同一版安裝檔 EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.1/NekoChat-Setup-win-x64.exe)，或取得老師提供的檔案；不需解壓縮。
+1. [直接下載同一版安裝檔 EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.2/NekoChat-Setup-win-x64.exe)，或取得老師提供的檔案；不需解壓縮。
 2. 雙擊 `NekoChat-Setup-win-x64.exe`，按「安裝並啟動」。
 3. 按「跳過語音，先用文字聊天」。不用麥克風，不填 Groq Key。
 
