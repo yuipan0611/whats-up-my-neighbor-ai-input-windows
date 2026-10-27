@@ -63,7 +63,8 @@ def create_app(policy: Policy, room_id: str | None = None, classroom=None) -> Fa
     @app.get("/healthz")
     async def health():
         return {"protocol": "nekochat", "version": 1, **({"room_id": room_id} if room_id else {}),
-            **({"room_mode": "classroom", "admission_version": 1} if classroom else {})}
+            **({"room_mode": "classroom", "admission_version": 1, "host_ip": classroom.host_ip,
+                **({"ip_pairing_version": 1} if classroom.direct_enabled else {})} if classroom else {})}
 
     @app.websocket("/nekochat/v1/ws")
     async def websocket(ws: WebSocket):
