@@ -1,0 +1,89 @@
+{
+  "appearance" : {
+    "parts" : {
+      "belly" : {
+        "color" : "#E2D3BA",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "body" : {
+        "color" : "#E2D3BA",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "chest" : {
+        "color" : "#E2D3BA",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "frontLeftLeg" : {
+        "color" : "#E2D3BA",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "frontLeftPaw" : {
+        "color" : "#685145",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "frontRightLeg" : {
+        "color" : "#E2D3BA",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "frontRightPaw" : {
+        "color" : "#685145",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "head" : {
+        "color" : "#E2D3BA",
+        "pattern" : "point",
+        "patternColor" : "#806659"
+      },
+      "leftEar" : {
+        "color" : "#685145",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "muzzle" : {
+        "color" : "#806659",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "rearLeftLeg" : {
+        "color" : "#E2D3BA",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "rearLeftPaw" : {
+        "color" : "#685145",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "rearRightLeg" : {
+        "color" : "#E2D3BA",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "rearRightPaw" : {
+        "color" : "#685145",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "rightEar" : {
+        "color" : "#685145",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "tail" : {
+        "color" : "#685145",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      }
+    },
+    "preset" : "colorpoint",
+    "seed" : 1
+  },
+  "version" : 2
+}

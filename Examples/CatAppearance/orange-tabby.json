@@ -1,0 +1,89 @@
+{
+  "appearance" : {
+    "parts" : {
+      "belly" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "body" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "chest" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "frontLeftLeg" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "frontLeftPaw" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "frontRightLeg" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "frontRightPaw" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "head" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "leftEar" : {
+        "color" : "#D6A366",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "muzzle" : {
+        "color" : "#D6A366",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "rearLeftLeg" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "rearLeftPaw" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "rearRightLeg" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "rearRightPaw" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      },
+      "rightEar" : {
+        "color" : "#D6A366",
+        "pattern" : "none",
+        "patternColor" : "#C88C4E"
+      },
+      "tail" : {
+        "color" : "#D6A366",
+        "pattern" : "tabby",
+        "patternColor" : "#9A5F2D"
+      }
+    },
+    "preset" : "orange-tabby",
+    "seed" : 1
+  },
+  "version" : 2
+}

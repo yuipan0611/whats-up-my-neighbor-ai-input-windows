@@ -1,0 +1,89 @@
+{
+  "appearance" : {
+    "parts" : {
+      "belly" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "body" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "chest" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "frontLeftLeg" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "frontLeftPaw" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "frontRightLeg" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "frontRightPaw" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "head" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "leftEar" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "muzzle" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "rearLeftLeg" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "rearLeftPaw" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "rearRightLeg" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "rearRightPaw" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "rightEar" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      },
+      "tail" : {
+        "color" : "#3C3530",
+        "pattern" : "patches",
+        "patternColor" : "#B77D42"
+      }
+    },
+    "preset" : "tortoiseshell",
+    "seed" : 1
+  },
+  "version" : 2
+}

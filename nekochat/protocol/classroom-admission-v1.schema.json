@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NekoChat classroom admission response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "version", "room_id", "user", "ip", "teacher_ip", "token"],
+  "properties": {
+    "protocol": {"const": "nekochat"},
+    "version": {"const": 1, "type": "integer"},
+    "room_id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+    "user": {"type": "string", "pattern": "^ip-[0-9-]{7,15}$"},
+    "ip": {"type": "string", "format": "ipv4"},
+    "teacher_ip": {"type": "string", "format": "ipv4"},
+    "token": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43}$"}
+  }
+}
