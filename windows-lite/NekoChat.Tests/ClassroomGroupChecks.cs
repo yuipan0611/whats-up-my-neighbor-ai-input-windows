@@ -53,8 +53,53 @@ internal static class ClassroomGroupChecks
         using var canceled=new CancellationTokenSource();canceled.Cancel();bool stopped=false;
         try{await invite.FindEndpointAsync(http,canceled.Token);}catch(OperationCanceledException){stopped=true;}
         Check(stopped,"classroom discovery cancellation");
+        var directHandler=new DirectHandler(invite);
+        using var directHttp=new HttpClient(directHandler);
+        var (directEndpoint,directSession)=await ClassroomDirect.JoinAsync(directHttp,"192.168.1.10",CancellationToken.None);
+        Check(directEndpoint.AbsoluteUri=="ws://192.168.1.10:48361/nekochat/v1/ws","direct pairing uses the fixed LAN endpoint");
+        Check(directSession.Ip=="192.168.1.21" && directSession.TeacherIP=="192.168.1.10","host-approved session validated");
+        Check(directHandler.Calls==4 && directHandler.NoSecrets && directHandler.StatusPolls==2,
+            "IP request only starts after health probe, never sends a guessed token");
+        bool invalidIp=false;
+        try{await ClassroomDirect.JoinAsync(directHttp,"8.8.8.8",CancellationToken.None);}
+        catch(InvalidDataException){invalidIp=true;}
+        Check(invalidIp,"direct pairing rejects public IPs without network access");
+        using var directCancel=new CancellationTokenSource();directCancel.Cancel();
+        bool directCanceled=false;
+        try{await ClassroomDirect.JoinAsync(directHttp,"192.168.1.10",directCancel.Token);}
+        catch(OperationCanceledException){directCanceled=true;}
+        Check(directCanceled,"direct pairing supports immediate cancellation");
         return checks;
     }
+    private sealed class DirectHandler(ClassroomInvitation invitation):HttpMessageHandler
+    {
+        internal int Calls,StatusPolls;
+        internal bool NoSecrets=true;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation)
+        {
+            Calls++;
+            NoSecrets&=request.Headers.Authorization is null && request.RequestUri!.Host=="192.168.1.10" &&
+                request.RequestUri.Port==48361 && string.IsNullOrEmpty(request.RequestUri.Query);
+            string path=request.RequestUri!.AbsolutePath;
+            object payload;
+            HttpStatusCode status=HttpStatusCode.OK;
+            if(path=="/healthz" && request.Method==HttpMethod.Get)
+                payload=new{protocol="nekochat",version=1,room_id=invitation.RoomId,
+                    room_mode="classroom",host_ip="192.168.1.10",ip_pairing_version=1};
+            else if(path=="/nekochat/v1/classroom/request" && request.Method==HttpMethod.Post)
+                payload=new{protocol="nekochat",version=1,room_id=invitation.RoomId,
+                    request_id=new string('a',32),state="pending"};
+            else if(path=="/nekochat/v1/classroom/request/"+new string('a',32) && request.Method==HttpMethod.Get){
+                StatusPolls++;
+                if(StatusPolls==1){status=HttpStatusCode.Accepted;payload=new{state="pending"};}
+                else payload=new{protocol="nekochat",version=1,room_id=invitation.RoomId,
+                    user="ip-192-168-1-21",ip="192.168.1.21",teacher_ip="192.168.1.10",token=LanInvitation.NewToken()};
+            }
+            else throw new Exception("Unexpected direct-pairing endpoint");
+            return Task.FromResult(new HttpResponseMessage(status){Content=new StringContent(JsonSerializer.Serialize(payload))});
+        }
+    }
+
     private sealed class AdmissionHandler:HttpMessageHandler
     {
         private readonly ClassroomInvitation invitation;
