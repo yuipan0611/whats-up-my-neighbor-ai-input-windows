@@ -21,9 +21,9 @@
 | 老師安裝、建立教室、接收發言及 Teams 分享 | [老師操作單](nekochat/docs/CLASSROOM-QUICKSTART.zh-TW.md#老師操作) |
 | 同學安裝、加入教室、Ping 老師及 IP 私訊 | [同學操作單](nekochat/docs/CLASSROOM-QUICKSTART.zh-TW.md#同學操作) |
 | 帶到教室列印，含三台電腦驗收表 | [下載兩頁 A4 操作單 PDF](nekochat/docs/NekoChat-Classroom-Quickstart.zh-TW.pdf?raw=1) |
-| 安裝本次已驗證的教室版 | [下載 Windows 一鍵安裝檔 EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.1/NekoChat-Setup-win-x64.exe) |
+| 安裝本次已驗證的教室版 | [下載 Windows 一鍵安裝檔 EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.2/NekoChat-Setup-win-x64.exe) |
 
-本次教室版為 [NekoChat Windows Lite 0.1.0-beta.1](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.1)。直接下載 `NekoChat-Setup-win-x64.exe`，雙擊並按「安裝並啟動」，不用解壓縮。Release 附件不受 Actions 測試產物的保存期限影響；老師可依學校允許的方式分發同一安裝檔給全班。Release 同時提供 SHA-256 校驗碼、兩頁操作單與建置來源紀錄。後續 CI 測試產物仍見 [NekoChat Windows Lite CI](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml)。
+本次教室版為 [NekoChat Windows Lite 0.1.0-beta.2](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.2)。直接下載 `NekoChat-Setup-win-x64.exe`，雙擊並按「安裝並啟動」，不用解壓縮。Release 附件不受 Actions 測試產物的保存期限影響；老師可依學校允許的方式分發同一安裝檔給全班。Release 同時提供 SHA-256 校驗碼、兩頁操作單與建置來源紀錄。後續 CI 測試產物仍見 [NekoChat Windows Lite CI](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml)。
 
 詳細功能見 [同學安裝與互傳](windows-lite/README.md)、[教室完整驗收](nekochat/docs/LAN-TEST.md) 與 [Windows repo 搬移紀錄](nekochat/docs/WINDOWS-REPO-MIGRATION.md)。
 
