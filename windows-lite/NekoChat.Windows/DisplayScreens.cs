@@ -77,6 +77,32 @@ internal static class DisplayScreens
             Math.Clamp(rect.Top, screen.WorkArea.Top, screen.WorkArea.Bottom - height), width, height);
     }
 
+    internal static NativeRect ConstrainToWorkArea(NativeRect bounds, NativeRect workArea)
+    {
+        int width = Math.Min(bounds.Width, workArea.Width);
+        int height = Math.Min(bounds.Height, workArea.Height);
+        int left = Math.Clamp(bounds.Left, workArea.Left, workArea.Right - width);
+        int top = Math.Clamp(bounds.Top, workArea.Top, workArea.Bottom - height);
+        return new NativeRect { Left = left, Top = top, Right = left + width, Bottom = top + height };
+    }
+
+    internal static void FitChat(ChatWindow chat)
+    {
+        var window = new System.Windows.Interop.WindowInteropHelper(chat).Handle;
+        var screen = All().FirstOrDefault(s => s.Handle == MonitorFromWindow(window, 2));
+        if (screen is null) return;
+        uint dpi = GetDpiForWindow(window);
+        if (dpi == 0) dpi = 96;
+        // WPF minima are DIPs; monitor work areas and SetWindowPos are physical pixels.
+        // Relax minima too, otherwise WPF can undo the native clamp on tiny/high-DPI screens.
+        chat.MinWidth = Math.Min(440, screen.WorkArea.Width * 96.0 / dpi);
+        chat.MinHeight = Math.Min(360, screen.WorkArea.Height * 96.0 / dpi);
+        if (!GetWindowRect(window, out var current)) throw new Win32Exception();
+        var fit = ConstrainToWorkArea(current, screen.WorkArea);
+        if (fit.Left != current.Left || fit.Top != current.Top || fit.Width != current.Width || fit.Height != current.Height)
+            Move(window, fit.Left, fit.Top, fit.Width, fit.Height);
+    }
+
     private static void Move(IntPtr window, int x, int y, int width, int height)
     {
         // Native physical coordinates avoid mixing logical offsets from monitors with different DPI.
@@ -94,3 +120,4 @@ internal static class DisplayScreens
     private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
 }
+

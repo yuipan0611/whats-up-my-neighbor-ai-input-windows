@@ -24,6 +24,7 @@ public partial class ChatWindow : Window
     {
         settings = initial;
         InitializeComponent();
+        InitializeWorkAreaSizing();
         // Observe composition completion even when TextBox/IME handles the event.
         Draft.AddHandler(TextCompositionManager.PreviewTextInputStartEvent,
             new TextCompositionEventHandler((_, _) => composingText = true), true);
@@ -285,3 +286,4 @@ public partial class ChatWindow : Window
             UpdateSettings(settings with { ReactionDisplayDevice = screen.DeviceName });
     }
 }
+
