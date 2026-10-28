@@ -259,8 +259,8 @@ public partial class ChatWindow : Window
     {
         TeacherTarget.Text = $"上面四款 → 老師 {settings.TeacherIp}";
         ScrollTarget.Text = string.IsNullOrWhiteSpace(RecipientIp.Text)
-            ? "你在給我滑！ → 請先選定上方聊天對象"
-            : $"你在給我滑！ → {RecipientIp.Text.Trim()}";
+            ? "你再給我滑！ → 請先選定上方聊天對象"
+            : $"你再給我滑！ → {RecipientIp.Text.Trim()}";
     }
 
     private void RefreshDisplays()

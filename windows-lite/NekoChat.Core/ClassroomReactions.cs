@@ -11,7 +11,7 @@ public static class ClassroomReactions
         new("cant-keep-up", "跟不上", "close-up.png", true),
         new("dont-understand", "聽不懂", "close-up.png", true),
         new("say-again", "再講一次", "raised-paw.png", true),
-        new("stop-scrolling", "你在給我滑！", "raised-paw.png", false)
+        new("stop-scrolling", "你再給我滑！", "raised-paw.png", false)
     ]);
 
     public static ClassroomReaction? Find(string? id) => All.FirstOrDefault(r => r.Id == id);
@@ -25,7 +25,7 @@ public static class ClassroomReactions
             "跟不上" or "我跟不上" => "cant-keep-up",
             "聽不懂" or "我聽不懂" => "dont-understand",
             "再講一次" or "請再講一次" => "say-again",
-            "你在給我滑" => "stop-scrolling",
+            "你再給我滑" => "stop-scrolling",
             _ => null
         };
         return Find(id);

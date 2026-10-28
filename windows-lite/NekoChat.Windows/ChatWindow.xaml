@@ -61,7 +61,7 @@
                     <Button Content="聽不懂" Tag="dont-understand" Click="ReactionSendClick" Padding="4,6" Margin="0,0,4,0"/>
                     <Button Content="再講一次" Tag="say-again" Click="ReactionSendClick" Padding="4,6"/>
                 </UniformGrid>
-                <Button x:Name="ScrollReaction" Content="你在給我滑！" Tag="stop-scrolling" Click="ReactionSendClick" Padding="4,6"/>
+                <Button x:Name="ScrollReaction" Content="你再給我滑！" Tag="stop-scrolling" Click="ReactionSendClick" Padding="4,6"/>
                 <TextBlock x:Name="ScrollTarget" Text="傳給上方選定的聊天對象" FontSize="12" Foreground="#475569" TextWrapping="Wrap" Margin="0,4,0,8"/>
                 <DockPanel>
                     <TextBlock Text="提醒螢幕：" VerticalAlignment="Center"/>
