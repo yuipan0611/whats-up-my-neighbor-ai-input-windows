@@ -62,7 +62,8 @@ public partial class PetWindow
     {
         if (!reactionImages.TryGetValue(notice.Reaction.ImageFile, out var image))
         {
-            using var source = File.OpenRead(Path.Combine(AppContext.BaseDirectory, "Assets", "Reactions", notice.Reaction.ImageFile));
+            using var source = typeof(PetWindow).Assembly.GetManifestResourceStream("NekoChat.Windows.Reactions." + notice.Reaction.ImageFile)
+                ?? throw new InvalidDataException("缺少反應貼圖。");
             image = new PngBitmapDecoder(source, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames[0];
             image.Freeze(); reactionImages.Add(notice.Reaction.ImageFile, image);
         }

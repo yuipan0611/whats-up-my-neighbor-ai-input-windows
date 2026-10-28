@@ -14,7 +14,8 @@
   <ItemGroup>
     <ProjectReference Include="../NekoChat.Core/NekoChat.Core.csproj" />
     <ProjectReference Include="../NekoChat.Animation/NekoChat.Animation.csproj" />
-    <Content Include="Assets/**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets/**" Exclude="Assets/Reactions/*.png" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Assets/Reactions/*.png" LogicalName="NekoChat.Windows.Reactions.%(Filename)%(Extension)" />
     <Content Include="../../Examples/CatAppearance/*.json" Link="Coats/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
