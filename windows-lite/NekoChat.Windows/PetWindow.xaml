@@ -6,6 +6,6 @@
    <Button.Template><ControlTemplate TargetType="Button"><Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="16" Padding="12"><ContentPresenter/></Border></ControlTemplate></Button.Template>
    <TextBlock x:Name="BubbleText" TextWrapping="Wrap" MaxHeight="82" TextTrimming="CharacterEllipsis" Foreground="#292828"/>
   </Button>
-  <Image x:Name="Cat" Grid.Row="1" Width="190" Height="190" Stretch="Uniform" Cursor="Hand" MouseLeftButtonDown="CatDown" MouseMove="CatMove" MouseLeftButtonUp="CatUp" AutomationProperties.Name="桌面貓咪，拖曳移動，右鍵選單"/>
+  <Image x:Name="Cat" Grid.Row="1" Width="190" Height="190" Stretch="Uniform" Cursor="Hand" MouseLeftButtonDown="CatDown" MouseMove="CatMove" MouseLeftButtonUp="CatUp" AutomationProperties.Name="桌面貓咪，雙擊左鍵開啟聊天，拖曳移動，右鍵選單"/>
  </Grid>
 </Window>

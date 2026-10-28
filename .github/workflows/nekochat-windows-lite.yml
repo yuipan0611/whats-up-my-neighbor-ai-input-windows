@@ -71,6 +71,13 @@ jobs:
           $textOnly = Start-Process -FilePath $app -ArgumentList @('--startup-smoke-test', "`"$textOnlyProof`"") -Wait -PassThru
           Get-Content "$textOnlyProof/startup-result.txt"
           if ($textOnly.ExitCode -ne 0) { exit 1 }
+      - name: Verify packaged and portable apps exchange real messages
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
+          $env:DOTNET_ROOT = "$env:RUNNER_TEMP/no-external-dotnet"
+          & ./scripts/test-lite-messaging.ps1 -App build/windows-lite-package/NekoChat.Windows.exe -OutputDirectory build/windows-lite-smoke/messaging-package
+          & ./scripts/test-lite-messaging.ps1 -App build/windows-lite-portable/NekoChat-Lite.exe -OutputDirectory build/windows-lite-smoke/messaging-portable
       - name: Build single-file per-user installer
         shell: pwsh
         run: |
@@ -94,6 +101,22 @@ jobs:
           Get-Content "$target/result.txt"
           if ($check.ExitCode -ne 0) { exit 1 }
           Copy-Item "$target/result.txt" build/windows-lite-smoke/installer-result.txt
+          & ./scripts/test-lite-messaging.ps1 -App "$target/Programs/NekoChat.WindowsLite/NekoChat.Windows.exe" -OutputDirectory build/windows-lite-smoke/messaging-installed
+      - name: Verify release versions and record artifact provenance
+        shell: pwsh
+        run: |
+          $expected = ([xml](Get-Content windows-lite/NekoChat.Windows/NekoChat.Windows.csproj -Raw)).Project.PropertyGroup.Version
+          $expectedFile = ([xml](Get-Content windows-lite/NekoChat.Windows/NekoChat.Windows.csproj -Raw)).Project.PropertyGroup.FileVersion
+          $files = @('build/windows-lite-portable/NekoChat-Lite.exe', 'build/windows-lite-setup/NekoChat-Setup-win-x64.exe')
+          $assets = foreach ($file in $files) {
+            $info = [Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path $file).Path)
+            if ($info.ProductVersion.Split('+')[0] -ne $expected -or $info.FileVersion -ne $expectedFile) {
+              throw "Release version mismatch: $file ($($info.ProductVersion), $($info.FileVersion))"
+            }
+            @{ name = [IO.Path]::GetFileName($file); size = (Get-Item $file).Length; sha256 = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant(); productVersion = $info.ProductVersion; fileVersion = $info.FileVersion }
+          }
+          @{ version = $expected; sourceCommit = $env:GITHUB_SHA; runId = $env:GITHUB_RUN_ID; runAttempt = $env:GITHUB_RUN_ATTEMPT; assets = @($assets) } |
+            ConvertTo-Json -Depth 5 | Set-Content build/windows-lite-setup/release-provenance.json -Encoding utf8
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nekochat-windows-lite-portable
@@ -108,6 +131,7 @@ jobs:
           path: |
             build/windows-lite-setup/NekoChat-Setup-win-x64.exe
             build/windows-lite-setup/NekoChat-Setup-win-x64.exe.sha256
+            build/windows-lite-setup/release-provenance.json
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -29,6 +29,7 @@ public partial class PetWindow : Window
     internal int PendingChatCount => chatNotices.Count;
     private Point down;
     private bool dragging;
+    private bool doubleClick;
     private readonly DispatcherTimer bubbleTimer = new() { Interval = TimeSpan.FromSeconds(12) };
 
     public PetWindow()
@@ -183,6 +184,7 @@ public partial class PetWindow : Window
     {
         down = e.GetPosition(this);
         dragging = false;
+        doubleClick = e.ClickCount == 2;
         automaticMotion = false;
         nextAction = AnimationNow + 5;
         if (animatedCoat is not null) animation.Press(AnimationNow);
@@ -211,7 +213,8 @@ public partial class PetWindow : Window
         nextAction = AnimationNow + 5;
         Left = Math.Clamp(Left, SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenLeft + Math.Max(0, SystemParameters.VirtualScreenWidth - Width));
         Top = Math.Clamp(Top, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenTop + Math.Max(0, SystemParameters.VirtualScreenHeight - Height));
-        if (!dragging) OpenChat?.Invoke(null);
+        if (!dragging && doubleClick) OpenChat?.Invoke(null);
+        doubleClick = false;
     }
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]

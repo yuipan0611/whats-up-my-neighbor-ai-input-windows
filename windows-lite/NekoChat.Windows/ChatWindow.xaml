@@ -6,7 +6,7 @@
     <DockPanel Margin="16">
         <!-- 底部狀態 -->
         <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Text="就緒"
-                   Foreground="#64748B" FontSize="12" Margin="0,8,0,0"/>
+                   Foreground="#64748B" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
 
         <Grid>
             <Grid.RowDefinitions>

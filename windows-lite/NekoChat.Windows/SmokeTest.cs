@@ -73,7 +73,7 @@ internal static class SmokeTest
             Save(chatBitmap, Path.Combine(directory, "chat-window.png"));
 
             File.WriteAllText(Path.Combine(directory, "result.txt"),
-                "PASS: Direct LAN loopback delivery, contact resolution, WPF UI layout, 9 native cat coats render, desktop pet bubble notification.");
+                "PASS: listener startup, contact resolution, WPF UI layout, 9 native cat coats render and synthetic desktop pet bubble. Real message delivery is verified separately by --messaging-smoke-test.");
             return 0;
         }
         catch (Exception ex)

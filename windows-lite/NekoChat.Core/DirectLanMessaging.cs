@@ -34,12 +34,14 @@ public static class DirectLanMessaging
         using var content = new StringContent(payload, Encoding.UTF8, "application/json");
         try
         {
-            var response = await client.PostAsync($"http://{targetIp}:{port}/nekochat/v1/direct", content, cancellation);
+            using var response = await client.PostAsync($"http://{targetIp}:{port}/nekochat/v1/direct", content, cancellation);
             if (!response.IsSuccessStatusCode)
                 throw new HttpRequestException($"對方回應 HTTP {(int)response.StatusCode}");
             var body = await response.Content.ReadAsStringAsync(cancellation);
             using var doc = JsonDocument.Parse(body);
-            return doc.RootElement.TryGetProperty("status", out var s) && s.GetString() == "delivered";
+            if (!doc.RootElement.TryGetProperty("status", out var s) || s.GetString() != "delivered")
+                throw new InvalidOperationException("對方沒有確認訊息送達，請先確認後再重送。");
+            return true;
         }
         catch (Exception ex) when (ex is HttpRequestException or SocketException or TaskCanceledException)
         {
