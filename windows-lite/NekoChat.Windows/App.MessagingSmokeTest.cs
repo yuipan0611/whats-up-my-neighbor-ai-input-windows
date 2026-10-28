@@ -57,10 +57,13 @@ public partial class App
             File.WriteAllText(prefix + ".received", "received");
             await UntilAsync(() => File.Exists(Path.Combine(options.Directory, other + ".received")), timeout.Token);
 
-            // Close this app's receiver so the next real button press must fail.
-            await directListener!.DisposeAsync();
-            directListener = null;
-            directSendPort = options.ListenPort;
+            // Use an unbound peer port while keeping this app's receiver healthy.
+            using (var reservation = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0))
+            {
+                reservation.Start();
+                directSendPort = ((System.Net.IPEndPoint)reservation.LocalEndpoint).Port;
+                reservation.Stop();
+            }
             const string failed = "未送達的訊息必須保留在草稿";
             SendFromButton(failed);
             await UntilAsync(() => chat.SendButton.IsEnabled, timeout.Token);

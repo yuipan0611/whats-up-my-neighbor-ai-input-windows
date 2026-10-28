@@ -37,6 +37,11 @@ internal static class SmokeTest
 
             // 3. UI, Cat Artwork & Coats Rendering
             var chat = new ChatWindow(settings);
+            if (typeof(Protocol).Assembly.GetType("NekoChat.Core.GroqWhisperProvider") is not null ||
+                typeof(App).Assembly.GetType("NekoChat.Windows.CredentialStore") is not null ||
+                typeof(App).Assembly.GetReferencedAssemblies().Any(a => a.Name?.StartsWith("NAudio") == true) ||
+                chat.FindName("VoiceButton") is not null)
+                throw new Exception("Classroom edition must not include voice/key handling");
             var pet = new PetWindow();
             pet.VerifyAnimationIntegration();
 

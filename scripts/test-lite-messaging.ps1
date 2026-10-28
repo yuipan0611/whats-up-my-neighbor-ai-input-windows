@@ -10,6 +10,24 @@ New-Item -ItemType Directory -Path $proof | Out-Null
 $reservations = @()
 $processes = @()
 try {
+    $instanceProof = Join-Path $proof 'single-instance'
+    $instance = Start-Process -FilePath $appPath -ArgumentList @('--instance-smoke-test', "`"$instanceProof`"") -PassThru
+    $processes += $instance
+    if (!$instance.WaitForExit(30000)) { throw 'Single-instance smoke timed out.' }
+    Get-Content (Join-Path $instanceProof 'result.txt')
+    if ($instance.ExitCode -ne 0) { throw 'Single-instance smoke failed.' }
+
+    $occupied = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, 8768)
+    $occupied.Start()
+    $reservations += $occupied
+    $receiverProof = Join-Path $proof 'receiver-failure'
+    $receiver = Start-Process -FilePath $appPath -ArgumentList @('--receiver-failure-smoke-test', "`"$receiverProof`"") -PassThru
+    $processes += $receiver
+    if (!$receiver.WaitForExit(30000)) { throw 'Receiver-failure smoke timed out.' }
+    Get-Content (Join-Path $receiverProof 'result.txt')
+    if ($receiver.ExitCode -ne 0) { throw 'Receiver-failure smoke failed.' }
+    $occupied.Stop()
+
     $gestureProof = Join-Path $proof 'gestures'
     $gesture = Start-Process -FilePath $appPath -ArgumentList @('--interaction-smoke-test', "`"$gestureProof`"") -PassThru
     $processes += $gesture

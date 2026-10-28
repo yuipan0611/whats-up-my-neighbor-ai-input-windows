@@ -38,14 +38,23 @@ public static class DirectLanMessaging
             if (!response.IsSuccessStatusCode)
                 throw new HttpRequestException($"對方回應 HTTP {(int)response.StatusCode}");
             var body = await response.Content.ReadAsStringAsync(cancellation);
-            using var doc = JsonDocument.Parse(body);
-            if (!doc.RootElement.TryGetProperty("status", out var s) || s.GetString() != "delivered")
-                throw new InvalidOperationException("對方沒有確認訊息送達，請先確認後再重送。");
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                    !doc.RootElement.TryGetProperty("status", out var s) ||
+                    s.ValueKind != JsonValueKind.String || s.GetString() != "delivered")
+                    throw new InvalidOperationException("對方沒有確認訊息送達，請先向對方確認後再重送。");
+            }
+            catch (JsonException)
+            {
+                throw new InvalidOperationException("對方的送達回覆無法讀取，請先向對方確認後再重送。");
+            }
             return true;
         }
         catch (Exception ex) when (ex is HttpRequestException or SocketException or TaskCanceledException)
         {
-            throw new InvalidOperationException($"無法連線至 {targetIp}（請確認對方已開啟 NekoChat，且雙方在同一個 Wi-Fi／內網）。");
+            throw new InvalidOperationException($"未能確認送達 {targetIp}（TCP {port}）。請確認 IP 正確、對方顯示「接收已啟動」；若仍失敗，請教室管理者檢查 Windows 網路權限及 Wi-Fi／AP 隔離。重送前請先向對方確認。");
         }
     }
 }

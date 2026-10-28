@@ -20,6 +20,8 @@ public partial class ChatWindow : Window
     {
         settings = initial;
         InitializeComponent();
+        var version = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(ChatWindow).Assembly)?.InformationalVersion.Split('+')[0];
+        Title = $"NekoChat Lite {version}";
         Closing += OnClosing;
 
         AutoStartCheck.IsChecked = settings.AutoStartOnLogin;
@@ -56,6 +58,15 @@ public partial class ChatWindow : Window
     }
 
     internal void SetStatus(string text) => Status.Text = text;
+
+    internal void SetReceiverState(bool running, int port, string? error)
+    {
+        SendButton.IsEnabled = running;
+        ReceiverStatus.Foreground = running ? System.Windows.Media.Brushes.DarkGreen : System.Windows.Media.Brushes.Firebrick;
+        ReceiverStatus.Text = running
+            ? $"接收已啟動（TCP {port}）；對方可輸入你的 IP 傳訊。"
+            : $"無法接收訊息（TCP {port}）：{error}。請先從舊版貓咪右鍵選「離開」，再重開此版本；仍失敗請將此提示交給教室管理者。";
+    }
 
     internal void AddHistory(string text)
     {
@@ -155,6 +166,7 @@ public partial class ChatWindow : Window
 
     private void SendClick(object sender, RoutedEventArgs e)
     {
+        if (!SendButton.IsEnabled) return;
         var targetIp = RecipientIp.Text.Trim();
         var text = Draft.Text;
         if (string.IsNullOrWhiteSpace(targetIp))

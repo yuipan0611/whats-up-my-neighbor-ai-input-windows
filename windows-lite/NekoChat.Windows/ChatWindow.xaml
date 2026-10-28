@@ -4,6 +4,8 @@
         Title="NekoChat" Width="430" Height="530" MinWidth="380" MinHeight="450"
         Background="#FAF9F7" WindowStartupLocation="CenterScreen">
     <DockPanel Margin="16">
+        <TextBlock x:Name="ReceiverStatus" DockPanel.Dock="Bottom" Text="接收服務啟動中…"
+                   Foreground="#64748B" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
         <!-- 底部狀態 -->
         <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Text="就緒"
                    Foreground="#64748B" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>

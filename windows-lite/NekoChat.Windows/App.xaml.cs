@@ -15,6 +15,7 @@ public partial class App : Application
     private ChatWindow chat = null!;
     private DirectLanListener? directListener;
     private int directSendPort = DirectLanMessaging.DefaultPort;
+    private Mutex? instanceGate;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -30,7 +31,27 @@ public partial class App : Application
         {
             var messagingSmoke = MessagingSmokeOptions.Parse(e.Args);
             bool gestureSmoke = e.Args.Length == 2 && e.Args[0] == "--interaction-smoke-test";
-            settings = messagingSmoke is null && !gestureSmoke ? Settings.Load() : new Settings { AutoStartOnLogin = false };
+            bool receiverSmoke = e.Args.Length == 2 && e.Args[0] == "--receiver-failure-smoke-test";
+            bool instanceSmoke = e.Args.Length == 2 && e.Args[0] == "--instance-smoke-test";
+            bool instanceProbe = e.Args.Length == 2 && e.Args[0] == "--instance-probe";
+            if (messagingSmoke is null && !gestureSmoke && !receiverSmoke)
+            {
+                instanceGate = new Mutex(true, "Local\\NekoChat.WindowsLite.App", out bool firstInstance);
+                if (instanceProbe)
+                {
+                    Directory.CreateDirectory(e.Args[1]);
+                    File.WriteAllText(Path.Combine(e.Args[1], "duplicate-result.txt"), firstInstance ? "FAIL: second app acquired the gate" : "PASS: duplicate app stopped before settings, listener or windows");
+                    Environment.Exit(firstInstance ? 1 : 0);
+                    return;
+                }
+                if (!firstInstance)
+                {
+                    MessageBox.Show("NekoChat 已經在執行。請使用桌面上現有的貓咪；雙擊貓咪可開啟聊天。若要更新，請先從貓咪右鍵選「離開」。", "NekoChat 已開啟");
+                    Shutdown();
+                    return;
+                }
+            }
+            settings = e.Args.Length == 0 ? Settings.Load() : new Settings { AutoStartOnLogin = false };
             directSendPort = messagingSmoke?.PeerPort ?? DirectLanMessaging.DefaultPort;
 
             if (settings.AutoStartOnLogin)
@@ -90,6 +111,7 @@ public partial class App : Application
                 pet.NotifyChat(text, senderIp, displayName);
             });
             directListener.Start();
+            chat.SetReceiverState(directListener.Running, directListener.Port, directListener.Error);
 
             if (Appearance.Presets.Contains(settings.Coat))
             {
@@ -98,6 +120,11 @@ public partial class App : Application
 
             pet.Show();
             chat.Show();
+
+            if (instanceSmoke)
+                Dispatcher.BeginInvoke(new Action(async () => await RunInstanceSmokeTestAsync(e.Args[1])));
+            if (receiverSmoke)
+                Dispatcher.BeginInvoke(new Action(() => RunReceiverFailureSmokeTest(e.Args[1])));
 
             if (messagingSmoke is not null)
             {
@@ -135,6 +162,12 @@ public partial class App : Application
 
     private async Task SendDirectMessageAsync(string targetIp, string text)
     {
+        if (directListener?.Running != true)
+        {
+            chat.SetStatus("接收服務未啟動，請先處理下方提示後重開 NekoChat。（草稿保留）");
+            return;
+        }
+        if (!chat.SendButton.IsEnabled) return;
         var ownIps = LanInvitation.LocalAddresses();
         if (ownIps.Contains(targetIp))
         {
@@ -149,7 +182,7 @@ public partial class App : Application
         {
             await DirectLanMessaging.SendDirectAsync(targetIp, text, directSendPort);
             chat.AddHistory($"我 → {displayName}：{text}");
-            chat.Draft.Clear();
+            if (chat.Draft.Text == text) chat.Draft.Clear();
             chat.SetStatus($"已送達 {displayName}！");
         }
         catch (Exception ex)
@@ -175,7 +208,7 @@ public partial class App : Application
     {
         try
         {
-            string currentVer = "0.1.0-beta.4";
+            string currentVer = "0.1.0-beta.5";
             try
             {
                 var infoVer = (System.Reflection.AssemblyInformationalVersionAttribute?)
@@ -227,6 +260,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _ = directListener?.DisposeAsync();
+        instanceGate?.Dispose();
         base.OnExit(e);
     }
 }
