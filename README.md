@@ -1,29 +1,93 @@
-# What's up my neighbor AI Input — Windows
+<div align="center">
 
-官方網站：[nekonode.cloud](https://nekonode.cloud)。各平台進度、使用教學與開發者文件可在官網查看。
+<img src="assets/desktop-pet/sit.svg" alt="NekoChat 的黑貓吉祥物，左眼是 X、右眼是勾勾" width="160">
+
+# NekoChat · Windows
+
+**把隔壁同學的訊息，交給桌面上的貓咪。**
+
+內網 IP 直連 · 不用邀請碼 · 九種貓咪花色 · 課堂反應貼圖
+
+**[下載 Windows 安裝版](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.7/NekoChat-Setup-win-x64.exe)** · [免安裝版](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.7/NekoChat-Lite.exe) · [版本說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.7)
+
+**目前最新教室測試版：0.1.0-beta.7** · Windows x64 · 未簽署的預發布版本
+
+[快速開始](#三步開始聊天) · [下載怎麼選](#下載怎麼選) · [使用與安全](#使用前請留意) · [標準語音版](#標準語音版-neighbor) · [官方網站](https://nekonode.cloud)
+
+</div>
+
+---
+
+## 下載怎麼選
+
+兩個檔案**擇一**即可，不需要下載 Source code，也不用另裝 Python、.NET 或 API Key。
+
+| 你想怎麼用 | 下載 beta.7 | 差別 |
+|---|---|---|
+| 第一次在教室使用 | **[NekoChat-Setup-win-x64.exe](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.7/NekoChat-Setup-win-x64.exe)** | 建議選這個；安裝時由有權限的人員完成一次管理員授權，設定同網段收訊規則。日常聊天不需管理員權限。 |
+| 不安裝，直接開啟 | [NekoChat-Lite.exe](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.7/NekoChat-Lite.exe) | 單一 EXE；不會自動設定防火牆，仍需教室網路允許互連。 |
+
+> **找最新版，不要只看 GitHub 的「Latest」。** 上方下載連結明確指向 **0.1.0-beta.7**。GitHub 的 Latest 與預發布版本是不同概念，目前舊 beta.4 被標為非預發布，因此 Latest 仍指向舊版；beta.7 保留正確的 Pre-release 標示。所有歷史版本都保留在 [Releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases)。
+
+[SHA-256 校驗碼與建置來源](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.7) · [beta.7 完整更新說明](nekochat/docs/releases/nekochat-lite-v0.1.0-beta.7.md)
+
+## 三步開始聊天
+
+1. **兩台都更新**：先在舊貓咪上按右鍵 →「離開」，再開啟 beta.7。關閉聊天視窗只是隱藏，不是離開程式。
+2. **交換內網 IP**：雙擊貓咪開啟聊天，確認顯示「接收已啟動」，輸入同學畫面上的內網 IP。教室聊天不需要帳號、建房或長邀請碼，也不依賴外網服務。
+3. **傳一句話**：Enter 傳送，Shift＋Enter 換行；對方收到後會看到貓咪氣泡，點氣泡即可回覆。先確認雙向都能收到，再開始使用。
+
+### 小貓能做什麼？
+
+| 桌面陪伴 | 同學聊天 | 課堂互動 |
+|---|---|---|
+| 九種花色、動畫與自動散步，右鍵可暫停 | 內網 IP 直連、本機通訊錄、氣泡回覆 | 五款去背反應貼圖、兩秒中央提醒、可選提醒螢幕 |
+| 雙擊開聊天、拖曳移動貓咪 | 送達確認；離線或未確認送達時保留草稿 | 老師與同學兩端都使用 beta.7 才能看到圖片效果 |
+
+完整操作、老師 IP 設定與驗收方式見 **[Lite 教室版使用指南](windows-lite/README.md)**。
+
+## 使用前請留意
+
+- **這仍是測試版，不是正式穩定版。** beta.7 的 [Windows Lite 建置與驗證](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/runs/40663260847) 有對應來源與測試附件；自動測試不等於兩台實體教室電腦、投影／混合 DPI、實際中文輸入法與 UAC 操作皆已驗收。
+- **可信內網限定**：聊天使用明文 TCP 8768；IP 是找到電腦的位置，不是對方身分驗證。只在可信教室網路傳非敏感內容。
+- **不要關閉防護**：Setup 的網路設定仍受學校管理政策約束；取消授權、AP／VLAN 隔離或封鎖規則都可能影響收訊，請依提示交由教室管理者確認。
+- **下載來源與雜湊**：僅從本專案 Releases 下載並核對同名 `.sha256`；未簽署程式可能觸發 SmartScreen。若校方政策不允許執行，請交由管理者處理，不要停用防護。
+- **更新不會靜默安裝**：貓咪右鍵「檢查更新」可查看版本；下載新版前先離開舊程式。教室沒有外網時，可先在可連網處取得安裝檔。
+
+<details>
+<summary>查看 PowerShell 校驗方式</summary>
+
+```powershell
+Get-FileHash .\NekoChat-Setup-win-x64.exe -Algorithm SHA256
+# 免安裝版：
+Get-FileHash .\NekoChat-Lite.exe -Algorithm SHA256
+```
+
+將輸出與同一個 beta.7 Release 中對應的 `.sha256` 比對。
+
+</details>
+
+## 這個倉庫有兩個 Windows 版本
+
+|  | NekoChat Lite（本頁主角） | Neighbor 標準語音版 |
+|---|---|---|
+| 用途 | 教室內網聊天與桌面貓咪 | 全域快捷鍵 AI 語音輸入 |
+| 網路與帳號 | 聊天走內網，不需要 API Key | 語音上傳 Groq，需網路與自己的 API Key |
+| 下載辨識 | `NekoChat-*.exe` | `Neighbor-Setup-*.exe` |
+| 版本線 | `nekochat-lite-v0.1.0-beta.7` | `v0.1.0-beta.3`（獨立發布） |
+
+**不要把兩條版本線的功能、測試或安裝權限混為一談。** Lite 的測試結果不代表標準語音版測試已通過。macOS 另見 [Mac repo](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-macos)，功能與發布各自獨立。
+
+## 標準語音版 Neighbor
+
+<details>
+<summary>展開：原版 AI 語音輸入、下載安裝、隱私與開發文件</summary>
 
 小黑貓語音輸入工具（Windows 版）：按快捷鍵說話，再按一次完成，錄音送到 Groq 辨識，然後把文字貼到目前的輸入框。**只貼上，不會自動按 Enter 送出訊息。**
 
 目前版本：**0.1.0-beta.3（預發布測試版）**。實機驗收尚未完成，見 [VALIDATION.md](VALIDATION.md)。
 
 本 repo 是 Windows 版的正式 repo，由 yuipan0611 維護與發布，授權為 MIT（見 [LICENSE](LICENSE)）。Windows 版主要貢獻者：[andrewchu0101](https://github.com/andrewchu0101)。macOS 版在 [Mac repo](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-macos)。Windows 版與 macOS 版各自開發、各自發布；功能不完全對等，以本文件列出的內容為準。
-
-## NekoChat Lite：教室聊天與綠色版（教室輕量版）
-
-教室環境專屬的輕量化實作位於 [windows-lite/](windows-lite/README.md)：透明桌面貓咪、9 種花色隨選、訊息氣泡，以及「免邀請碼、純內網 IP 直連通信」。
-
-- **雙版本體系**：
-  - **標準版 (`Neighbor.Windows`)**：全域快捷鍵 AI 語音輸入（Groq Whisper）、自訂詞庫、智慧學習、桌面小黑貓。
-  - **教室 Lite 版 (`NekoChat.WindowsLite`)**：純內網 IP 直接通訊、9 種花色貓咪調色盤、免邀請碼、免語音輸入、免外網、開機自啟動、本機 IP 通訊錄名稱管理。
-- **免安裝隨開即用**：提供單一綠色執行檔 `NekoChat-Lite.exe` 與一鍵安裝包 `NekoChat-Setup-win-x64.exe`，不需安裝 Python、.NET 執行環境或設定 API Key。
-- **通訊方式**：直接在輸入框填入對方的內網 IP（例如 `192.168.1.25`）並發送，對方桌面的貓咪即時冒出對話氣泡；支援在介面記住「同學姓名／座位」儲存於本機 `settings.json`。
-
-| 要做什麼 | 下載／說明 |
-|---|---|
-| 下載免安裝綠色執行檔（下載點開即用） | [下載 NekoChat-Lite.exe](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) |
-| 下載一鍵安裝檔 | [下載 NekoChat-Setup-win-x64.exe](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) |
-| 詳細功能與教室使用指南 | [Lite 教室版完整說明](windows-lite/README.md) |
-
 
 ## 桌面小黑貓（Windows 第一階段）
 
@@ -40,7 +104,7 @@
 
 ## 下載與安裝
 
-到 [Releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) 下載最新版本，只需要一個檔案：
+到 [標準語音版 beta.3 Release](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/v0.1.0-beta.3) 下載此版本，只需要一個檔案：
 
 ```text
 Neighbor-Setup-<版本>-x64.exe
@@ -144,3 +208,9 @@ App 不會替你購買 API 額度；額度或費用依你的 Groq 帳號方案�
 ## 不在本版範圍
 
 iPhone 接力、跨裝置詞典同步、多人會議分人、本機 AI 模型，以及 macOS 版的其他功能。
+
+</details>
+
+---
+
+由 [yuipan0611](https://github.com/yuipan0611) 維護與發布 · Windows 版主要貢獻者 [andrewchu0101](https://github.com/andrewchu0101) · [MIT License](LICENSE)
