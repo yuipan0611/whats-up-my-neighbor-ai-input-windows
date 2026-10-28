@@ -14,6 +14,7 @@ public partial class App : Application
     private PetWindow pet = null!;
     private ChatWindow chat = null!;
     private DirectLanListener? directListener;
+    private int directSendPort = DirectLanMessaging.DefaultPort;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -27,7 +28,10 @@ public partial class App : Application
 
         try
         {
-            settings = Settings.Load();
+            var messagingSmoke = MessagingSmokeOptions.Parse(e.Args);
+            bool gestureSmoke = e.Args.Length == 2 && e.Args[0] == "--interaction-smoke-test";
+            settings = messagingSmoke is null && !gestureSmoke ? Settings.Load() : new Settings { AutoStartOnLogin = false };
+            directSendPort = messagingSmoke?.PeerPort ?? DirectLanMessaging.DefaultPort;
 
             if (settings.AutoStartOnLogin)
             {
@@ -78,7 +82,7 @@ public partial class App : Application
             };
             chat.SendRequested += async (targetIp, text) => await SendDirectMessageAsync(targetIp, text);
 
-            directListener = new DirectLanListener();
+            directListener = new DirectLanListener(messagingSmoke?.ListenPort ?? DirectLanMessaging.DefaultPort);
             directListener.MessageReceived += (senderIp, text) => Dispatcher.Invoke(() =>
             {
                 var displayName = settings.ResolveDisplayName(senderIp);
@@ -94,6 +98,15 @@ public partial class App : Application
 
             pet.Show();
             chat.Show();
+
+            if (messagingSmoke is not null)
+            {
+                Dispatcher.BeginInvoke(new Action(async () => await RunMessagingSmokeTestAsync(messagingSmoke)));
+            }
+            if (gestureSmoke)
+            {
+                Dispatcher.BeginInvoke(new Action(async () => await RunInteractionSmokeTestAsync(e.Args[1])));
+            }
 
             if (e.Args.Length == 0)
             {
@@ -134,7 +147,7 @@ public partial class App : Application
         chat.SetStatus($"正在傳送至 {displayName}…");
         try
         {
-            await DirectLanMessaging.SendDirectAsync(targetIp, text);
+            await DirectLanMessaging.SendDirectAsync(targetIp, text, directSendPort);
             chat.AddHistory($"我 → {displayName}：{text}");
             chat.Draft.Clear();
             chat.SetStatus($"已送達 {displayName}！");

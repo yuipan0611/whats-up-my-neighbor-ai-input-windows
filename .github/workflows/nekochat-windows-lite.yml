@@ -71,6 +71,13 @@ jobs:
           $textOnly = Start-Process -FilePath $app -ArgumentList @('--startup-smoke-test', "`"$textOnlyProof`"") -Wait -PassThru
           Get-Content "$textOnlyProof/startup-result.txt"
           if ($textOnly.ExitCode -ne 0) { exit 1 }
+      - name: Verify packaged and portable apps exchange real messages
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
+          $env:DOTNET_ROOT = "$env:RUNNER_TEMP/no-external-dotnet"
+          & ./scripts/test-lite-messaging.ps1 -App build/windows-lite-package/NekoChat.Windows.exe -OutputDirectory build/windows-lite-smoke/messaging-package
+          & ./scripts/test-lite-messaging.ps1 -App build/windows-lite-portable/NekoChat-Lite.exe -OutputDirectory build/windows-lite-smoke/messaging-portable
       - name: Build single-file per-user installer
         shell: pwsh
         run: |
@@ -94,6 +101,7 @@ jobs:
           Get-Content "$target/result.txt"
           if ($check.ExitCode -ne 0) { exit 1 }
           Copy-Item "$target/result.txt" build/windows-lite-smoke/installer-result.txt
+          & ./scripts/test-lite-messaging.ps1 -App "$target/Programs/NekoChat.WindowsLite/NekoChat.Windows.exe" -OutputDirectory build/windows-lite-smoke/messaging-installed
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nekochat-windows-lite-portable
