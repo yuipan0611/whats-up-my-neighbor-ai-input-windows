@@ -2,6 +2,10 @@
 
 專為電腦教室與區域網路設計的 Windows 桌面貓咪與局域網即時通訊小工具。
 
+**[下載 beta.7 安裝版](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.7/NekoChat-Setup-win-x64.exe)** · [免安裝版](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.7/NekoChat-Lite.exe) · [版本與驗證附件](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.7) · [回首頁](../README.md)
+
+> 目前教室測試版為 **0.1.0-beta.7**，仍是未簽署的預發布版本。下載請使用上方明確版本連結，不依賴 GitHub 的 Latest 標記。
+
 ## 0.1.0-beta.7 教室測試版
 
 - 內建花色預設自動散步，不再被 Windows 視窗動畫設定停用；右鍵「🐾 自動散步」可暫停／恢復並記住選擇，隨機目的地、緩加速／減速及依距離播放腳步。
@@ -12,7 +16,7 @@
 - 單檔免安裝版不自動修改防火牆。SmartScreen、學校權限、兩台實體電腦及實際中文輸入法仍需確認。
 - 完整修改說明：[beta.7 發布說明](../nekochat/docs/releases/nekochat-lite-v0.1.0-beta.7.md)。
 
-## beta.5 已有功能
+## 課堂反應與聊天功能
 
 ### 課堂反應貼圖
 
