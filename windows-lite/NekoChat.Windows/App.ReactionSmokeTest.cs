@@ -3,6 +3,8 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using NekoChat.Core;
 
 namespace NekoChat.Windows;
@@ -69,7 +71,23 @@ public partial class App
             Require(chat.History.Text.Contains("127.0.0.1："), "Chat lost source IP");
             if (captureName == "bob-too-fast")
                 await UntilAsync(() => pet.ReactionCaption.Text.Contains("×2"), token);
-            Capture(pet, Path.Combine(options.Directory, captureName + "-reaction.png"));
+            string capturePath = Path.Combine(options.Directory, captureName + "-reaction.png");
+            Capture(pet, capturePath);
+            using (var captureFile = File.OpenRead(capturePath))
+            {
+                var frame = new PngBitmapDecoder(captureFile, BitmapCreateOptions.None, BitmapCacheOption.OnLoad).Frames[0];
+                var bgra = new FormatConvertedBitmap(frame, PixelFormats.Bgra32, null, 0);
+                var pixels = new byte[bgra.PixelWidth * bgra.PixelHeight * 4];
+                bgra.CopyPixels(pixels, bgra.PixelWidth * 4, 0);
+                int visibleWhite = 0;
+                for (int y = 248; y < bgra.PixelHeight; y++)
+                    for (int x = 0; x < bgra.PixelWidth; x++)
+                    {
+                        int i = (y * bgra.PixelWidth + x) * 4;
+                        if (pixels[i] > 220 && pixels[i + 1] > 220 && pixels[i + 2] > 220 && pixels[i + 3] > 220) visibleWhite++;
+                    }
+                Require(visibleWhite > 20, "Caption has no readable white fill over its black outline");
+            }
             if (clickReply)
             {
                 chat.RecipientIp.Text = "192.168.1.254";

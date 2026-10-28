@@ -25,7 +25,8 @@ public sealed class OutlinedCaption : FrameworkElement
         drawing.PushTransform(new TranslateTransform((ActualWidth - bounds.Width * scale) / 2 - bounds.Left * scale,
             (ActualHeight - bounds.Height * scale) / 2 - bounds.Top * scale));
         drawing.PushTransform(new ScaleTransform(scale, scale));
-        drawing.DrawGeometry(Brushes.White, new Pen(Brushes.Black, 3.5) { LineJoin = PenLineJoin.Round }, geometry);
+        drawing.DrawGeometry(null, new Pen(Brushes.Black, 3.5) { LineJoin = PenLineJoin.Round }, geometry);
+        drawing.DrawGeometry(Brushes.White, null, geometry);
         drawing.Pop(); drawing.Pop();
     }
 }
