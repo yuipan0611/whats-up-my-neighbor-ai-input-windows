@@ -152,3 +152,21 @@ jobs:
           name: nekochat-windows-smoke-captures
           path: build/windows-lite-smoke/
           if-no-files-found: warn
+
+  stage-release-draft:
+    name: Stage verified Lite release draft
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [relay, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Attach exact tested main artifacts to an existing draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/stage-lite-release.sh
