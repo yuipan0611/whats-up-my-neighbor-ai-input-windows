@@ -6,6 +6,8 @@
     <DockPanel Margin="16">
         <TextBlock x:Name="ReceiverStatus" DockPanel.Dock="Bottom" Text="接收服務啟動中…"
                    Foreground="#64748B" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
+        <TextBlock DockPanel.Dock="Bottom" Text="Enter 傳送 · Shift＋Enter 換行" FontSize="11"
+                   Foreground="#64748B" Margin="0,6,0,0"/>
         <!-- 底部狀態 -->
         <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Text="就緒"
                    Foreground="#64748B" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
@@ -86,7 +88,7 @@
                 </Button>
                 <TextBox x:Name="Draft" AcceptsReturn="True" Height="55" TextWrapping="Wrap"
                          VerticalScrollBarVisibility="Auto" Background="White" BorderBrush="#CBD5E1"
-                         Padding="6" FontSize="13" FontFamily="Segoe UI, Microsoft JhengHei" KeyDown="DraftKeyDown"/>
+                         Padding="6" FontSize="13" FontFamily="Segoe UI, Microsoft JhengHei" PreviewKeyDown="DraftPreviewKeyDown"/>
             </DockPanel>
         </Grid>
     </DockPanel>

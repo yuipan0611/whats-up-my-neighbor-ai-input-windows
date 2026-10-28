@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Input;
 using System.Windows.Media.Imaging;
 
 namespace NekoChat.Windows;
@@ -38,7 +39,7 @@ public partial class App
 
             if (options.Role == "alice")
             {
-                SendFromButton(first);
+                SendFromEnter(first);
                 await UntilAsync(() => chat.SendButton.IsEnabled, timeout.Token);
                 VerifySent(first);
                 await UntilAsync(() => chat.History.Text.Contains("127.0.0.1：" + reply), timeout.Token);
@@ -81,7 +82,7 @@ public partial class App
             Require(status.ActualHeight + 1 >= fullText.Height, "Failure explanation is clipped by the window layout");
             Capture(chat, prefix + "-failure.png");
             File.WriteAllText(prefix + "-result.txt",
-                "PASS: two independent app processes; real WPF send button; bidirectional TCP messages; Unicode/multiline text; " +
+                "PASS: two independent app processes; real WPF Enter handler and send button; bidirectional TCP messages; Unicode/multiline text; " +
                 "received history; visible cat bubble; bubble reply target; successful receipt and draft clearing; " +
                 "unreachable peer error, retained draft and restored send button. Same-host loopback only; classroom LAN remains unverified.");
             Environment.Exit(0);
@@ -92,6 +93,13 @@ public partial class App
             Environment.Exit(1);
         }
 
+        void SendFromEnter(string text)
+        {
+            chat.RecipientIp.Text = "127.0.0.1";
+            chat.Draft.Text = text;
+            chat.Draft.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(chat),
+                Environment.TickCount, Key.Enter) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+        }
         void SendFromButton(string text)
         {
             chat.RecipientIp.Text = "127.0.0.1";

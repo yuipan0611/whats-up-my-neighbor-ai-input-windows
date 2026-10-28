@@ -12,6 +12,7 @@ internal record Settings
 {
     public string Coat { get; init; } = "original";
     public bool AutoStartOnLogin { get; init; } = true;
+    public bool WanderEnabled { get; init; } = true;
     public string LastRecipientIp { get; init; } = "";
     public List<ContactItem> Contacts { get; init; } = new();
     public string TeacherIp { get; init; } = NekoChat.Core.ClassroomReactions.DefaultTeacherIp;

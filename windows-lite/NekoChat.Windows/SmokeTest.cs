@@ -18,13 +18,15 @@ internal static class SmokeTest
         try
         {
             // 1. Settings & Contacts Roundtrip
-            var settings = new Settings { TeacherIp = "192.168.24.9", ReactionDisplayDevice = "unplugged-screen", Coat = "calico" }
+            var settings = new Settings { TeacherIp = "192.168.24.9", ReactionDisplayDevice = "unplugged-screen", Coat = "calico", WanderEnabled = false }
                 .WithContact("127.0.0.1", "測試同學")
                 .WithContact("192.168.1.50", "隔壁座位");
             if (settings.ResolveDisplayName("127.0.0.1") != "測試同學 (127.0.0.1)")
                 throw new Exception("Contact resolution failed");
             settings.Save();
             var reloaded = Settings.Load();
+            if (reloaded.WanderEnabled || !new Settings().WanderEnabled)
+                throw new Exception("Wandering default or setting persistence failed");
             if (reloaded.Contacts.Count < 2)
                 throw new Exception("Settings contacts persistence failed");
             if (reloaded.TeacherIp != settings.TeacherIp || reloaded.ReactionDisplayDevice != settings.ReactionDisplayDevice || reloaded.Coat != settings.Coat)
@@ -42,7 +44,7 @@ internal static class SmokeTest
             Settings? latest = null;
             chat.SettingsChanged += value => latest = value;
             chat.RememberCoat("tuxedo");
-            if (latest?.TeacherIp != settings.TeacherIp || latest.ReactionDisplayDevice != settings.ReactionDisplayDevice || latest.Contacts.Count != 2)
+            if (latest?.TeacherIp != settings.TeacherIp || latest.ReactionDisplayDevice != settings.ReactionDisplayDevice || latest.Contacts.Count != 2 || latest.WanderEnabled)
                 throw new Exception("Changing coat overwrote current contacts or reaction settings");
             if (typeof(Protocol).Assembly.GetType("NekoChat.Core.GroqWhisperProvider") is not null ||
                 typeof(App).Assembly.GetType("NekoChat.Windows.CredentialStore") is not null ||

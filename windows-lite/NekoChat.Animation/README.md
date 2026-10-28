@@ -7,7 +7,8 @@ Source: macOS commit `ef9fe89f1f78698453ed13d3cfba4181fc326537`, renderer SHA-25
 - 850ms pickup, 400ms landing, ending at native frame 35 without rebound. Early release and re-grab retain native forward/reverse travel.
 - Walking in both directions includes native first-step easing; other frames are sampled directly from `DesktopPetView` for grooming, yawning, loafing, sleeping, curious and petted poses. Only the original silhouette turns; X/check glyph handedness is retained.
 - Selecting an internal coat keeps pose/position and persists the same `Settings.Coat` field. Imported artwork remains static and temporary; choosing a built-in coat resumes animation.
-- The normal desktop cat cycles through idle poses and short walks. Visible message/voice bubbles and an open context menu stop automatic motion. Disabling Windows client-area animations disables autonomous actions. Intentional drag still uses the approved lift sequence.
+- The Lite desktop cat uses the native sitting/standing/journey/grooming/yawning/loafing/sleeping activity order, randomized destinations and smoothstep movement. Foot phases follow actual travel distance rather than elapsed time. Visible message bubbles, dragging and an open context menu pause autonomous motion. The persistent app-specific automatic-wandering toggle defaults on independently of Windows client-area animations; no OS setting is changed. Intentional drag retains the approved lift sequence.
+- Artwork parity does not imply OS integration parity: macOS folder perches/desktop-object jumps are not implemented by the Windows Lite host. See `docs/LITE-ANIMATION-PARITY.md`.
 - WPF caches at most 64 decoded frames. One ZIP is embedded in `NekoChat.Animation.dll`, preserving the installer's 4,096-file and 512 MiB limits. The installer requires this DLL and still stages transactional upgrades.
 - All assets are local. No download, telemetry, external service, user image recoloring or new configuration fields.
 

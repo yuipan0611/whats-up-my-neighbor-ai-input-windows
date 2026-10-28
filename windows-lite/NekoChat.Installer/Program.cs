@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.ComponentModel;
+using System.Security.Principal;
 using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -14,31 +16,64 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if(args.Length==2 && args[0]=="--configure-firewall")return LanFirewall.RunHelper(args[1]);
         if(args.Length==2 && args[0]=="--smoke-install")return Smoke(args[1]);
+        if(args.Length!=0)return 2;
         using var gate=new Mutex(true,"Local\\NekoChat.WindowsLite.Installer",out bool acquired);
         if(!acquired){MessageBox.Show("另一個 NekoChat 安裝程式正在執行。","NekoChat");return 1;}
         var app=new Application();
-        var window=new Window{Title="安裝 NekoChat Windows Lite",Width=460,Height=350,ResizeMode=ResizeMode.NoResize,WindowStartupLocation=WindowStartupLocation.CenterScreen,
+        var window=new Window{Title="安裝 NekoChat Windows Lite",Width=480,Height=440,ResizeMode=ResizeMode.NoResize,WindowStartupLocation=WindowStartupLocation.CenterScreen,
             Background=new SolidColorBrush(Color.FromRgb(250,249,247))};
         var panel=new StackPanel{Margin=new Thickness(28)};
         panel.Children.Add(new TextBlock{Text="讓桌面貓咪陪你教室聊天、內網通訊",FontSize=22,FontWeight=FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap});
-        panel.Children.Add(new TextBlock{Text="安裝至目前 Windows 使用者，建立開始功能表捷徑。執行所需元件已包含，不需要另外安裝 Python 或 .NET。",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,16,0,16)});
+        panel.Children.Add(new TextBlock{Text="安裝至目前 Windows 使用者，建立開始功能表捷徑。所需元件已包含。安裝時會要求一次管理員授權，讓同網段同學可以傳訊到這台電腦。",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,16,0,16)});
         var button=new Button{Content="安裝並啟動",Padding=new Thickness(16,10,16,10),HorizontalAlignment=HorizontalAlignment.Left};panel.Children.Add(button);
         var status=new TextBlock{Text="教室純文字版，不需要麥克風或 API Key；原有設定與花色會保留。",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,16,0,0)};panel.Children.Add(status);
+        var skip=new Button{Content="略過網路設定並啟動（可能無法收訊）",Visibility=Visibility.Collapsed,Margin=new Thickness(0,12,0,0),Padding=new Thickness(10),HorizontalAlignment=HorizontalAlignment.Left};panel.Children.Add(skip);
+        string? installedFolder=null;
         bool installing=false;
+        void Launch(){Process.Start(new ProcessStartInfo(Path.Combine(installedFolder!,"NekoChat.Windows.exe")){WorkingDirectory=installedFolder,UseShellExecute=true});installing=false;window.Close();}
+        skip.Click+=(_,_)=>{if(!installing && installedFolder is not null)Launch();};
         window.Closing+=(_,e)=>{if(installing)e.Cancel=true;};
         button.Click+=async(_,_)=> {
-            installing=true;button.IsEnabled=false;status.Text="正在安裝…";
+            installing=true;button.IsEnabled=false;skip.IsEnabled=false;status.Text="正在安裝…";
             try {
-                var installed=await Task.Run(Install);
-                CreateShortcut(installed);
-                Process.Start(new ProcessStartInfo(Path.Combine(installed,"NekoChat.Windows.exe")){WorkingDirectory=installed,UseShellExecute=true});
-                installing=false;window.Close();
-            }catch(Exception ex){status.Text=ex is InvalidDataException or IOException?ex.Message:"安裝失敗。請確認檔案完整、已離開舊版程式，且學校允許安裝。";button.IsEnabled=true;}
+                if(installedFolder is null){installedFolder=await Task.Run(Install);CreateShortcut(installedFolder);}
+                status.Text="正在設定同網段收訊權限，請確認 Windows 管理員授權提示…";
+                await ConfigureFirewallAsync(Path.Combine(installedFolder,"NekoChat.Windows.exe"));
+                Launch();
+            }catch(Exception ex){
+                status.Text=ex is Win32Exception {NativeErrorCode:1223}
+                    ?"程式已安裝，但你尚未同意網路設定。可重試管理員授權；略過後可能無法收到同學訊息。"
+                    :ex is InvalidDataException or IOException or InvalidOperationException?ex.Message
+                    :"安裝或網路設定未完成。請確認已離開舊版程式，且學校允許安裝與內網通訊。";
+                button.Content=installedFolder is null?"重試安裝":"重試網路設定";
+                button.IsEnabled=true;skip.IsEnabled=true;skip.Visibility=installedFolder is null?Visibility.Collapsed:Visibility.Visible;
+            }
             finally{installing=false;}
         };
         window.Content=panel;app.Run(window);return 0;
     }
+    private static async Task ConfigureFirewallAsync(string programPath)
+    {
+        using var identity=WindowsIdentity.GetCurrent();
+        if(new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))
+        {
+            LanFirewall.Configure(programPath);
+            return;
+        }
+        var start=new ProcessStartInfo(Environment.ProcessPath!)
+        {
+            UseShellExecute=true,Verb="runas",WindowStyle=ProcessWindowStyle.Hidden
+        };
+        start.ArgumentList.Add("--configure-firewall");
+        start.ArgumentList.Add(programPath);
+        using var helper=Process.Start(start)??throw new IOException("無法開啟網路設定。");
+        await helper.WaitForExitAsync();
+        if(helper.ExitCode!=0)
+            throw new InvalidOperationException("程式已安裝，但網路設定未完成。請重試並授予管理員權限；若學校政策禁止，請聯絡管理者。");
+    }
+
     private static Stream VerifiedPayload()
     {
         var assembly=typeof(Program).Assembly;

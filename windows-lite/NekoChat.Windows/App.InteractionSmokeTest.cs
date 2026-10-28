@@ -10,7 +10,7 @@ public partial class App
     {
         Directory.CreateDirectory(directory);
         GetCursorPos(out var originalCursor);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(25));
         int exitCode = 0;
         try
         {
@@ -50,8 +50,18 @@ public partial class App
             MouseEvent(0x0004, 0, 0, 0, UIntPtr.Zero);
             await Task.Delay(150, timeout.Token);
             Require(openings == 1 && !chat.IsVisible, "Releasing a drag opened chat");
+            // Verify timer-driven window movement, not merely changing walk sprites.
+            pet.SetWanderEnabled(true);
+            pet.Left = SystemParameters.WorkArea.Left + Math.Max(0, (SystemParameters.WorkArea.Width - pet.Width) / 2);
+            var beforeWander = pet.Left;
+            await UntilAsync(() => Math.Abs(pet.Left - beforeWander) >= 8, timeout.Token);
+            pet.SetWanderEnabled(false);
+            var pausedLeft = pet.Left;
+            await Task.Delay(250, timeout.Token);
+            Require(Math.Abs(pet.Left - pausedLeft) < .01, "Paused wandering still moved the pet");
+            Capture(pet, Path.Combine(directory, "automatic-wandering.png"));
             File.WriteAllText(Path.Combine(directory, "result.txt"),
-                "PASS: native Windows mouse input; single left click stays closed; double left click opens chat exactly once; double-click drag moves cat and release stays closed. Bubble reply is covered by messaging smoke.");
+                "PASS: native Windows mouse input; single left click stays closed; double left click opens chat exactly once; double-click drag moves cat and release stays closed. timer-driven wandering changes actual window position; disabling wandering stops movement. Bubble reply is covered by messaging smoke.");
         }
         catch (Exception ex)
         {

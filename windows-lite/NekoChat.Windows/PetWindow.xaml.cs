@@ -18,6 +18,8 @@ public partial class PetWindow : Window
     internal event Action? ImportCoat;
     internal event Action? CheckUpdates;
     internal event Action<bool>? AutoStartToggled;
+    internal event Action<bool>? WanderToggled;
+    private MenuItem? wanderMenuItem;
 
     internal readonly Dictionary<string, MenuItem> CoatMenuItems = new();
     private readonly MenuItem autoStartMenuItem;
@@ -76,6 +78,15 @@ public partial class PetWindow : Window
             AutoStartToggled?.Invoke(nextState);
         };
         menu.Items.Add(autoStartMenuItem);
+
+        wanderMenuItem = new MenuItem { Header = "🐾 自動散步", IsCheckable = true, IsChecked = true };
+        wanderMenuItem.Click += (_, _) =>
+        {
+            bool enabled = wanderMenuItem.IsChecked;
+            SetWanderEnabled(enabled);
+            WanderToggled?.Invoke(enabled);
+        };
+        menu.Items.Add(wanderMenuItem);
 
         var import = new MenuItem { Header = "📁 匯入 cat.config.json…" };
         import.Click += (_, _) => ImportCoat?.Invoke();

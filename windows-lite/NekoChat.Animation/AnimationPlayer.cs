@@ -26,6 +26,8 @@ public sealed class AnimationPlayer(Manifest manifest)
     public bool Dragging { get; private set; }
     public bool Pressed { get; private set; }
     public bool Paused { get; private set; }
+    public const double StrideDistance = 86 * 0.28 / 0.6;
+    private double? walkDistance;
     private double started, clock, pausedAt;
     private int startIndex, endIndex;
     private string pressMode = "idle";
@@ -63,10 +65,23 @@ public sealed class AnimationPlayer(Manifest manifest)
             if (ClipName is "walk-left" or "walk-right" && phase < clip.Duration) {
                 frameClip += "-start";
             }
+            if (ClipName is "walk-left" or "walk-right" && walkDistance is { } distance)
+            {
+                frameClip = ClipName + (distance < StrideDistance ? "-start" : "");
+                var walkedFraction = distance % StrideDistance / StrideDistance;
+                return $"{frameClip}-{Math.Min(clip.Count - 1, (int)(walkedFraction * clip.Count)):D3}.png";
+            }
             var fraction = clip.Loop ? phase % clip.Duration / clip.Duration : Math.Min(1, phase / clip.Duration);
             var index = Math.Min(clip.Count - 1, (int)(fraction * (clip.Loop ? clip.Count : Math.Max(1, clip.Count - 1))));
             return $"{frameClip}-{index:D3}.png";
         }
+    }
+
+    public void SetWalkDistance(double distance)
+    {
+        if (double.IsNaN(distance) || double.IsInfinity(distance) || distance < 0)
+            throw new ArgumentOutOfRangeException(nameof(distance));
+        if (!Paused && Mode == "clip" && ClipName is "walk-left" or "walk-right") walkDistance = distance;
     }
 
     public void Play(string name, double now)
@@ -76,6 +91,7 @@ public sealed class AnimationPlayer(Manifest manifest)
     }
     public void Reset(double now)
     {
+        walkDistance = null;
         Pressed = Dragging = Paused = false; Mode = "idle"; ClipName = null;
         LiftIndex = 0; started = clock = now;
     }

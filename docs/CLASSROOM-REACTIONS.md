@@ -21,6 +21,8 @@
 
 本次不安裝、不合併、不發布。原圖與審稿預覽保留在桌面工作區 design/windows-classroom-reactions-20261028。
 
-實作後本機驗證：核心 3,920 項（新增 47 項，包含真實 loopback TCP 與舊端相容）、動畫 4,346 項及 WPF 編譯（0 警告／0 錯誤）通過。Windows 原生收發測試已擴充五款按鈕、雙向第五款、關鍵短句、兩秒還原、IP 顯示與回覆；等待 Windows CI 執行，不能以編譯通過代替。
+實作後本機驗證：核心 3,920 項（新增 47 項，包含真實 loopback TCP 與舊端相容）、動畫 4,361 項及 WPF 編譯（0 警告／0 錯誤）通過。Windows 原生收發測試已擴充五款按鈕、雙向第五款、關鍵短句、兩秒還原、IP 顯示與回覆；等待 Windows CI 執行，不能以編譯通過代替。
 
 多螢幕定位使用 [GetDpiForWindow](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-getdpiforwindow) 取得視窗所在螢幕的 DPI，並以原生實體座標移動，避免混用不同縮放比例的邏輯座標。投影與混合 DPI 仍列實機驗收。
+
+已同步主線 beta.6（71e3c3e）的 Enter／IME 與散步設定修正；保留相關原生鍵盤測試及安裝流程。散步開關亦透過共用設定更新路徑保存，不覆寫新的老師／螢幕設定。
