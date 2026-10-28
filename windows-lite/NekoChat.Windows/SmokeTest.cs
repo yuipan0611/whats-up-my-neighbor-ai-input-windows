@@ -18,7 +18,7 @@ internal static class SmokeTest
         try
         {
             // 1. Settings & Contacts Roundtrip
-            var settings = new Settings { WanderEnabled = false }
+            var settings = new Settings { WanderEnabled = false, PetScale = 1.5 }
                 .WithContact("127.0.0.1", "測試同學")
                 .WithContact("192.168.1.50", "隔壁座位");
             if (settings.ResolveDisplayName("127.0.0.1") != "測試同學 (127.0.0.1)")
@@ -27,6 +27,8 @@ internal static class SmokeTest
             var reloaded = Settings.Load();
             if (reloaded.WanderEnabled || !new Settings().WanderEnabled)
                 throw new Exception("Wandering default or setting persistence failed");
+            if (reloaded.PetScale != 1.5 || System.Text.Json.JsonSerializer.Deserialize<Settings>("{}")!.PetScale != 1)
+                throw new Exception("Pet size persistence or legacy settings default failed");
             if (reloaded.Contacts.Count < 2)
                 throw new Exception("Settings contacts persistence failed");
 
@@ -46,6 +48,7 @@ internal static class SmokeTest
                 throw new Exception("Classroom edition must not include voice/key handling");
             var pet = new PetWindow();
             pet.VerifyAnimationIntegration();
+            pet.VerifyDesktopIntegration(directory);
 
             foreach (var id in Appearance.Presets)
             {

@@ -18,8 +18,7 @@ public partial class App
             pet.Cat.MouseLeftButtonDown += (_, _) => presses++;
             pet.OpenChat += _ => openings++;
             chat.Hide();
-            pet.Left = SystemParameters.WorkArea.Left + 30;
-            pet.Top = SystemParameters.WorkArea.Top + 30;
+            pet.SetDesktopPetPosition(pet.DesktopWorkArea.Left + 30, pet.DesktopWorkArea.Top + 30);
             await Task.Delay(250, timeout.Token);
 
             ClickCat();
@@ -52,7 +51,7 @@ public partial class App
             Require(openings == 1 && !chat.IsVisible, "Releasing a drag opened chat");
             // Verify timer-driven window movement, not merely changing walk sprites.
             pet.SetWanderEnabled(true);
-            pet.Left = SystemParameters.WorkArea.Left + Math.Max(0, (SystemParameters.WorkArea.Width - pet.Width) / 2);
+            pet.SetDesktopPetPosition(pet.DesktopWorkArea.Left + Math.Max(0, (pet.DesktopWorkArea.Width - pet.Width) / 2), pet.VisibleDesktopPet.Top);
             var beforeWander = pet.Left;
             await UntilAsync(() => Math.Abs(pet.Left - beforeWander) >= 8, timeout.Token);
             pet.SetWanderEnabled(false);

@@ -53,4 +53,33 @@ Check(activity.Step(21.6,arrived.X,0,1000).Pose=="loafing","Missing loafing tran
 Check(activity.Step(26.6,arrived.X,0,1000).Pose=="sleeping","Missing sleeping transition");
 Check(activity.Step(61,arrived.X,0,1000).Pose is "walk-left" or "walk-right","Sleep did not resume a journey");
 activity.Reset(100);Check(activity.Step(101,arrived.X,0,1000).Pose=="sitting","Interrupt did not restore sitting");
-Console.WriteLine($"Animation preview: {checks} checks passed (native travel vectors, nine coats, interrupted drag, landing, pause and pose playback).");
+// Two-dimensional travel must cover the full work area and link gait to the
+// travelled diagonal distance, including a display with no horizontal room.
+foreach (var bounds in new[] { (-1800d, -200d, 0d, 900d), (0d, 0d, 0d, 600d) })
+{
+    var roaming = new DesktopPetActivity(42); roaming.Reset(0, 0);
+    double x = (bounds.Item1 + bounds.Item3) / 2, y = (bounds.Item2 + bounds.Item4) / 2;
+    var visited = new HashSet<int>(); bool diagonal = false, vertical = false;
+    for (int tick = 0; tick < 24000; tick++)
+    {
+        var step = roaming.Step(tick * .25, x, y, bounds.Item1, bounds.Item3, bounds.Item2, bounds.Item4);
+        Check(step.X >= bounds.Item1 && step.X <= bounds.Item3 && step.Y >= bounds.Item2 && step.Y <= bounds.Item4,
+            "Two-dimensional journey escaped its monitor");
+        vertical |= Math.Abs(step.Y - y) > .01;
+        diagonal |= Math.Abs(step.X - x) > .01 && Math.Abs(step.Y - y) > .01;
+        if (step.Pose is not "walk-left" and not "walk-right")
+            for (int corner = 0; corner < 4; corner++)
+                if (Math.Abs(step.X - ((corner & 1) == 0 ? bounds.Item1 : bounds.Item3)) < .001 &&
+                    Math.Abs(step.Y - ((corner & 2) == 0 ? bounds.Item2 : bounds.Item4)) < .001) visited.Add(corner);
+        x = step.X; y = step.Y;
+    }
+    Check(vertical && (bounds.Item1 == bounds.Item3 || diagonal), "Vertical or diagonal travel was omitted");
+    Check(visited.Count == 4, "Uninterrupted roaming did not visit all corners");
+}
+var diagonalActivity = new DesktopPetActivity(7); diagonalActivity.Reset(0, 0);
+diagonalActivity.Step(0, 500, 500, 0, 1000, 0, 1000);
+diagonalActivity.Step(2, 500, 500, 0, 1000, 0, 1000);
+var diagonalStep = diagonalActivity.Step(2.5, 500, 500, 0, 1000, 0, 1000);
+Check(Math.Abs(diagonalStep.WalkDistance - Math.Sqrt(Math.Pow(diagonalStep.X - 500, 2) + Math.Pow(diagonalStep.Y - 500, 2))) < 1e-8,
+    "Diagonal gait ignores vertical distance");
+Console.WriteLine($"Animation preview: {checks} checks passed (native travel vectors, nine coats, interrupted drag, landing, pause, two-dimensional roaming and four-corner coverage).");

@@ -41,16 +41,16 @@ public sealed class AnimationAssets : IDisposable
         int version = dict.TryGetValue("version", out var v) && v is int iv ? iv : 1;
         int carry = dict.TryGetValue("carryIndex", out var ci) && ci is int cii ? cii : 19;
 
-        var timesList = (object[])dict["times"];
+        var timesList = ((System.Collections.IEnumerable)dict["times"]).Cast<object>();
         var times = timesList.Select(Convert.ToDouble).ToArray();
 
-        var sourcesList = (object[])dict["sources"];
+        var sourcesList = ((System.Collections.IEnumerable)dict["sources"]).Cast<object>();
         var sources = sourcesList.Select(Convert.ToInt32).ToArray();
 
-        var coatsList = (object[])dict["coats"];
+        var coatsList = ((System.Collections.IEnumerable)dict["coats"]).Cast<object>();
         var coats = coatsList.Select(Convert.ToString).ToArray();
 
-        var coatNamesList = (object[])dict["coatNames"];
+        var coatNamesList = ((System.Collections.IEnumerable)dict["coatNames"]).Cast<object>();
         var coatNames = coatNamesList.Select(Convert.ToString).ToArray();
 
         var clipsDict = (Dictionary<string, object>)dict["clips"];

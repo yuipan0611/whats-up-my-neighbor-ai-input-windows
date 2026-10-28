@@ -29,7 +29,6 @@ public partial class PetWindow : Window
     private ChatNotice? currentChat;
     private bool persistentNotice;
     internal int PendingChatCount => chatNotices.Count;
-    private Point down;
     private bool dragging;
     private bool doubleClick;
     private readonly DispatcherTimer bubbleTimer = new() { Interval = TimeSpan.FromSeconds(12) };
@@ -38,8 +37,6 @@ public partial class PetWindow : Window
     {
         InitializeComponent();
         InitializeAnimation();
-        Left = SystemParameters.WorkArea.Right - 310;
-        Top = SystemParameters.WorkArea.Bottom - 330;
 
         SourceInitialized += (_, _) =>
         {
@@ -102,6 +99,7 @@ public partial class PetWindow : Window
         menu.Items.Add(exit);
 
         Cat.ContextMenu = menu;
+        InitializeDesktop(menu);
     }
 
     internal void UpdateCoatChecked(string? activeId)
@@ -129,6 +127,7 @@ public partial class PetWindow : Window
         sender = from;
         BubbleText.Text = from is null ? text : $"{displayName ?? from}：{text}\n點擊回覆";
         Bubble.Visibility = Visibility.Visible;
+        RefreshDesktop();
         bubbleTimer.Stop();
         if (!persistent) bubbleTimer.Start();
     }
@@ -153,6 +152,7 @@ public partial class PetWindow : Window
         if (currentChat is null) return;
         sender = currentChat.From;
         BubbleText.Text = $"{currentChat.Name}：{currentChat.Text}\n點擊回覆" + (chatNotices.Count > 0 ? $" · 另有 {chatNotices.Count} 則" : "");
+        RefreshDesktop();
     }
 
     internal void AdvanceChatNotice()
@@ -170,6 +170,7 @@ public partial class PetWindow : Window
         chatNotices.RemoveFirst();
         RenderChatNotice();
         Bubble.Visibility = Visibility.Visible;
+        RefreshDesktop();
         bubbleTimer.Start();
     }
 
@@ -193,7 +194,8 @@ public partial class PetWindow : Window
 
     private void CatDown(object sender, MouseButtonEventArgs e)
     {
-        down = e.GetPosition(this);
+        dragCursorStart = CursorPosition();
+        dragPetStart = desktopPet.TopLeft;
         dragging = false;
         doubleClick = e.ClickCount == 2;
         automaticMotion = false;
@@ -205,14 +207,12 @@ public partial class PetWindow : Window
     private void CatMove(object sender, MouseEventArgs e)
     {
         if (e.LeftButton != MouseButtonState.Pressed || !Cat.IsMouseCaptured) return;
-        var point = e.GetPosition(this);
-        var delta = point - down;
+        var delta = CursorPosition() - dragCursorStart;
         if (dragging || Math.Abs(delta.X) > SystemParameters.MinimumHorizontalDragDistance || Math.Abs(delta.Y) > SystemParameters.MinimumVerticalDragDistance)
         {
             if (animatedCoat is not null) animation.Drag(AnimationNow);
             dragging = true;
-            Left += delta.X;
-            Top += delta.Y;
+            SetDesktopPetPosition(dragPetStart.X + delta.X, dragPetStart.Y + delta.Y);
         }
     }
 
@@ -222,8 +222,7 @@ public partial class PetWindow : Window
         if (animatedCoat is not null) animation.Release(AnimationNow);
         Cat.ReleaseMouseCapture();
         nextAction = AnimationNow + 5;
-        Left = Math.Clamp(Left, SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenLeft + Math.Max(0, SystemParameters.VirtualScreenWidth - Width));
-        Top = Math.Clamp(Top, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenTop + Math.Max(0, SystemParameters.VirtualScreenHeight - Height));
+        RefreshDesktop();
         if (!dragging && doubleClick) OpenChat?.Invoke(null);
         doubleClick = false;
     }
