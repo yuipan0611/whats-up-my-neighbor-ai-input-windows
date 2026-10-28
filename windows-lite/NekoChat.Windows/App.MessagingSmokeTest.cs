@@ -56,6 +56,7 @@ public partial class App
             Capture(chat, prefix + "-chat.png");
             File.WriteAllText(prefix + ".received", "received");
             await UntilAsync(() => File.Exists(Path.Combine(options.Directory, other + ".received")), timeout.Token);
+            await RunReactionMessagingChecksAsync(options, timeout.Token);
 
             // Use an unbound peer port while keeping this app's receiver healthy.
             using (var reservation = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0))
@@ -106,6 +107,7 @@ public partial class App
         {
             Require(pet.Bubble.Visibility == Visibility.Visible && pet.BubbleText.Text.Contains(text),
                 "Network message did not appear in the cat bubble");
+            Require(!pet.BubbleText.Text.Contains("127.0.0.1"), "Source IP leaked into the pet bubble");
             Capture(pet, prefix + "-bubble.png");
             chat.RecipientIp.Text = "192.168.1.254";
             pet.Bubble.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

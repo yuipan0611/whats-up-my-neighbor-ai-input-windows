@@ -18,7 +18,7 @@ internal static class SmokeTest
         try
         {
             // 1. Settings & Contacts Roundtrip
-            var settings = new Settings()
+            var settings = new Settings { TeacherIp = "192.168.24.9", ReactionDisplayDevice = "unplugged-screen", Coat = "calico" }
                 .WithContact("127.0.0.1", "測試同學")
                 .WithContact("192.168.1.50", "隔壁座位");
             if (settings.ResolveDisplayName("127.0.0.1") != "測試同學 (127.0.0.1)")
@@ -27,6 +27,8 @@ internal static class SmokeTest
             var reloaded = Settings.Load();
             if (reloaded.Contacts.Count < 2)
                 throw new Exception("Settings contacts persistence failed");
+            if (reloaded.TeacherIp != settings.TeacherIp || reloaded.ReactionDisplayDevice != settings.ReactionDisplayDevice || reloaded.Coat != settings.Coat)
+                throw new Exception("Reaction settings or original coat were lost");
 
             // 2. Direct LAN Listener Configuration & State Check
             var directListener = new DirectLanListener(18768);
@@ -37,6 +39,11 @@ internal static class SmokeTest
 
             // 3. UI, Cat Artwork & Coats Rendering
             var chat = new ChatWindow(settings);
+            Settings? latest = null;
+            chat.SettingsChanged += value => latest = value;
+            chat.RememberCoat("tuxedo");
+            if (latest?.TeacherIp != settings.TeacherIp || latest.ReactionDisplayDevice != settings.ReactionDisplayDevice || latest.Contacts.Count != 2)
+                throw new Exception("Changing coat overwrote current contacts or reaction settings");
             if (typeof(Protocol).Assembly.GetType("NekoChat.Core.GroqWhisperProvider") is not null ||
                 typeof(App).Assembly.GetType("NekoChat.Windows.CredentialStore") is not null ||
                 typeof(App).Assembly.GetReferencedAssemblies().Any(a => a.Name?.StartsWith("NAudio") == true) ||
@@ -70,10 +77,10 @@ internal static class SmokeTest
             chat.SetStatus("Windows CI 視窗繪製驗證完成");
 
             var chatVisual = (FrameworkElement)chat.Content;
-            chatVisual.Measure(new Size(430, 530));
-            chatVisual.Arrange(new Rect(0, 0, 430, 530));
+            chatVisual.Measure(new Size(480, 740));
+            chatVisual.Arrange(new Rect(0, 0, 480, 740));
             chatVisual.UpdateLayout();
-            var chatBitmap = new RenderTargetBitmap(430, 530, 96, 96, PixelFormats.Pbgra32);
+            var chatBitmap = new RenderTargetBitmap(480, 740, 96, 96, PixelFormats.Pbgra32);
             chatBitmap.Render(chatVisual);
             Save(chatBitmap, Path.Combine(directory, "chat-window.png"));
 

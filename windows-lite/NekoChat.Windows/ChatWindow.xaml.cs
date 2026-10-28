@@ -12,9 +12,12 @@ public partial class ChatWindow : Window
 {
     private Settings settings;
     private bool updatingCombo;
+    private bool updatingDisplays;
 
     internal event Action<string, string>? SendRequested;
     internal event Action<bool>? AutoStartChanged;
+    internal event Action<Settings>? SettingsChanged;
+    internal event Action<string, ClassroomReaction>? ReactionRequested;
 
     internal ChatWindow(Settings initial)
     {
@@ -34,6 +37,9 @@ public partial class ChatWindow : Window
 
         PopulateContactsCombo();
         UpdateLocalIPDisplay();
+        TeacherIpBox.Text = settings.TeacherIp;
+        RefreshReactionTargets();
+        RefreshDisplays();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -62,6 +68,8 @@ public partial class ChatWindow : Window
     internal void SetReceiverState(bool running, int port, string? error)
     {
         SendButton.IsEnabled = running;
+        TeacherReactions.IsEnabled = running;
+        ScrollReaction.IsEnabled = running;
         ReceiverStatus.Foreground = running ? System.Windows.Media.Brushes.DarkGreen : System.Windows.Media.Brushes.Firebrick;
         ReceiverStatus.Text = running
             ? $"接收已啟動（TCP {port}）；對方可輸入你的 IP 傳訊。"
@@ -148,8 +156,7 @@ public partial class ChatWindow : Window
             return;
         }
 
-        settings = settings.WithContact(ip, name);
-        settings.Save();
+        UpdateSettings(settings.WithContact(ip, name));
         PopulateContactsCombo();
         UpdateComboSelection(ip);
         SetStatus($"已記住：{name} ({ip})");
@@ -182,24 +189,90 @@ public partial class ChatWindow : Window
             return;
         }
 
-        settings = settings with { LastRecipientIp = targetIp };
-        settings.Save();
+        UpdateSettings(settings with { LastRecipientIp = targetIp });
         SendRequested?.Invoke(targetIp, text);
     }
 
     private void AutoStartChecked(object sender, RoutedEventArgs e)
     {
-        settings = settings with { AutoStartOnLogin = true };
-        settings.Save();
+        UpdateSettings(settings with { AutoStartOnLogin = true });
         AutoStartChanged?.Invoke(true);
         SetStatus("已開啟開機啟動。");
     }
 
     private void AutoStartUnchecked(object sender, RoutedEventArgs e)
     {
-        settings = settings with { AutoStartOnLogin = false };
-        settings.Save();
+        UpdateSettings(settings with { AutoStartOnLogin = false });
         AutoStartChanged?.Invoke(false);
         SetStatus("已關閉開機啟動。");
+    }
+
+    private void UpdateSettings(Settings updated)
+    {
+        settings = updated;
+        settings.Save();
+        SettingsChanged?.Invoke(settings);
+    }
+
+    internal void RememberCoat(string id) => UpdateSettings(settings with { Coat = id });
+
+    internal void SetSending(bool sending)
+    {
+        SendButton.IsEnabled = !sending;
+        TeacherReactions.IsEnabled = !sending;
+        ScrollReaction.IsEnabled = !sending;
+    }
+
+    private void SaveTeacherClick(object sender, RoutedEventArgs e)
+    {
+        string ip = TeacherIpBox.Text.Trim();
+        if (!LanInvitation.PrivateIPv4(ip)) { SetStatus("請輸入老師完整的內網 IP。"); return; }
+        UpdateSettings(settings with { TeacherIp = ip });
+        RefreshReactionTargets();
+        SetStatus($"老師主機已設為 {ip}。");
+    }
+
+    private void ReactionSendClick(object sender, RoutedEventArgs e)
+    {
+        if (!SendButton.IsEnabled || sender is not Button button ||
+            ClassroomReactions.Find(button.Tag as string) is not { } reaction) return;
+        string target = reaction.TeacherOnly ? settings.TeacherIp : RecipientIp.Text.Trim();
+        if (!LanInvitation.PrivateIPv4(target)) { SetStatus("請先設定有效的收件對象 IP。"); return; }
+        ReactionRequested?.Invoke(target, reaction);
+    }
+
+    private void RecipientChanged(object sender, TextChangedEventArgs e)
+    {
+        if (ScrollTarget is not null) RefreshReactionTargets();
+    }
+
+    private void RefreshReactionTargets()
+    {
+        TeacherTarget.Text = $"上面四款 → 老師 {settings.TeacherIp}";
+        ScrollTarget.Text = string.IsNullOrWhiteSpace(RecipientIp.Text)
+            ? "你在給我滑！ → 請先選定上方聊天對象"
+            : $"你在給我滑！ → {RecipientIp.Text.Trim()}";
+    }
+
+    private void RefreshDisplays()
+    {
+        updatingDisplays = true;
+        try
+        {
+            var choices = new List<DisplayScreen> { new("", "跟隨貓咪所在螢幕", IntPtr.Zero, default, default) };
+            choices.AddRange(DisplayScreens.All());
+            ReactionDisplay.ItemsSource = choices;
+            ReactionDisplay.SelectedValue = choices.Any(c => c.DeviceName == settings.ReactionDisplayDevice)
+                ? settings.ReactionDisplayDevice : "";
+        }
+        finally { updatingDisplays = false; }
+    }
+
+    private void ReactionDisplayOpened(object? sender, EventArgs e) => RefreshDisplays();
+
+    private void ReactionDisplayChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!updatingDisplays && ReactionDisplay.SelectedItem is DisplayScreen screen)
+            UpdateSettings(settings with { ReactionDisplayDevice = screen.DeviceName });
     }
 }
