@@ -11,7 +11,9 @@ public partial class App
     {
         Directory.CreateDirectory(directory);
         var probe = new ChatWindow(new Settings { AutoStartOnLogin = false });
-        int sends = 0;
+        int sends = 0, returnPresses = 0;
+        probe.Draft.AddHandler(Keyboard.PreviewKeyDownEvent,
+            new KeyEventHandler((_, e) => { if (e.Key == Key.Enter) returnPresses++; }), true);
         string? sent = null;
         probe.SendRequested += (_, text) => { sends++; sent = text; };
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -59,7 +61,8 @@ public partial class App
                 { RoutedEvent = TextCompositionManager.PreviewTextInputEvent });
             probe.Draft.Text = "選字完成後再 Enter";
             await PressReturnAsync();
-            Require(sends == 2 && sent == "選字完成後再 Enter", "Enter did not resume after composition");
+            Require(sends == 2 && sent == "選字完成後再 Enter",
+                $"Enter did not resume after composition (sends={sends}, focused={probe.Draft.IsKeyboardFocused}, modifiers={Keyboard.Modifiers})");
 
             Capture(probe, Path.Combine(directory, "keyboard-chat.png"));
             File.WriteAllText(Path.Combine(directory, "result.txt"),
@@ -81,9 +84,11 @@ public partial class App
 
         async Task PressReturnAsync()
         {
+            int before = returnPresses;
             KeybdEvent(0x0D, 0, 0, UIntPtr.Zero);
             KeybdEvent(0x0D, 0, 2, UIntPtr.Zero);
-            await Task.Delay(120, timeout.Token);
+            await UntilAsync(() => returnPresses > before, timeout.Token);
+            await Task.Delay(30, timeout.Token);
         }
     }
 

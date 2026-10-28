@@ -21,8 +21,11 @@ public partial class ChatWindow : Window
     {
         settings = initial;
         InitializeComponent();
-        TextCompositionManager.AddPreviewTextInputStartHandler(Draft, (_, _) => composingText = true);
-        TextCompositionManager.AddPreviewTextInputHandler(Draft, (_, _) => composingText = false);
+        // Observe composition completion even when TextBox/IME handles the event.
+        Draft.AddHandler(TextCompositionManager.PreviewTextInputStartEvent,
+            new TextCompositionEventHandler((_, _) => composingText = true), true);
+        Draft.AddHandler(TextCompositionManager.PreviewTextInputEvent,
+            new TextCompositionEventHandler((_, _) => composingText = false), true);
         Draft.LostKeyboardFocus += (_, _) => composingText = false;
         var version = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(ChatWindow).Assembly)?.InformationalVersion.Split('+')[0];
         Title = $"NekoChat Lite {version}";
