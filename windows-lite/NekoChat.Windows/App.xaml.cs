@@ -62,6 +62,13 @@ public partial class App : Application
 
             pet = new PetWindow();
             chat = new ChatWindow(settings);
+            pet.SetPetScale(settings.PetScale);
+            pet.PetScaleChanged += scale =>
+            {
+                settings = Settings.Load() with { PetScale = scale };
+                settings.Save();
+                chat.UpdatePetScale(scale);
+            };
             pet.SetWanderEnabled(settings.WanderEnabled);
             pet.WanderToggled += enabled =>
             {
@@ -76,8 +83,9 @@ public partial class App : Application
                 try
                 {
                     pet.SetPreset(id);
-                    settings = settings with { Coat = id };
+                    settings = Settings.Load() with { Coat = id };
                     settings.Save();
+                    chat.UpdateCoat(id);
                 }
                 catch (Exception ex)
                 {

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using NekoChat.Animation;
@@ -14,6 +15,7 @@ public partial class PetWindow
     private readonly DispatcherTimer frameTimer=new(){Interval=TimeSpan.FromMilliseconds(16)};
     private AnimationPlayer animation=null!;
     private readonly Dictionary<string,BitmapSource> frames=[];
+    private readonly Dictionary<string,Rect> frameBounds=[];
     private readonly Queue<string> frameOrder=[];
     private string? animatedCoat="original";
     private string currentFrame="";
@@ -53,16 +55,16 @@ public partial class PetWindow
     {
         if(!animationAssets.Manifest.Coats.Contains(id))throw new ArgumentException("未知花色。");
         if(animatedCoat is null){animation.Reset(AnimationNow);automaticMotion=false;nextAction=AnimationNow+2;}
-        animatedCoat=id;frames.Clear();frameOrder.Clear();currentFrame="";
-        Cat.Width=208;Cat.Height=192;RenderAnimation();
+        animatedCoat=id;frames.Clear();frameBounds.Clear();frameOrder.Clear();currentFrame="";
+        UpdateArtworkSize(208,192);RenderAnimation();UpdateSizeMenu();
         UpdateCoatChecked(id);
         if(IsLoaded)frameTimer.Start();
     }
     private void UseStaticArtwork(System.Windows.Media.ImageSource image)
     {
-        animatedCoat=null;frameTimer.Stop();frames.Clear();frameOrder.Clear();currentFrame="";
+        animatedCoat=null;frameTimer.Stop();frames.Clear();frameBounds.Clear();frameOrder.Clear();currentFrame="";
         animation.Reset(AnimationNow);automaticMotion=false;
-        Cat.Width=190;Cat.Height=190;Cat.Source=image;
+        Cat.Source=image;artworkVisible=ArtworkBounds(image);UpdateArtworkSize(190,190);UpdateSizeMenu();
         UpdateCoatChecked(null);
     }
     private void RenderAnimation()
@@ -73,10 +75,11 @@ public partial class PetWindow
         if(!frames.TryGetValue(key,out var image)) {
             using var stream=animationAssets.OpenFrame(animatedCoat,animation.Frame);
             image=new PngBitmapDecoder(stream,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.OnLoad).Frames[0];image.Freeze();
-            if(frames.Count>=64)frames.Remove(frameOrder.Dequeue());
+            if(frames.Count>=64){var expired=frameOrder.Dequeue();frames.Remove(expired);frameBounds.Remove(expired);}
             frames[key]=image;frameOrder.Enqueue(key);
+            frameBounds[key]=ArtworkBounds(image);
         }
-        Cat.Source=image;currentFrame=key;
+        Cat.Source=image;artworkVisible=frameBounds[key];currentFrame=key;RefreshDesktop();
     }
     private void AdvanceAnimation()
     {
@@ -96,19 +99,22 @@ public partial class PetWindow
         }
         else
         {
-            double minimum=SystemParameters.VirtualScreenLeft;
-            double maximum=minimum+Math.Max(0,SystemParameters.VirtualScreenWidth-Width);
-            var step=activity.Step(now,Left,minimum,maximum);
+            double minimum=desktopWork.Left-artworkVisible.Left*desktopPet.Width;
+            double maximum=Math.Max(minimum,desktopWork.Right-artworkVisible.Right*desktopPet.Width);
+            double minimumY=desktopWork.Top-artworkVisible.Top*desktopPet.Height;
+            double maximumY=Math.Max(minimumY,desktopWork.Bottom-artworkVisible.Bottom*desktopPet.Height);
+            double strideScale=VisualTreeHelper.GetDpi(this).DpiScaleX * Cat.Width / 208;
+            var step=activity.Step(now,desktopPet.Left,desktopPet.Top,minimum,maximum,minimumY,maximumY,strideScale);
             if(step.Changed)
             {
                 if(step.Pose=="sitting")animation.Reset(now);
                 else animation.Play(step.Pose,now);
                 automaticMotion=true;
             }
-            if(step.Pose is "walk-left" or "walk-right")
+            if(step.Pose is "walk-left" or "walk-right" || step.Changed && automaticMotion)
             {
-                Left=step.X;
-                animation.SetWalkDistance(step.WalkDistance);
+                SetDesktopPetPosition(step.X,step.Y);
+                if(step.Pose is "walk-left" or "walk-right")animation.SetWalkDistance(step.WalkDistance / strideScale);
             }
         }
         RenderAnimation();

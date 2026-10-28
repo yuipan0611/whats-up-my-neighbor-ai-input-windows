@@ -65,6 +65,8 @@ public partial class ChatWindow : Window
     }
 
     internal void UpdateWanderEnabled(bool enabled) => settings = settings with { WanderEnabled = enabled };
+    internal void UpdatePetScale(double scale) => settings = settings with { PetScale = scale };
+    internal void UpdateCoat(string coat) => settings = settings with { Coat = coat };
 
     internal void SetStatus(string text) => Status.Text = text;
 
