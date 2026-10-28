@@ -27,6 +27,7 @@ try {
     Get-Content (Join-Path $receiverProof 'result.txt')
     if ($receiver.ExitCode -ne 0) { throw 'Receiver-failure smoke failed.' }
     $occupied.Stop()
+    $reservations = @()
 
     $gestureProof = Join-Path $proof 'gestures'
     $gesture = Start-Process -FilePath $appPath -ArgumentList @('--interaction-smoke-test', "`"$gestureProof`"") -PassThru
