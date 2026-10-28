@@ -68,6 +68,13 @@ public partial class App
             Require(!chat.History.Text.Contains(failed), "Failed send appeared as delivered history");
             Require(chat.Status.Text.Contains("草稿保留") && !chat.Status.Text.Contains("已送達"),
                 "Failed send did not show an error");
+            chat.UpdateLayout();
+            var status = chat.Status;
+            var fullText = new FormattedText(status.Text, System.Globalization.CultureInfo.CurrentCulture,
+                status.FlowDirection, new Typeface(status.FontFamily, status.FontStyle, status.FontWeight, status.FontStretch),
+                status.FontSize, status.Foreground, VisualTreeHelper.GetDpi(status).PixelsPerDip)
+                { MaxTextWidth = status.ActualWidth };
+            Require(status.ActualHeight + 1 >= fullText.Height, "Failure explanation is clipped by the window layout");
             Capture(chat, prefix + "-failure.png");
             File.WriteAllText(prefix + "-result.txt",
                 "PASS: two independent app processes; real WPF send button; bidirectional TCP messages; Unicode/multiline text; " +
