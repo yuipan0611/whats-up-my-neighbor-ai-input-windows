@@ -47,7 +47,7 @@ internal static class DirectMessagingChecks
         catch (InvalidOperationException) { offline = true; }
         Check(offline, "closed listener cannot report delivery");
 
-        foreach (string response in new[] { "{\"status\":\"pending\"}", "{}" })
+        foreach (string response in new[] { "{\"status\":\"pending\"}", "{}", "{\"status\":true}", "[]", "invalid-json" })
         {
             using var server = new TcpListener(IPAddress.Loopback, 0);
             server.Start();

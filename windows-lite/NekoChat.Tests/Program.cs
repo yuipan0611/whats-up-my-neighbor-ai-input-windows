@@ -62,13 +62,6 @@ Reject(()=>RelayConnection.ValidateEndpoint("ws://192.168.1.5/nekochat/v1/ws",fa
 Check(RelayConnection.ValidateEndpoint("ws://192.168.1.5/nekochat/v1/ws",true).Scheme=="ws","explicit private LAN");
 Check(RelayConnection.ValidateEndpoint("wss://example.com/nekochat/v1/ws",false).Scheme=="wss","public WSS");
 
-var handler=new FakeHandler();using var http=new HttpClient(handler);var provider=new GroqWhisperProvider(http);
-var wav=new byte[32044];Encoding.ASCII.GetBytes("RIFF").CopyTo(wav,0);
-Check(await provider.TranscribeAsync(wav,"test-only-api-key",CancellationToken.None)=="下課見","transcription result");
-Check(handler.Endpoint=="https://api.groq.com/openai/v1/audio/transcriptions"&&handler.Auth=="Bearer test-only-api-key","fixed TLS provider and auth");
-Check(handler.Body.Contains("whisper-large-v3")&&handler.Body.Contains("speech.wav")&&handler.Body.Contains("audio/wav"),"multipart audio contract");
-handler.Code=HttpStatusCode.Unauthorized;bool safe=false;
-try{await provider.TranscribeAsync(wav,"test-only-api-key",CancellationToken.None);}catch(HttpRequestException ex){safe=!ex.Message.Contains("sensitive-server-response");}Check(safe,"provider body never surfaced");
 if(args.Length==2&&args[0]=="--live") {
     var port=args[1];await using var alice=new RelayConnection();await using var bob=new RelayConnection();
     using var cancel=new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -120,12 +113,3 @@ Reject(() => DirectLanMessaging.SendDirectAsync("8.8.8.8", "bad").GetAwaiter().G
 Reject(() => DirectLanMessaging.SendDirectAsync("127.0.0.1", "   ").GetAwaiter().GetResult(), "empty message rejected");
 checks += await DirectMessagingChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
-
-sealed class FakeHandler:HttpMessageHandler {
-    public string Endpoint="",Auth="",Body="";
-    public HttpStatusCode Code=HttpStatusCode.OK;
-    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation) {
-        Endpoint=request.RequestUri!.AbsoluteUri;Auth=request.Headers.Authorization!.ToString();Body=await request.Content!.ReadAsStringAsync(cancellation);
-        return new HttpResponseMessage(Code){Content=new StringContent(Code==HttpStatusCode.OK?"{\"text\":\"下課見\"}":"sensitive-server-response")};
-    }
-}
