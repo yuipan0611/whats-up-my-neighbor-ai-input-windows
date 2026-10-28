@@ -18,7 +18,7 @@ public partial class PetWindow
     private string? animatedCoat="original";
     private string currentFrame="";
     private double previousFrame,nextAction=2;
-    private int actionIndex;
+    private readonly DesktopPetActivity activity = new(Environment.TickCount);
     private bool automaticMotion;
     private bool wanderEnabled = true;
     internal bool WanderEnabled => wanderEnabled;
@@ -27,6 +27,7 @@ public partial class PetWindow
         wanderEnabled = enabled;
         if (wanderMenuItem is not null) wanderMenuItem.IsChecked = enabled;
         if (!animation.Pressed) { animation.Reset(AnimationNow); automaticMotion = false; }
+        activity.Reset(AnimationNow, 0);
         nextAction = AnimationNow + 2;
     }
     private double AnimationNow=>animationClock.Elapsed.TotalSeconds;
@@ -79,21 +80,36 @@ public partial class PetWindow
     }
     private void AdvanceAnimation()
     {
-        var now=AnimationNow;var gap=now-previousFrame;var dt=Math.Clamp(gap,0,.05);previousFrame=now;
+        var now=AnimationNow;var gap=now-previousFrame;previousFrame=now;
         if(animatedCoat is null)return;
-        if(gap>2 && !animation.Pressed){animation.Reset(now);automaticMotion=false;nextAction=now+2;}
+        if(gap>2 && !animation.Pressed){animation.Reset(now);automaticMotion=false;activity.Reset(now,0);nextAction=now+2;}
         animation.Tick(now);
         bool blocked=persistentNotice || Bubble.Visibility==Visibility.Visible || Cat.ContextMenu?.IsOpen==true || !wanderEnabled;
-        if(blocked){if(automaticMotion){animation.Reset(now);automaticMotion=false;}nextAction=now+2;}
-        else if(!animation.Pressed && animation.Mode is not ("lifting" or "landing" or "carried") && now>=nextAction) {
-            (string Name,double Seconds)[] actions=[("standing",1.8),("walk-left",4),("grooming",3.2),("yawning",3.2),
-                ("loafing",5),("sleeping",20),("curious",2.2),("walk-right",4)];
-            var action=actions[actionIndex++%actions.Length];animation.Play(action.Name,now);automaticMotion=true;nextAction=now+action.Seconds;
+        if(blocked || now<nextAction || animation.Pressed || animation.Mode is "lifting" or "landing" or "carried")
+        {
+            activity.Reset(now,0);
+            if(blocked)
+            {
+                if(automaticMotion){animation.Reset(now);automaticMotion=false;}
+                nextAction=now+2;
+            }
         }
-        if(automaticMotion && animation.Mode=="clip" && animation.ClipName is "walk-left" or "walk-right") {
-            var target=Left+(animation.ClipName=="walk-left"?-1:1)*70*dt;
-            Left=Math.Clamp(target,SystemParameters.VirtualScreenLeft,SystemParameters.VirtualScreenLeft+Math.Max(0,SystemParameters.VirtualScreenWidth-Width));
-            if(Math.Abs(Left-target)>.01){animation.Play(animation.ClipName=="walk-left"?"walk-right":"walk-left",now);nextAction=now+4;}
+        else
+        {
+            double minimum=SystemParameters.VirtualScreenLeft;
+            double maximum=minimum+Math.Max(0,SystemParameters.VirtualScreenWidth-Width);
+            var step=activity.Step(now,Left,minimum,maximum);
+            if(step.Changed)
+            {
+                if(step.Pose=="sitting")animation.Reset(now);
+                else animation.Play(step.Pose,now);
+                automaticMotion=true;
+            }
+            if(step.Pose is "walk-left" or "walk-right")
+            {
+                Left=step.X;
+                animation.SetWalkDistance(step.WalkDistance);
+            }
         }
         RenderAnimation();
     }
