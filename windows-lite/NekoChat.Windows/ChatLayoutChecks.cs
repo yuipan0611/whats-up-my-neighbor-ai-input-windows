@@ -48,10 +48,16 @@ internal static class ChatLayoutChecks
             chat.SettingsScroll.ScrollToEnd();
             visual.UpdateLayout();
             Require(chat.SettingsScroll.VerticalOffset > 0 || chat.SettingsScroll.ScrollableHeight == 0, "Settings must scroll to the last controls");
+            // At the absolute end, trailing explanatory text may put this control above a
+            // very short viewport. Scroll to the control itself, as keyboard navigation does.
             var displayBounds = chat.ReactionDisplay.TransformToAncestor(chat.SettingsScroll)
                 .TransformBounds(new Rect(chat.ReactionDisplay.RenderSize));
-            Require(displayBounds.Top >= 0 && displayBounds.Bottom <= chat.SettingsScroll.ActualHeight,
-                "Last settings control must be reachable by scrolling");
+            chat.SettingsScroll.ScrollToVerticalOffset(chat.SettingsScroll.VerticalOffset + displayBounds.Top);
+            visual.UpdateLayout();
+            displayBounds = chat.ReactionDisplay.TransformToAncestor(chat.SettingsScroll)
+                .TransformBounds(new Rect(chat.ReactionDisplay.RenderSize));
+            Require(displayBounds.Top >= -0.5 && displayBounds.Bottom <= chat.SettingsScroll.ActualHeight + 0.5,
+                $"Last settings control must be reachable: client={size}, control={displayBounds}, viewport={chat.SettingsScroll.ActualHeight}");
             chat.SettingsScroll.ScrollToHome();
             visual.UpdateLayout();
             var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
