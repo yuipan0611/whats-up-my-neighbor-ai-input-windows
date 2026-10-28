@@ -61,6 +61,8 @@ public partial class ChatWindow : Window
         Draft.Focus();
     }
 
+    internal void UpdateWanderEnabled(bool enabled) => settings = settings with { WanderEnabled = enabled };
+
     internal void SetStatus(string text) => Status.Text = text;
 
     internal void SetReceiverState(bool running, int port, string? error)

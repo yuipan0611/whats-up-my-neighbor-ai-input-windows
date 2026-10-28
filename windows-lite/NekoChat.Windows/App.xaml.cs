@@ -62,6 +62,13 @@ public partial class App : Application
 
             pet = new PetWindow();
             chat = new ChatWindow(settings);
+            pet.SetWanderEnabled(settings.WanderEnabled);
+            pet.WanderToggled += enabled =>
+            {
+                settings = Settings.Load() with { WanderEnabled = enabled };
+                settings.Save();
+                chat.UpdateWanderEnabled(enabled);
+            };
 
             pet.OpenChat += targetIp => chat.ShowChat(targetIp);
             pet.SelectCoat += id =>

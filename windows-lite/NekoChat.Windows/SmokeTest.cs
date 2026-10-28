@@ -18,13 +18,15 @@ internal static class SmokeTest
         try
         {
             // 1. Settings & Contacts Roundtrip
-            var settings = new Settings()
+            var settings = new Settings { WanderEnabled = false }
                 .WithContact("127.0.0.1", "測試同學")
                 .WithContact("192.168.1.50", "隔壁座位");
             if (settings.ResolveDisplayName("127.0.0.1") != "測試同學 (127.0.0.1)")
                 throw new Exception("Contact resolution failed");
             settings.Save();
             var reloaded = Settings.Load();
+            if (reloaded.WanderEnabled || !new Settings().WanderEnabled)
+                throw new Exception("Wandering default or setting persistence failed");
             if (reloaded.Contacts.Count < 2)
                 throw new Exception("Settings contacts persistence failed");
 

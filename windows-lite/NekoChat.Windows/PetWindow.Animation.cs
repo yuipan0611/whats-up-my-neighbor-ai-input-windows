@@ -20,6 +20,15 @@ public partial class PetWindow
     private double previousFrame,nextAction=2;
     private int actionIndex;
     private bool automaticMotion;
+    private bool wanderEnabled = true;
+    internal bool WanderEnabled => wanderEnabled;
+    internal void SetWanderEnabled(bool enabled)
+    {
+        wanderEnabled = enabled;
+        if (wanderMenuItem is not null) wanderMenuItem.IsChecked = enabled;
+        if (!animation.Pressed) { animation.Reset(AnimationNow); automaticMotion = false; }
+        nextAction = AnimationNow + 2;
+    }
     private double AnimationNow=>animationClock.Elapsed.TotalSeconds;
     private void InitializeAnimation()
     {
@@ -29,7 +38,7 @@ public partial class PetWindow
             catch(Exception ex) when(ex is IOException or NotSupportedException or FormatException) {
                 var last=Cat.Source;frameTimer.Stop();
                 if(last is not null)UseStaticArtwork(last);
-                Notify("貓咪動畫暫停，請重新開啟 App；聊天與語音仍可使用。");
+                Notify("貓咪動畫暫停，請重新開啟 App；聊天仍可使用。");
             }
         };
         Loaded+=(_,_)=>{previousFrame=AnimationNow;nextAction=AnimationNow+2;if(animatedCoat is not null)frameTimer.Start();};
@@ -74,7 +83,7 @@ public partial class PetWindow
         if(animatedCoat is null)return;
         if(gap>2 && !animation.Pressed){animation.Reset(now);automaticMotion=false;nextAction=now+2;}
         animation.Tick(now);
-        bool blocked=persistentNotice || Bubble.Visibility==Visibility.Visible || Cat.ContextMenu?.IsOpen==true || !SystemParameters.ClientAreaAnimation;
+        bool blocked=persistentNotice || Bubble.Visibility==Visibility.Visible || Cat.ContextMenu?.IsOpen==true || !wanderEnabled;
         if(blocked){if(automaticMotion){animation.Reset(now);automaticMotion=false;}nextAction=now+2;}
         else if(!animation.Pressed && animation.Mode is not ("lifting" or "landing" or "carried") && now>=nextAction) {
             (string Name,double Seconds)[] actions=[("standing",1.8),("walk-left",4),("grooming",3.2),("yawning",3.2),
@@ -84,7 +93,7 @@ public partial class PetWindow
         if(automaticMotion && animation.Mode=="clip" && animation.ClipName is "walk-left" or "walk-right") {
             var target=Left+(animation.ClipName=="walk-left"?-1:1)*70*dt;
             Left=Math.Clamp(target,SystemParameters.VirtualScreenLeft,SystemParameters.VirtualScreenLeft+Math.Max(0,SystemParameters.VirtualScreenWidth-Width));
-            if(Math.Abs(Left-target)>.01){animation.Reset(now);automaticMotion=false;nextAction=now+2;}
+            if(Math.Abs(Left-target)>.01){animation.Play(animation.ClipName=="walk-left"?"walk-right":"walk-left",now);nextAction=now+4;}
         }
         RenderAnimation();
     }
