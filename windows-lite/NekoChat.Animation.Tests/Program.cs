@@ -29,4 +29,28 @@ p.Play("sleeping", 0); p.Tick(100); Check(p.Mode == "clip", "Sleep loop stopped"
 p.Play("walk-left", 0); Check(p.Frame == "walk-left-start-000.png", "Walking must retain native first-step easing");
 p.Tick(1); Check(!p.Frame.Contains("-start-", StringComparison.Ordinal), "Walking startup must not repeat each cycle");
 p.Reset(101); p.Press(101); p.Release(101.1); Check(p.ClipName == "petted", "Click lost response");
+// Foot phase follows distance, including the native first-step easing.
+p.Play("walk-left",0); p.SetWalkDistance(AnimationPlayer.StrideDistance * .55);
+var halfStride=p.Frame; p.Tick(100);
+Check(p.Frame==halfStride && p.Frame.Contains("-start-"),"Stationary paws advanced with time");
+p.SetWalkDistance(AnimationPlayer.StrideDistance * 1.55);
+Check(!p.Frame.Contains("-start-") && p.Frame.EndsWith("-008.png"),"Distance-linked gait cycle differs");
+var still=p.Frame;p.Pause(true,100);p.SetWalkDistance(0);Check(p.Frame==still,"Paused gait moved");
+var activity=new DesktopPetActivity(7);activity.Reset(0);
+Check(activity.Step(1,500,0,1000).Pose=="sitting","Initial sitting omitted");
+Check(activity.Step(2,500,0,1000).Pose=="standing","Native standing transition omitted");
+var start=activity.Step(3.8,500,0,1000);
+Check(start.Pose is "walk-left" or "walk-right","Native first walk omitted");
+var early=activity.Step(4.3,500,0,1000);
+var middle=activity.Step(4.8,500,0,1000);
+Check(middle.X>=0 && middle.X<=1000 && Math.Abs(early.X-500)<Math.Abs(middle.X-500),"Eased journey left bounds");
+Check(Math.Abs(middle.WalkDistance-Math.Abs(middle.X-500))<1e-8,"Gait distance is not actual travel");
+var arrived=activity.Step(13, middle.X,0,1000);
+Check(arrived.Pose=="standing","Walk completion did not reach native rest");
+Check(activity.Step(15.2,arrived.X,0,1000).Pose=="grooming","Missing grooming transition");
+Check(activity.Step(18.4,arrived.X,0,1000).Pose=="yawning","Missing yawning transition");
+Check(activity.Step(21.6,arrived.X,0,1000).Pose=="loafing","Missing loafing transition");
+Check(activity.Step(26.6,arrived.X,0,1000).Pose=="sleeping","Missing sleeping transition");
+Check(activity.Step(61,arrived.X,0,1000).Pose is "walk-left" or "walk-right","Sleep did not resume a journey");
+activity.Reset(100);Check(activity.Step(101,arrived.X,0,1000).Pose=="sitting","Interrupt did not restore sitting");
 Console.WriteLine($"Animation preview: {checks} checks passed (native travel vectors, nine coats, interrupted drag, landing, pause and pose playback).");

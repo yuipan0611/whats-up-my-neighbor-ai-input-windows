@@ -30,11 +30,12 @@ public partial class App : Application
         try
         {
             var messagingSmoke = MessagingSmokeOptions.Parse(e.Args);
+            bool keyboardSmoke = e.Args.Length == 2 && e.Args[0] == "--keyboard-smoke-test";
             bool gestureSmoke = e.Args.Length == 2 && e.Args[0] == "--interaction-smoke-test";
             bool receiverSmoke = e.Args.Length == 2 && e.Args[0] == "--receiver-failure-smoke-test";
             bool instanceSmoke = e.Args.Length == 2 && e.Args[0] == "--instance-smoke-test";
             bool instanceProbe = e.Args.Length == 2 && e.Args[0] == "--instance-probe";
-            if (messagingSmoke is null && !gestureSmoke && !receiverSmoke)
+            if (messagingSmoke is null && !gestureSmoke && !receiverSmoke && !keyboardSmoke)
             {
                 instanceGate = new Mutex(true, "Local\\NekoChat.WindowsLite.App", out bool firstInstance);
                 if (instanceProbe)
@@ -61,6 +62,13 @@ public partial class App : Application
 
             pet = new PetWindow();
             chat = new ChatWindow(settings);
+            pet.SetWanderEnabled(settings.WanderEnabled);
+            pet.WanderToggled += enabled =>
+            {
+                settings = Settings.Load() with { WanderEnabled = enabled };
+                settings.Save();
+                chat.UpdateWanderEnabled(enabled);
+            };
 
             pet.OpenChat += targetIp => chat.ShowChat(targetIp);
             pet.SelectCoat += id =>
@@ -120,6 +128,9 @@ public partial class App : Application
 
             pet.Show();
             chat.Show();
+
+            if (keyboardSmoke)
+                Dispatcher.BeginInvoke(new Action(async () => await RunKeyboardSmokeTestAsync(e.Args[1])));
 
             if (instanceSmoke)
                 Dispatcher.BeginInvoke(new Action(async () => await RunInstanceSmokeTestAsync(e.Args[1])));
@@ -208,7 +219,7 @@ public partial class App : Application
     {
         try
         {
-            string currentVer = "0.1.0-beta.5";
+            string currentVer = "0.1.0-beta.6";
             try
             {
                 var infoVer = (System.Reflection.AssemblyInformationalVersionAttribute?)

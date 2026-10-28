@@ -36,6 +36,13 @@ try {
     Get-Content (Join-Path $gestureProof 'result.txt')
     if ($gesture.ExitCode -ne 0) { throw 'Mouse interaction smoke failed.' }
 
+    $keyboardProof = Join-Path $proof 'keyboard'
+    $keyboard = Start-Process -FilePath $appPath -WindowStyle Hidden -ArgumentList @('--keyboard-smoke-test', ('"{0}"' -f $keyboardProof)) -PassThru
+    $processes += $keyboard
+    if (!$keyboard.WaitForExit(30000)) { throw 'Keyboard smoke timed out.' }
+    Get-Content (Join-Path $keyboardProof 'result.txt')
+    if ($keyboard.ExitCode -ne 0) { throw 'Keyboard smoke failed.' }
+
     # Exercise the production receiver port plus one distinct local test port.
     foreach ($port in @(8768, 0)) {
         $socket = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $port)

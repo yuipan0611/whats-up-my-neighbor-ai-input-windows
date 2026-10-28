@@ -12,6 +12,7 @@ public partial class ChatWindow : Window
 {
     private Settings settings;
     private bool updatingCombo;
+    private bool composingText;
 
     internal event Action<string, string>? SendRequested;
     internal event Action<bool>? AutoStartChanged;
@@ -20,6 +21,12 @@ public partial class ChatWindow : Window
     {
         settings = initial;
         InitializeComponent();
+        // Observe composition completion even when TextBox/IME handles the event.
+        Draft.AddHandler(TextCompositionManager.PreviewTextInputStartEvent,
+            new TextCompositionEventHandler((_, _) => composingText = true), true);
+        Draft.AddHandler(TextCompositionManager.PreviewTextInputEvent,
+            new TextCompositionEventHandler((_, _) => composingText = false), true);
+        Draft.LostKeyboardFocus += (_, _) => composingText = false;
         var version = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(ChatWindow).Assembly)?.InformationalVersion.Split('+')[0];
         Title = $"NekoChat Lite {version}";
         Closing += OnClosing;
@@ -56,6 +63,8 @@ public partial class ChatWindow : Window
         Activate();
         Draft.Focus();
     }
+
+    internal void UpdateWanderEnabled(bool enabled) => settings = settings with { WanderEnabled = enabled };
 
     internal void SetStatus(string text) => Status.Text = text;
 
@@ -155,13 +164,13 @@ public partial class ChatWindow : Window
         SetStatus($"已記住：{name} ({ip})");
     }
 
-    private void DraftKeyDown(object sender, KeyEventArgs e)
+    private void DraftPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
-        {
-            e.Handled = true;
-            SendClick(sender, e);
-        }
+        // TextBox handles bubbling Enter itself when AcceptsReturn is true.
+        // Leave IME confirmation and modified Enter to the input method/TextBox.
+        if (e.Key != Key.Enter || composingText || Keyboard.Modifiers != ModifierKeys.None) return;
+        e.Handled = true;
+        if (!e.IsRepeat) SendClick(sender, e);
     }
 
     private void SendClick(object sender, RoutedEventArgs e)

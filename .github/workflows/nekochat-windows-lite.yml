@@ -88,6 +88,10 @@ jobs:
           dotnet publish windows-lite/NekoChat.Installer -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true "-p:PackagePayload=$payload" "-p:PackageChecksum=$checksum" -o build/windows-lite-setup
           if ($LASTEXITCODE -ne 0) { exit 1 }
           (Get-FileHash build/windows-lite-setup/NekoChat-Setup-win-x64.exe -Algorithm SHA256).Hash | Out-File build/windows-lite-setup/NekoChat-Setup-win-x64.exe.sha256 -Encoding ascii
+      - name: Verify automatic LAN firewall setup and rollback
+        shell: pwsh
+        run: |
+          & ./scripts/test-lite-firewall.ps1 -Setup build/windows-lite-setup/NekoChat-Setup-win-x64.exe -OutputDirectory build/windows-lite-smoke/firewall
       - name: Verify standalone Setup.exe extraction without external runtimes
         shell: pwsh
         run: |
@@ -148,3 +152,21 @@ jobs:
           name: nekochat-windows-smoke-captures
           path: build/windows-lite-smoke/
           if-no-files-found: warn
+
+  stage-release-draft:
+    name: Stage verified Lite release draft
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [relay, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Attach exact tested main artifacts to an existing draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/stage-lite-release.sh
