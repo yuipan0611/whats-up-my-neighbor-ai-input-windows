@@ -231,7 +231,7 @@ public partial class App : Application
     {
         try
         {
-            string currentVer = "0.1.0-beta.6";
+            string currentVer = "0.1.0-beta.7";
             try
             {
                 var infoVer = (System.Reflection.AssemblyInformationalVersionAttribute?)
