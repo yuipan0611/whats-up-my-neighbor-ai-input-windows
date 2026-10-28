@@ -48,7 +48,7 @@ public partial class App
             chat.Draft.Text = "接收失敗不能假裝送出";
             chat.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             chat.Draft.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(chat), Environment.TickCount, Key.Enter)
-                { RoutedEvent = Keyboard.KeyDownEvent });
+                { RoutedEvent = Keyboard.PreviewKeyDownEvent });
             chat.SetStatus("操作其他設定後，接收錯誤仍須保留");
             Require(chat.Draft.Text == "接收失敗不能假裝送出" && chat.History.Text.Length == 0 &&
                 chat.ReceiverStatus.Text.Contains("無法接收訊息"), "Blocked send or persistent error lost state");

@@ -88,6 +88,10 @@ jobs:
           dotnet publish windows-lite/NekoChat.Installer -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true "-p:PackagePayload=$payload" "-p:PackageChecksum=$checksum" -o build/windows-lite-setup
           if ($LASTEXITCODE -ne 0) { exit 1 }
           (Get-FileHash build/windows-lite-setup/NekoChat-Setup-win-x64.exe -Algorithm SHA256).Hash | Out-File build/windows-lite-setup/NekoChat-Setup-win-x64.exe.sha256 -Encoding ascii
+      - name: Verify automatic LAN firewall setup and rollback
+        shell: pwsh
+        run: |
+          & ./scripts/test-lite-firewall.ps1 -Setup build/windows-lite-setup/NekoChat-Setup-win-x64.exe -OutputDirectory build/windows-lite-smoke/firewall
       - name: Verify standalone Setup.exe extraction without external runtimes
         shell: pwsh
         run: |
