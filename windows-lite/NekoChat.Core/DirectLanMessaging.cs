@@ -14,12 +14,14 @@ public static class DirectLanMessaging
 {
     public const int DefaultPort = 8768;
 
-    public static async Task<bool> SendDirectAsync(string targetIp, string text, int port = DefaultPort, CancellationToken cancellation = default)
+    public static async Task<bool> SendDirectAsync(string targetIp, string text, int port = DefaultPort, CancellationToken cancellation = default, string? reaction = null)
     {
         if (!LanInvitation.PrivateIPv4(targetIp))
             throw new ArgumentException("請輸入有效的內網 IPv4 位址（例如 192.168.1.25）。");
         if (!Protocol.ValidText(text))
             throw new ArgumentException("訊息格式不正確（最多 2000 字且不可為空白）。");
+        if (reaction is not null && ClassroomReactions.Find(reaction) is null)
+            throw new ArgumentException("未知的反應貼圖。");
 
         using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false };
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
@@ -28,7 +30,8 @@ public static class DirectLanMessaging
             protocol = "nekochat",
             version = 1,
             kind = "direct.message",
-            text
+            text,
+            reaction
         });
 
         using var content = new StringContent(payload, Encoding.UTF8, "application/json");
@@ -69,6 +72,7 @@ public sealed class DirectLanListener : IAsyncDisposable
     public string? Error { get; private set; }
 
     public event Action<string, string>? MessageReceived;
+    public event Action<string, DirectMessage>? DirectMessageReceived;
 
     public DirectLanListener(int port = DirectLanMessaging.DefaultPort)
     {
@@ -184,13 +188,20 @@ public sealed class DirectLanListener : IAsyncDisposable
                 string body = Encoding.UTF8.GetString(bodyBytes);
                 using var doc = JsonDocument.Parse(body);
                 var root = doc.RootElement;
-                if (!root.TryGetProperty("text", out var textElem) || string.IsNullOrWhiteSpace(textElem.GetString()))
+                if (root.ValueKind != JsonValueKind.Object ||
+                    !root.TryGetProperty("text", out var textElem) || textElem.ValueKind != JsonValueKind.String ||
+                    !Protocol.ValidText(textElem.GetString()!))
                 {
                     await SendResponseAsync(stream, 400, "Bad Request", "{\"error\":\"empty_text\"}");
                     return;
                 }
 
                 string text = textElem.GetString()!;
+                string? reaction = null;
+                if (root.TryGetProperty("reaction", out var reactionElem))
+                    reaction = reactionElem.ValueKind == JsonValueKind.String ? reactionElem.GetString()
+                        : reactionElem.ValueKind == JsonValueKind.Null ? null : "";
+                DirectMessageReceived?.Invoke(remoteIp, new DirectMessage(text, reaction));
                 MessageReceived?.Invoke(remoteIp, text);
 
                 await SendResponseAsync(stream, 200, "OK", "{\"status\":\"delivered\"}");
@@ -237,3 +248,5 @@ public sealed class DirectLanListener : IAsyncDisposable
         lifetime.Dispose();
     }
 }
+
+public sealed record DirectMessage(string Text, string? Reaction);

@@ -53,6 +53,7 @@ public partial class App : Application
                 }
             }
             settings = e.Args.Length == 0 ? Settings.Load() : new Settings { AutoStartOnLogin = false };
+            if (messagingSmoke is not null) settings = settings with { TeacherIp = "127.0.0.1" };
             directSendPort = messagingSmoke?.PeerPort ?? DirectLanMessaging.DefaultPort;
 
             if (settings.AutoStartOnLogin)
@@ -62,11 +63,16 @@ public partial class App : Application
 
             pet = new PetWindow();
             chat = new ChatWindow(settings);
+            pet.ReactionDisplayDevice = settings.ReactionDisplayDevice;
+            pet.ReactionFailed += message => chat.SetStatus(message);
+            chat.SettingsChanged += updated =>
+            {
+                settings = updated;
+                pet.ReactionDisplayDevice = settings.ReactionDisplayDevice;
+            };
             pet.SetWanderEnabled(settings.WanderEnabled);
             pet.WanderToggled += enabled =>
             {
-                settings = Settings.Load() with { WanderEnabled = enabled };
-                settings.Save();
                 chat.UpdateWanderEnabled(enabled);
             };
 
@@ -76,8 +82,7 @@ public partial class App : Application
                 try
                 {
                     pet.SetPreset(id);
-                    settings = settings with { Coat = id };
-                    settings.Save();
+                    chat.RememberCoat(id);
                 }
                 catch (Exception ex)
                 {
@@ -110,13 +115,18 @@ public partial class App : Application
                 LoginStartup.Apply(enabled);
             };
             chat.SendRequested += async (targetIp, text) => await SendDirectMessageAsync(targetIp, text);
+            chat.ReactionRequested += async (targetIp, reaction) => await SendDirectMessageAsync(targetIp, reaction.Text, reaction, preserveDraft: true);
 
             directListener = new DirectLanListener(messagingSmoke?.ListenPort ?? DirectLanMessaging.DefaultPort);
-            directListener.MessageReceived += (senderIp, text) => Dispatcher.Invoke(() =>
+            directListener.DirectMessageReceived += (senderIp, message) => Dispatcher.Invoke(() =>
             {
                 var displayName = settings.ResolveDisplayName(senderIp);
-                chat.AddHistory($"{displayName}：{text}");
-                pet.NotifyChat(text, senderIp, displayName);
+                chat.AddHistory($"{displayName}：{message.Text}");
+                bool isTeacher = LanInvitation.LocalAddresses().Contains(settings.TeacherIp) ||
+                    settings.TeacherIp == "127.0.0.1";
+                var reaction = ClassroomReactions.ForIncoming(message.Text, message.Reaction, isTeacher);
+                if (reaction is not null) pet.NotifyReaction(reaction, senderIp);
+                else pet.NotifyChat(message.Text, senderIp, displayName);
             });
             directListener.Start();
             chat.SetReceiverState(directListener.Running, directListener.Port, directListener.Error);
@@ -171,7 +181,7 @@ public partial class App : Application
         }
     }
 
-    private async Task SendDirectMessageAsync(string targetIp, string text)
+    private async Task SendDirectMessageAsync(string targetIp, string text, ClassroomReaction? reaction = null, bool preserveDraft = false)
     {
         if (directListener?.Running != true)
         {
@@ -186,14 +196,16 @@ public partial class App : Application
             return;
         }
 
-        chat.SendButton.IsEnabled = false;
+        reaction ??= ClassroomReactions.MatchText(text);
+        if (reaction?.TeacherOnly == true && targetIp != settings.TeacherIp) reaction = null;
+        chat.SetSending(true);
         var displayName = settings.ResolveDisplayName(targetIp);
         chat.SetStatus($"正在傳送至 {displayName}…");
         try
         {
-            await DirectLanMessaging.SendDirectAsync(targetIp, text, directSendPort);
+            await DirectLanMessaging.SendDirectAsync(targetIp, text, directSendPort, reaction: reaction?.Id);
             chat.AddHistory($"我 → {displayName}：{text}");
-            if (chat.Draft.Text == text) chat.Draft.Clear();
+            if (!preserveDraft && chat.Draft.Text == text) chat.Draft.Clear();
             chat.SetStatus($"已送達 {displayName}！");
         }
         catch (Exception ex)
@@ -202,7 +214,7 @@ public partial class App : Application
         }
         finally
         {
-            chat.SendButton.IsEnabled = true;
+            chat.SetSending(false);
         }
     }
 
@@ -219,7 +231,7 @@ public partial class App : Application
     {
         try
         {
-            string currentVer = "0.1.0-beta.6";
+            string currentVer = "0.1.0-beta.7";
             try
             {
                 var infoVer = (System.Reflection.AssemblyInformationalVersionAttribute?)

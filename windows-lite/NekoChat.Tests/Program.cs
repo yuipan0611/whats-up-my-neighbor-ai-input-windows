@@ -112,4 +112,5 @@ using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(sampleReleaseJson)))
 Reject(() => DirectLanMessaging.SendDirectAsync("8.8.8.8", "bad").GetAwaiter().GetResult(), "public IP rejected");
 Reject(() => DirectLanMessaging.SendDirectAsync("127.0.0.1", "   ").GetAwaiter().GetResult(), "empty message rejected");
 checks += await DirectMessagingChecks.Run();
+checks += await ReactionChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");

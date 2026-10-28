@@ -77,7 +77,9 @@ jobs:
           $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
           $env:DOTNET_ROOT = "$env:RUNNER_TEMP/no-external-dotnet"
           & ./scripts/test-lite-messaging.ps1 -App build/windows-lite-package/NekoChat.Windows.exe -OutputDirectory build/windows-lite-smoke/messaging-package
-          & ./scripts/test-lite-messaging.ps1 -App build/windows-lite-portable/NekoChat-Lite.exe -OutputDirectory build/windows-lite-smoke/messaging-portable
+          New-Item -ItemType Directory -Path build/windows-lite-portable-isolated | Out-Null
+          Copy-Item build/windows-lite-portable/NekoChat-Lite.exe build/windows-lite-portable-isolated/NekoChat-Lite.exe
+          & ./scripts/test-lite-messaging.ps1 -App build/windows-lite-portable-isolated/NekoChat-Lite.exe -OutputDirectory build/windows-lite-smoke/messaging-portable
       - name: Build single-file per-user installer
         shell: pwsh
         run: |

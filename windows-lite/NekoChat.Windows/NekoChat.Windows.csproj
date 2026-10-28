@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Version>0.1.0-beta.6</Version>
-    <FileVersion>0.1.0.6</FileVersion>
+    <Version>0.1.0-beta.7</Version>
+    <FileVersion>0.1.0.7</FileVersion>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
@@ -14,7 +14,8 @@
   <ItemGroup>
     <ProjectReference Include="../NekoChat.Core/NekoChat.Core.csproj" />
     <ProjectReference Include="../NekoChat.Animation/NekoChat.Animation.csproj" />
-    <Content Include="Assets/**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets/**" Exclude="Assets/Reactions/*.png" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Assets/Reactions/*.png" LogicalName="NekoChat.Windows.Reactions.%(Filename)%(Extension)" />
     <Content Include="../../Examples/CatAppearance/*.json" Link="Coats/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

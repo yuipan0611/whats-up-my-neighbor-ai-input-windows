@@ -38,6 +38,7 @@ public partial class PetWindow : Window
     {
         InitializeComponent();
         InitializeAnimation();
+        InitializeReactions();
         Left = SystemParameters.WorkArea.Right - 310;
         Top = SystemParameters.WorkArea.Bottom - 330;
 
@@ -127,10 +128,10 @@ public partial class PetWindow : Window
         }
         persistentNotice = persistent;
         sender = from;
-        BubbleText.Text = from is null ? text : $"{displayName ?? from}：{text}\n點擊回覆";
+        BubbleText.Text = from is null ? text : $"{text}\n點擊回覆";
         Bubble.Visibility = Visibility.Visible;
         bubbleTimer.Stop();
-        if (!persistent) bubbleTimer.Start();
+        if (!persistent && !ReactionActive) bubbleTimer.Start();
     }
 
     internal void NotifyChat(string text, string from, string displayName)
@@ -152,7 +153,7 @@ public partial class PetWindow : Window
     {
         if (currentChat is null) return;
         sender = currentChat.From;
-        BubbleText.Text = $"{currentChat.Name}：{currentChat.Text}\n點擊回覆" + (chatNotices.Count > 0 ? $" · 另有 {chatNotices.Count} 則" : "");
+        BubbleText.Text = $"{currentChat.Text}\n點擊回覆" + (chatNotices.Count > 0 ? $" · 另有 {chatNotices.Count} 則" : "");
     }
 
     internal void AdvanceChatNotice()
@@ -170,7 +171,7 @@ public partial class PetWindow : Window
         chatNotices.RemoveFirst();
         RenderChatNotice();
         Bubble.Visibility = Visibility.Visible;
-        bubbleTimer.Start();
+        if (!ReactionActive) bubbleTimer.Start();
     }
 
     internal void ClearChatNotices()
