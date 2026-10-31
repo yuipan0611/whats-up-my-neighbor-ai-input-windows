@@ -7,9 +7,9 @@
 - **程式內檢查更新**：
   - 手動檢查：從系統匣選單（或 NekoChat Lite 桌面貓右鍵選單）點選 **檢查更新…**。
   - 背景通知：App 啟動 3 秒後會在背景非同步比對 GitHub Releases 最新版本。
-  - **先同意下載，再選擇安裝**：開發版修正後，手動檢查發現新版時會詢問「是否立即下載更新？」；同意後 App 直接下載對應 Setup，顯示進度並可取消，不再跳到下載頁面。
+  - **先同意下載，再選擇安裝**：Lite 自 0.1.0-beta.9 起，手動檢查發現新版時會詢問「是否立即下載更新？」；同意後 App 直接下載對應 Setup，顯示進度並可取消，不再跳到下載頁面。
   - 安裝檔與同版 `.sha256` 都必須來自官方 repo；下載後驗證內容，通過才提供「開啟安裝程式並關閉 App」。背景檢查只通知，不自行下載或執行安裝。
-- 直接下載修正尚未發布時，既有版本仍需到 [Releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) 取得第一次升級的安裝檔；更新到包含修正的版本後即可在 App 內完成下載。
+- Lite beta.8 以前的版本沒有直接下載，第一次升級到 beta.9 仍需到 [Releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) 取得安裝檔；之後的更新即可在 App 內完成下載。
 - 已驗證的安裝檔暫存在各版本的使用者資料區 `Updates`，每個版本類型只保留一份 Setup；取消或失敗會移除未完成檔，驗證失敗不執行安裝。Windows Internet-zone 標記與系統安全提示保留。
 - 安裝程式會保留設定（`%LOCALAPPDATA%\WhatsUpMyNeighbor`）、詞典與 Windows 認證管理員中的 API Key。
 - 安裝程式會關閉正在執行的 App（`CloseApplications=yes`），升級後不會自動重新啟動。

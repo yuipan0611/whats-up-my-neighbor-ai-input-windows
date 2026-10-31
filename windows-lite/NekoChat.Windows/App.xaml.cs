@@ -240,7 +240,7 @@ public partial class App : Application
         checkingUpdate = true;
         try
         {
-            string currentVer = "0.1.0-beta.8";
+            string currentVer = "0.1.0-beta.9";
             try
             {
                 var infoVer = (System.Reflection.AssemblyInformationalVersionAttribute?)
