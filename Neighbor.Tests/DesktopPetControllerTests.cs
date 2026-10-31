@@ -80,7 +80,9 @@ namespace Neighbor.Tests
             var harness = new Harness();
             var controller = harness.Create();
             controller.Create();
-            check(harness.View.ConfigureCalls == 0, "Creating the companion does not show or configure it");
+            // Create() applies the stored preference so a pet enabled before creation appears; while the
+            // preference is off it must stay hidden.
+            check(!harness.View.LastVisible, "Creating the companion keeps it hidden until enabled");
             controller.SetEnabled(true);
             check(harness.View.LastVisible && !harness.View.LastBusy, "Enabling passes visible=true and busy=false");
             controller.SetCoat("orange-tabby");
@@ -90,6 +92,12 @@ namespace Neighbor.Tests
             controller.SetEnabled(false);
             check(!harness.View.LastVisible && harness.View.LastBusy, "Disabling passes visible=false and keeps the busy state");
             check(!controller.Enabled, "Enabled reflects the last requested preference");
+
+            var preset = new Harness();
+            var presetController = preset.Create();
+            presetController.SetEnabled(true);
+            presetController.Create();
+            check(preset.View.LastVisible, "A pet enabled before creation is shown when created");
         }
 
         private static void PreferenceSurvivesFailure(Action<bool, string> check)
@@ -113,12 +121,13 @@ namespace Neighbor.Tests
             var harness = new Harness();
             var controller = harness.Create();
             controller.Create();
+            int configuredBeforeRelease = harness.View.ConfigureCalls;
             controller.Dispose();
             controller.Dispose();
             bool threw = false;
             try { controller.Hide(); controller.SetEnabled(true); controller.SetBusy(true); } catch { threw = true; }
             check(harness.View.DisposeCalls == 1, "Releasing twice disposes the view exactly once");
-            check(!threw && harness.View.ConfigureCalls == 0, "Calls after release are ignored without throwing");
+            check(!threw && harness.View.ConfigureCalls == configuredBeforeRelease, "Calls after release are ignored without throwing");
         }
 
         private static void FailureAfterReleaseIsIgnored(Action<bool, string> check)

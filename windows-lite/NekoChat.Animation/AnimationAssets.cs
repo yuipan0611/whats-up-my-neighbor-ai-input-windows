@@ -41,16 +41,16 @@ public sealed class AnimationAssets : IDisposable
         int version = dict.TryGetValue("version", out var v) && v is int iv ? iv : 1;
         int carry = dict.TryGetValue("carryIndex", out var ci) && ci is int cii ? cii : 19;
 
-        var timesList = (object[])dict["times"];
+        var timesList = Items(dict["times"]);
         var times = timesList.Select(Convert.ToDouble).ToArray();
 
-        var sourcesList = (object[])dict["sources"];
+        var sourcesList = Items(dict["sources"]);
         var sources = sourcesList.Select(Convert.ToInt32).ToArray();
 
-        var coatsList = (object[])dict["coats"];
+        var coatsList = Items(dict["coats"]);
         var coats = coatsList.Select(Convert.ToString).ToArray();
 
-        var coatNamesList = (object[])dict["coatNames"];
+        var coatNamesList = Items(dict["coatNames"]);
         var coatNames = coatNamesList.Select(Convert.ToString).ToArray();
 
         var clipsDict = (Dictionary<string, object>)dict["clips"];
@@ -65,6 +65,13 @@ public sealed class AnimationAssets : IDisposable
         }
         return new Manifest(version, times, sources, carry, coats, coatNames, clips);
     }
+
+    // JavaScriptSerializer.Deserialize<Dictionary<string, object>> materialises JSON arrays as
+    // ArrayList (DeserializeObject would give object[]); accept any list rather than one concrete type.
+    private static IEnumerable<object> Items(object value) =>
+        value is System.Collections.IEnumerable list && !(value is string)
+            ? list.Cast<object>()
+            : throw new InvalidDataException("貓咪動畫設定不完整。");
 #endif
 
     private Stream Open(string path) => (archive.GetEntry(path) ?? throw new InvalidDataException("貓咪動畫影格不完整。")).Open();
