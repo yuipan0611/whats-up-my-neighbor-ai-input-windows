@@ -44,7 +44,7 @@ namespace Neighbor.Windows
         private string learningStatus = "貼入後在同一欄位修正一個詞，可自動學習。";
         private string shownCandidateId;
         private string shownPendingId;
-        private bool exiting, learningBusy;
+        private bool exiting, learningBusy, checkingUpdate;
         private int smokeTicks;
         /// <summary>Smoke mode only: true when an optional component failed, so the process exits non-zero.</summary>
         // Smoke mode only: true when the optional companion failed, so the process exits non-zero.
@@ -326,72 +326,70 @@ namespace Neighbor.Windows
         }
         private async Task CheckForUpdatesAsync(bool manual)
         {
-            if (exiting) return;
-            string currentVer = GetCurrentVersion();
-            UpdateCheckResult result;
-            using (var checker = new UpdateChecker())
-            {
-                result = await checker.CheckForUpdatesAsync(currentVer, "v");
-            }
-            if (exiting) return;
-            if (result.HasUpdate)
-            {
-                string url = !string.IsNullOrWhiteSpace(result.HtmlUrl)
-                    ? result.HtmlUrl
-                    : "https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases";
-
-                string prompt = string.Format(
-                    "發現新版本 What's up my neighbor v{0}！（目前版本：v{1}）\n\n{2}\n是否開啟瀏覽器前往下載頁面？",
-                    result.LatestVersion,
-                    result.CurrentVersion,
-                    string.IsNullOrWhiteSpace(result.ReleaseTitle) ? "" : result.ReleaseTitle + "\n"
-                );
-
-                if (manual)
-                {
-                    var answer = MessageBox.Show(prompt, ProductName + " — 檢查更新", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
-                    if (answer == DialogResult.Yes)
-                    {
-                        OpenUpdatePage(url);
-                    }
-                }
-                else
-                {
-                    Notify(string.Format("發現新版本 v{0}！可由系統匣「檢查更新」前往下載。", result.LatestVersion));
-                }
-            }
-            else if (manual)
-            {
-                if (result.Success)
-                {
-                    MessageBox.Show(
-                        string.Format("目前已是最新版本（v{0}）。", result.CurrentVersion),
-                        ProductName + " — 檢查更新",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information
-                    );
-                }
-                else
-                {
-                    MessageBox.Show(
-                        "無法檢查更新：" + result.ErrorMessage + "\n\n請確認網路連線或稍後再試。",
-                        ProductName + " — 檢查更新",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning
-                    );
-                }
-            }
-        }
-        private void OpenUpdatePage(string url)
-        {
+            if (exiting || checkingUpdate) return;
+            if (manual && coordinator.State != DictationState.Idle) { Notify("請先完成語音工作，再下載更新。"); return; }
+            checkingUpdate = true;
             try
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+                string currentVer = GetCurrentVersion();
+                UpdateCheckResult result;
+                using (var checker = new UpdateChecker())
+                {
+                    result = await checker.CheckForUpdatesAsync(currentVer, "v");
+                }
+                if (exiting) return;
+                if (result.HasUpdate)
+                {
+                    if (manual)
+                    {
+                        if (string.IsNullOrWhiteSpace(result.DownloadUrl) || string.IsNullOrWhiteSpace(result.ChecksumUrl))
+                        { MessageBox.Show("新版尚未備妥可驗證的安裝檔，請稍後重試。", ProductName + " — 更新", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+                        string prompt = string.Format("發現新版本 v{0}（目前：v{1}）。\n\n{2}\n是否立即下載更新？", result.LatestVersion, result.CurrentVersion, result.ReleaseTitle);
+                        if (MessageBox.Show(prompt, ProductName + " — 檢查更新", MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes) return;
+                        using (var download = new UpdateDownloadForm(result))
+                        {
+                            download.ShowDialog();
+                            if (download.Error != null) throw download.Error;
+                            if (download.DownloadedPath == null) { Notify("更新下載已取消。"); return; }
+                            if (coordinator.State != DictationState.Idle) { Notify("更新已下載，請完成語音工作後再開啟更新安裝。"); return; }
+                            if (MessageBox.Show("下載與檔案驗證完成。是否開啟安裝程式並關閉程式？", ProductName + " — 更新已下載", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                            {
+                                if (coordinator.State != DictationState.Idle) { Notify("更新已下載，請先完成語音工作。"); return; }
+                            using (var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(download.DownloadedPath) { UseShellExecute = true }))
+                                { if (process == null) throw new IOException("無法啟動安裝程式，已保留下載檔供重試。"); }
+                                await ExitAsync();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Notify(string.Format("發現新版本 v{0}！可由系統匣「檢查更新」下載更新。", result.LatestVersion));
+                    }
+                }
+                else if (manual)
+                {
+                    if (result.Success)
+                    {
+                        MessageBox.Show(
+                            string.Format("目前已是最新版本（v{0}）。", result.CurrentVersion),
+                            ProductName + " — 檢查更新",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information
+                        );
+                    }
+                    else
+                    {
+                        MessageBox.Show(
+                            "無法檢查更新：" + result.ErrorMessage + "\n\n請確認網路連線或稍後再試。",
+                            ProductName + " — 檢查更新",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning
+                        );
+                    }
+                }
             }
-            catch
-            {
-                Notify("無法開啟瀏覽器，請手動前往：" + url);
-            }
+            catch (Exception error) { if (manual && !exiting) MessageBox.Show("更新未完成：" + error.Message, ProductName + " — 更新", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            finally { checkingUpdate = false; }
         }
         private void Notify(string message)
         {

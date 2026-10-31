@@ -16,10 +16,17 @@ public partial class App : Application
     private DirectLanListener? directListener;
     private int directSendPort = DirectLanMessaging.DefaultPort;
     private Mutex? instanceGate;
+    private bool checkingUpdate;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        if (e.Args.Length == 2 && e.Args[0] == "--update-download-smoke-test")
+        {
+            Environment.Exit(UpdateDownloadSmoke.Run(e.Args[1]));
+            return;
+        }
 
         if (e.Args.Length == 2 && e.Args[0] == "--smoke-test")
         {
@@ -229,6 +236,8 @@ public partial class App : Application
 
     private async Task CheckForUpdatesAsync(bool manual)
     {
+        if (checkingUpdate) { if (manual) chat.SetStatus("正在檢查或下載更新，請稍候。"); return; }
+        checkingUpdate = true;
         try
         {
             string currentVer = "0.1.0-beta.8";
@@ -245,21 +254,26 @@ public partial class App : Application
             var result = await checker.CheckForUpdatesAsync(currentVer, "nekochat-lite-v");
             if (result.HasUpdate)
             {
-                string url = !string.IsNullOrWhiteSpace(result.HtmlUrl)
-                    ? result.HtmlUrl
-                    : "https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases";
-                string prompt = $"發現新版本 NekoChat Lite v{result.LatestVersion}！（目前版本：v{result.CurrentVersion}）\n\n{result.ReleaseTitle ?? ""}\n是否開啟瀏覽器前往下載頁面？";
                 if (manual)
                 {
-                    if (MessageBox.Show(chat, prompt, "NekoChat — 檢查更新", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
+                    if (string.IsNullOrWhiteSpace(result.DownloadUrl) || string.IsNullOrWhiteSpace(result.ChecksumUrl))
+                    { MessageBox.Show(chat, "新版尚未備妥可驗證的安裝檔，請稍後重試。", "NekoChat — 更新", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+                    string prompt = $"發現新版本 NekoChat Lite v{result.LatestVersion}！（目前版本：v{result.CurrentVersion}）\n\n{result.ReleaseTitle ?? ""}\n是否立即下載更新？";
+                    if (MessageBox.Show(chat, prompt, "NekoChat — 檢查更新", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes) return;
+                    var download = new UpdateDownloadWindow(chat, result);
+                    download.ShowDialog();
+                    if (download.Error is not null) throw download.Error;
+                    if (download.DownloadedPath is null) { chat.SetStatus("更新下載已取消。"); return; }
+                    if (MessageBox.Show(chat, "下載與檔案驗證完成。是否開啟安裝程式並關閉 NekoChat？", "NekoChat — 更新已下載", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
                     {
-                        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
-                        catch { chat.SetStatus("無法開啟瀏覽器，請手動前往：" + url); }
+                        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(download.DownloadedPath) { UseShellExecute = true })
+                            ?? throw new IOException("無法啟動安裝程式，已保留下載檔供重試。");
+                        Shutdown();
                     }
                 }
                 else
                 {
-                    pet.Notify($"發現新版本 v{result.LatestVersion}！右鍵選單「檢查更新」可前往下載。");
+                    pet.Notify($"發現新版本 v{result.LatestVersion}！右鍵選單「檢查更新」可下載更新。");
                 }
             }
             else if (manual)
@@ -276,8 +290,9 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            if (manual) MessageBox.Show(chat, "檢查更新時發生錯誤：" + ex.Message, "NekoChat — 檢查更新", MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (manual) MessageBox.Show(chat, "更新未完成：" + ex.Message, "NekoChat — 更新", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+        finally { checkingUpdate = false; }
     }
 
     protected override void OnExit(ExitEventArgs e)

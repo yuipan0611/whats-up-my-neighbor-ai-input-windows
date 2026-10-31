@@ -77,6 +77,7 @@ if(args.Length==2&&args[0]=="--live") {
     Check((await ack.Task.WaitAsync(cancel.Token)).Status=="delivered","C# live ack");
     cancel.Cancel();try{await Task.WhenAll(at,bt);}catch(OperationCanceledException){}
 }
+checks += await NekoChat.Tests.UpdateDownloadChecks.Run();
 checks += InstallationChecks.Run();
 checks += await ClassroomChecks.Run();
 checks += await ClassroomGroupChecks.Run();

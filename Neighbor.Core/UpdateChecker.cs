@@ -157,6 +157,7 @@ namespace Neighbor.Core
         public string ReleaseNotes { get; }
         public string HtmlUrl { get; }
         public string DownloadUrl { get; }
+        public string ChecksumUrl { get; }
         public string ErrorMessage { get; }
 
         public UpdateCheckResult(
@@ -168,7 +169,8 @@ namespace Neighbor.Core
             string releaseNotes,
             string htmlUrl,
             string downloadUrl,
-            string errorMessage = null)
+            string errorMessage = null,
+            string checksumUrl = null)
         {
             Success = success;
             HasUpdate = hasUpdate;
@@ -178,6 +180,7 @@ namespace Neighbor.Core
             ReleaseNotes = releaseNotes;
             HtmlUrl = htmlUrl;
             DownloadUrl = downloadUrl;
+            ChecksumUrl = checksumUrl;
             ErrorMessage = errorMessage;
         }
 
@@ -186,9 +189,9 @@ namespace Neighbor.Core
             return new UpdateCheckResult(true, false, currentVersion, latestVersion ?? currentVersion, null, null, htmlUrl, null);
         }
 
-        public static UpdateCheckResult UpdateAvailable(string currentVersion, string latestVersion, string title, string notes, string htmlUrl, string downloadUrl)
+        public static UpdateCheckResult UpdateAvailable(string currentVersion, string latestVersion, string title, string notes, string htmlUrl, string downloadUrl, string checksumUrl = null)
         {
-            return new UpdateCheckResult(true, true, currentVersion, latestVersion, title, notes, htmlUrl, downloadUrl);
+            return new UpdateCheckResult(true, true, currentVersion, latestVersion, title, notes, htmlUrl, downloadUrl, checksumUrl: checksumUrl);
         }
 
         public static UpdateCheckResult Failure(string currentVersion, string errorMessage)
@@ -278,6 +281,7 @@ namespace Neighbor.Core
                 SemVersion highestVersion = currentVersion;
                 Dictionary<string, object> bestRelease = null;
                 string bestDownloadUrl = null;
+                string bestChecksumUrl = null;
 
                 foreach (var item in releases)
                 {
@@ -328,22 +332,17 @@ namespace Neighbor.Core
                         bestRelease = rel;
 
                         bestDownloadUrl = null;
-                        if (rel.TryGetValue("assets", out var assetsObj) && assetsObj is object[] assets)
+                        bestChecksumUrl = null;
+                        string expectedName = tagPrefix == "nekochat-lite-v" ? "NekoChat-Setup-win-x64.exe" : "Neighbor-Setup-" + verText + "-x64.exe";
+                        if (rel.TryGetValue("assets", out var assetsObj) && assetsObj is System.Collections.IEnumerable assets)
                         {
-                            foreach (var assetItem in assets)
+                            foreach (var itemAsset in assets)
                             {
-                                var asset = assetItem as Dictionary<string, object>;
-                                if (asset != null && asset.TryGetValue("name", out var nameObj) && nameObj is string assetName)
-                                {
-                                    if (assetName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        if (asset.TryGetValue("browser_download_url", out var urlObj) && urlObj is string downloadUrl)
-                                        {
-                                            bestDownloadUrl = downloadUrl;
-                                            break;
-                                        }
-                                    }
-                                }
+                                var asset = itemAsset as Dictionary<string, object>;
+                                if (asset == null || !asset.TryGetValue("name", out var n) || !(n is string name) ||
+                                    !asset.TryGetValue("browser_download_url", out var u) || !(u is string assetUrl)) continue;
+                                if (name.Equals(expectedName, StringComparison.OrdinalIgnoreCase)) bestDownloadUrl = assetUrl;
+                                if (name.Equals(expectedName + ".sha256", StringComparison.OrdinalIgnoreCase)) bestChecksumUrl = assetUrl;
                             }
                         }
                     }
@@ -361,7 +360,8 @@ namespace Neighbor.Core
                         title,
                         body,
                         htmlUrl,
-                        bestDownloadUrl
+                        bestDownloadUrl,
+                        bestChecksumUrl
                     );
                 }
 

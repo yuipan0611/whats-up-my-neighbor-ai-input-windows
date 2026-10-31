@@ -5,4 +5,5 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+  <ItemGroup><Compile Include="../../Shared/UpdateDownloader.cs" Link="UpdateDownloader.cs" /></ItemGroup>
 </Project>
