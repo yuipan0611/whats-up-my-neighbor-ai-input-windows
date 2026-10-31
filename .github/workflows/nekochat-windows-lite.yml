@@ -71,6 +71,21 @@ jobs:
           $textOnly = Start-Process -FilePath $app -ArgumentList @('--startup-smoke-test', "`"$textOnlyProof`"") -Wait -PassThru
           Get-Content "$textOnlyProof/startup-result.txt"
           if ($textOnly.ExitCode -ne 0) { exit 1 }
+      - name: Verify native update download progress and cancellation
+        shell: pwsh
+        run: |
+          $apps = @('build/windows-lite-package/NekoChat.Windows.exe', 'build/windows-lite-portable/NekoChat-Lite.exe')
+          $index = 0
+          foreach ($app in $apps) {
+            $target = Join-Path ([System.IO.Path]::GetTempPath()) "nekochat-update-download-$env:GITHUB_RUN_ID-$index"
+            $probe = Start-Process -FilePath (Resolve-Path $app).Path -ArgumentList @('--update-download-smoke-test', "`"$target`"") -PassThru
+            if (!$probe.WaitForExit(45000)) { $probe.Kill(); throw 'Update download UI timed out' }
+            Get-Content "$target/result.txt"
+            if ($probe.ExitCode -ne 0) { throw 'Update download UI failed' }
+            New-Item -ItemType Directory -Force build/windows-lite-smoke/update-download | Out-Null
+            Copy-Item "$target/result.txt" "build/windows-lite-smoke/update-download/result-$index.txt"
+            $index++
+          }
       - name: Verify packaged and portable apps exchange real messages
         shell: pwsh
         run: |

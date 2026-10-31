@@ -32,6 +32,7 @@ namespace Neighbor.Tests
                         Application.EnableVisualStyles();
                         RunSuite("Platform integration", () => PlatformTests.RunInteractive(Check));
                         RunSuite("UI", () => UiTests.Run(Check));
+                        RunSuite("Update download UI", () => UpdateDownloadUiTests.Run(Check));
                         RunSuite("UI screenshots", () => UiTests.SaveScreenshots(Path.Combine(directory, "ui-screenshots")));
                     }
                     else
@@ -49,6 +50,7 @@ namespace Neighbor.Tests
                         RunSuite("Desktop pet controller", () => DesktopPetControllerTests.Run(Check));
                         RunSuite("Scaled cat cache", () => ScaledCatCacheTests.Run(Check));
                         RunSuite("Update checker", () => UpdateCheckerTests.Run(Check));
+                        RunSuite("Update download", () => UpdateDownloadChecks.Run(Check).GetAwaiter().GetResult());
                     }
                 }
                 catch (Exception error) { Check(false, error.ToString()); }

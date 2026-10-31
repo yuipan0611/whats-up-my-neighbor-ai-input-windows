@@ -115,13 +115,14 @@ public sealed record UpdateCheckResult(
     string? ReleaseNotes,
     string? HtmlUrl,
     string? DownloadUrl,
-    string? ErrorMessage = null)
+    string? ErrorMessage = null,
+    string? ChecksumUrl = null)
 {
     public static UpdateCheckResult NoUpdate(string currentVersion, string? latestVersion = null, string? htmlUrl = null) =>
         new(true, false, currentVersion, latestVersion ?? currentVersion, null, null, htmlUrl, null);
 
-    public static UpdateCheckResult UpdateAvailable(string currentVersion, string latestVersion, string? title, string? notes, string? htmlUrl, string? downloadUrl) =>
-        new(true, true, currentVersion, latestVersion, title, notes, htmlUrl, downloadUrl);
+    public static UpdateCheckResult UpdateAvailable(string currentVersion, string latestVersion, string? title, string? notes, string? htmlUrl, string? downloadUrl, string? checksumUrl = null) =>
+        new(true, true, currentVersion, latestVersion, title, notes, htmlUrl, downloadUrl, ChecksumUrl: checksumUrl);
 
     public static UpdateCheckResult Failure(string currentVersion, string errorMessage) =>
         new(false, false, currentVersion, null, null, null, null, null, errorMessage);
@@ -196,6 +197,7 @@ public sealed class UpdateChecker : IDisposable
             SemVersion highestVersion = currentVersion;
             JsonElement? bestRelease = null;
             string? bestDownloadUrl = null;
+            string? bestChecksumUrl = null;
 
             foreach (var rel in doc.RootElement.EnumerateArray())
             {
@@ -233,18 +235,16 @@ public sealed class UpdateChecker : IDisposable
                     bestRelease = rel.Clone();
 
                     bestDownloadUrl = null;
+                    bestChecksumUrl = null;
+                    string expectedName = tagPrefix == "nekochat-lite-v" ? "NekoChat-Setup-win-x64.exe" : "Neighbor-Setup-" + verText + "-x64.exe";
                     if (rel.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var asset in assets.EnumerateArray())
                         {
-                            if (asset.TryGetProperty("name", out var nameProp) && nameProp.GetString() is { } name && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                            {
-                                if (asset.TryGetProperty("browser_download_url", out var dlProp))
-                                {
-                                    bestDownloadUrl = dlProp.GetString();
-                                    break;
-                                }
-                            }
+                            if (!asset.TryGetProperty("name", out var np) || np.GetString() is not { } name ||
+                                !asset.TryGetProperty("browser_download_url", out var url)) continue;
+                            if (name.Equals(expectedName, StringComparison.OrdinalIgnoreCase)) bestDownloadUrl = url.GetString();
+                            if (name.Equals(expectedName + ".sha256", StringComparison.OrdinalIgnoreCase)) bestChecksumUrl = url.GetString();
                         }
                     }
                 }
@@ -262,7 +262,8 @@ public sealed class UpdateChecker : IDisposable
                     title,
                     body,
                     htmlUrl,
-                    bestDownloadUrl
+                    bestDownloadUrl,
+                    bestChecksumUrl
                 );
             }
 

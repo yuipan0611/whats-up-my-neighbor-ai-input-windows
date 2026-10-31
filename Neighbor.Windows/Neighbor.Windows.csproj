@@ -22,4 +22,5 @@
     <EmbeddedResource Include="../assets/neighbor.ico" LogicalName="Neighbor.cat.ico" />
     <EmbeddedResource Include="../assets/desktop-pet/*.svg" LogicalName="Neighbor.pet.%(Filename)%(Extension)" />
   </ItemGroup>
+  <ItemGroup><Compile Include="../Shared/UpdateDownloadUiFixture.cs" Link="UpdateDownloadUiFixture.cs" /></ItemGroup>
 </Project>
