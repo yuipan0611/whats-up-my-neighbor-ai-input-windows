@@ -9,6 +9,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 #if NETFRAMEWORK
 namespace Neighbor.Core
@@ -221,10 +223,23 @@ namespace NekoChat.Core
         {
             using (var input = File.OpenRead(file)) return input.ReadByte() == 'M' && input.ReadByte() == 'Z';
         }
+        [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle CreateZoneFile(string file, uint access, uint share, IntPtr security,
+            uint creation, uint attributes, IntPtr template);
         private static void MarkInternetDownload(string file, Uri source)
         {
-            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
-                File.WriteAllText(file + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=" + source.AbsoluteUri + "\r\n", Encoding.ASCII);
+            if (Environment.OSVersion.Platform != PlatformID.Win32NT) return;
+            // .NET Framework's path parser rejects NTFS stream syntax. Use the
+            // native API so both target frameworks retain Mark-of-the-Web.
+            using (var handle = CreateZoneFile(file + ":Zone.Identifier", 0x40000000, 7, IntPtr.Zero, 2, 0x80, IntPtr.Zero))
+            {
+                if (handle.IsInvalid) throw new IOException("無法標記網路下載檔案，已停止更新。", new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+                using (var stream = new FileStream(handle, FileAccess.Write))
+                {
+                    var bytes = Encoding.ASCII.GetBytes("[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=" + source.AbsoluteUri + "\r\n");
+                    stream.Write(bytes, 0, bytes.Length);
+                }
+            }
         }
         private static void NoLinks(string path)
         {

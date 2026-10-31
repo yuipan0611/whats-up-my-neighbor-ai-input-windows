@@ -9,6 +9,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 #if NETFRAMEWORK
 using Neighbor.Core;
 namespace Neighbor.Tests
@@ -49,6 +51,14 @@ namespace NekoChat.Tests
         {
             internal readonly List<UpdateDownloadProgress> Entries = new List<UpdateDownloadProgress>();
             public void Report(UpdateDownloadProgress value) { lock (Entries) Entries.Add(value); }
+        }
+        [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle ReadZoneFile(string file, uint access, uint share, IntPtr security, uint creation, uint attributes, IntPtr template);
+        private static string InternetZone(string file)
+        {
+            using (var handle = ReadZoneFile(file + ":Zone.Identifier", 0x80000000, 7, IntPtr.Zero, 3, 0x80, IntPtr.Zero))
+            using (var stream = new FileStream(handle, FileAccess.Read))
+            using (var reader = new StreamReader(stream)) return reader.ReadToEnd();
         }
         private static string Hash(byte[] bytes)
         { using (var hash = SHA256.Create()) return BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", ""); }
@@ -97,7 +107,7 @@ namespace NekoChat.Tests
                     check(server.Payloads == 1 && server.Requests == 3, "verified cache is reused without downloading payload twice");
                     check(Directory.GetFiles(folder("success"), "*.exe").Length == 1, "one fixed installer cache per edition");
                     if (Environment.OSVersion.Platform == PlatformID.Win32NT)
-                        check(File.ReadAllText(file + ":Zone.Identifier").Contains("ZoneId=3"), "Windows Internet-zone security metadata preserved");
+                        check(InternetZone(file).Contains("ZoneId=3"), "Windows Internet-zone security metadata preserved");
                 }
                 // Same implementation supports the standard edition and its filename checksum format.
                 string standard = Url.Replace("nekochat-lite-v0.1.0-beta.9/NekoChat-Setup-win-x64.exe", "v0.1.0-beta.9/Neighbor-Setup-0.1.0-beta.9-x64.exe");
