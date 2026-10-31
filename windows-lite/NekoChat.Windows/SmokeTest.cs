@@ -78,6 +78,8 @@ internal static class SmokeTest
             chat.Draft.Text = "下課一起走！";
             chat.SetStatus("Windows CI 視窗繪製驗證完成");
 
+            ChatLayoutChecks.Run(chat, directory);
+
             var chatVisual = (FrameworkElement)chat.Content;
             chatVisual.Measure(new Size(480, 740));
             chatVisual.Arrange(new Rect(0, 0, 480, 740));
@@ -105,3 +107,4 @@ internal static class SmokeTest
         encoder.Save(file);
     }
 }
+
