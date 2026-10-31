@@ -16,14 +16,15 @@
                    Foreground="#64748B" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
         </ScrollViewer>
 
-        <Grid>
+        <Grid x:Name="ChatLayout" SizeChanged="ChatLayoutSizeChanged">
             <Grid.RowDefinitions>
-                <RowDefinition Height="2*"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- Settings shrink and scroll; the composer never scrolls out of view. -->
+            <!-- Settings take their natural height, capped in code so small windows scroll them;
+                 the composer never scrolls out of view. -->
             <ScrollViewer x:Name="SettingsScroll" Grid.Row="0" VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,8">
                 <Grid>
@@ -107,4 +108,3 @@
         </Grid>
     </DockPanel>
 </Window>
-

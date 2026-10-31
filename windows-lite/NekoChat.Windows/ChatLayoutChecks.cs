@@ -25,10 +25,27 @@ internal static class ChatLayoutChecks
                 "Repeated fitting must be stable");
         }
 
+        // Invisible DWM borders (7px at 100%) stick out of the work area for edge-touching and
+        // snapped windows. Those must stay put; only the visible frame is constrained.
+        {
+            var work = new NativeRect { Left = 0, Top = 0, Right = 1366, Bottom = 728 };
+            var snappedFrame = new NativeRect { Left = 0, Top = 0, Right = 683, Bottom = 728 };
+            var snapped = new NativeRect { Left = -7, Top = 0, Right = 690, Bottom = 735 };
+            var kept = DisplayScreens.FitWindowToWorkArea(snapped, snappedFrame, work);
+            Require(kept.Left == snapped.Left && kept.Top == snapped.Top && kept.Right == snapped.Right && kept.Bottom == snapped.Bottom,
+                "Snapped/edge windows must not be moved because of invisible borders");
+            var offFrame = new NativeRect { Left = 1000, Top = 500, Right = 1480, Bottom = 1240 };
+            var off = new NativeRect { Left = 993, Top = 500, Right = 1487, Bottom = 1247 };
+            var moved = DisplayScreens.FitWindowToWorkArea(off, offFrame, work);
+            // Visible frame 480x740 is clamped to (886,0)-(1366,728); the 7px borders are added back.
+            Require(moved.Left == 879 && moved.Top == 0 && moved.Right == 1373 && moved.Bottom == 735,
+                $"Off-screen frame must be fitted by its visible edges: {moved.Left},{moved.Top},{moved.Right},{moved.Bottom}");
+        }
+
         var visual = (FrameworkElement)chat.Content;
         // Client sizes reserve non-client chrome and taskbar space. Includes 1366x768/125%,
         // 150%, minimum manual resize, a wide window, and returning to the default size.
-        foreach (var size in new[] { new Size(464, 530), new Size(424, 450), new Size(424, 320), new Size(800, 500), new Size(464, 700), new Size(424, 320) })
+        foreach (var size in new[] { new Size(464, 530), new Size(424, 450), new Size(424, 320), new Size(800, 500), new Size(900, 1000), new Size(464, 700), new Size(424, 320) })
         {
             chat.SetReceiverState(false, 8768, new string('測', 200));
             chat.SetStatus(new string('試', 200));
@@ -43,6 +60,12 @@ internal static class ChatLayoutChecks
                     control.Name + " must remain within the client area after resize");
             }
             Require(chat.Draft.ActualHeight >= 55 && chat.SendButton.ActualHeight >= 55, "Composer must not be squeezed away");
+            // Settings must not reserve blank space; on large windows the history gets it.
+            Require(chat.SettingsScroll.ViewportHeight <= chat.SettingsScroll.ExtentHeight + 0.5,
+                $"Settings must not leave empty space: client={size}, viewport={chat.SettingsScroll.ViewportHeight}, extent={chat.SettingsScroll.ExtentHeight}");
+            if (size.Height >= 900)
+                Require(chat.SettingsScroll.ScrollableHeight == 0 && chat.History.ActualHeight > chat.SettingsScroll.ActualHeight,
+                    $"Large windows must show all settings and give the history the remaining space: client={size}, history={chat.History.ActualHeight}");
             if (size.Height <= 530)
                 Require(chat.SettingsScroll.ScrollableHeight > 0, "Small windows must scroll settings");
             chat.SettingsScroll.ScrollToEnd();
@@ -70,7 +93,7 @@ internal static class ChatLayoutChecks
         chat.SetReceiverState(true, 8768, null);
         chat.SetStatus("Windows CI 視窗繪製驗證完成");
         File.WriteAllText(Path.Combine(directory, "chat-layout-result.txt"),
-            "PASS: work-area fitting at 100/125/150/200%, negative monitor origin, stable repeated fit, small/large/repeated WPF layout, scrollable settings and visible composer. Physical mixed-DPI monitor testing remains required.");
+            "PASS: work-area fitting at 100/125/150/200%, negative monitor origin, stable repeated fit, small/large/repeated WPF layout, no blank settings space, DWM-border-aware fitting, scrollable settings and visible composer. Physical mixed-DPI monitor testing remains required.");
     }
 
     private static void Require(bool condition, string message)

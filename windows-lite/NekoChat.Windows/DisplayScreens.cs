@@ -86,9 +86,31 @@ internal static class DisplayScreens
         return new NativeRect { Left = left, Top = top, Right = left + width, Bottom = top + height };
     }
 
+    /// <summary>
+    /// Fits a window into a work area by its visible frame. On Windows 10/11 GetWindowRect
+    /// includes invisible DWM resize borders, so a window touching the edge or snapped to half
+    /// the screen extends past the work area by a few pixels. Comparing the visible frame keeps
+    /// such windows untouched; the borders are added back for SetWindowPos.
+    /// </summary>
+    internal static NativeRect FitWindowToWorkArea(NativeRect window, NativeRect frame, NativeRect workArea)
+    {
+        var fit = ConstrainToWorkArea(frame, workArea);
+        if (fit.Left == frame.Left && fit.Top == frame.Top && fit.Width == frame.Width && fit.Height == frame.Height)
+            return window;
+        int left = fit.Left - (frame.Left - window.Left), top = fit.Top - (frame.Top - window.Top);
+        return new NativeRect
+        {
+            Left = left,
+            Top = top,
+            Right = left + fit.Width + (window.Width - frame.Width),
+            Bottom = top + fit.Height + (window.Height - frame.Height),
+        };
+    }
+
     internal static void FitChat(ChatWindow chat)
     {
         var window = new System.Windows.Interop.WindowInteropHelper(chat).Handle;
+        if (window == IntPtr.Zero) return;
         var screen = All().FirstOrDefault(s => s.Handle == MonitorFromWindow(window, 2));
         if (screen is null) return;
         uint dpi = GetDpiForWindow(window);
@@ -97,8 +119,12 @@ internal static class DisplayScreens
         // Relax minima too, otherwise WPF can undo the native clamp on tiny/high-DPI screens.
         chat.MinWidth = Math.Min(440, screen.WorkArea.Width * 96.0 / dpi);
         chat.MinHeight = Math.Min(360, screen.WorkArea.Height * 96.0 / dpi);
-        if (!GetWindowRect(window, out var current)) throw new Win32Exception();
-        var fit = ConstrainToWorkArea(current, screen.WorkArea);
+        if (!GetWindowRect(window, out var current)) return;
+        // Per-monitor-v2 aware, so the extended frame bounds are physical pixels like the work area.
+        if (DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, out var frame, Marshal.SizeOf<NativeRect>()) != 0
+            || frame.Width <= 0 || frame.Height <= 0)
+            frame = current;
+        var fit = FitWindowToWorkArea(current, frame, screen.WorkArea);
         if (fit.Left != current.Left || fit.Top != current.Top || fit.Width != current.Width || fit.Height != current.Height)
             Move(window, fit.Left, fit.Top, fit.Width, fit.Height);
     }
@@ -119,5 +145,7 @@ internal static class DisplayScreens
     [DllImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
+    private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out NativeRect value, int size);
 }
-
