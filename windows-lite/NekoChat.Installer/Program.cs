@@ -30,25 +30,47 @@ internal static class Program
         var button=new Button{Content="安裝並啟動",Padding=new Thickness(16,10,16,10),HorizontalAlignment=HorizontalAlignment.Left};panel.Children.Add(button);
         var status=new TextBlock{Text="教室純文字版，不需要麥克風或 API Key；原有設定與花色會保留。",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,16,0,0)};panel.Children.Add(status);
         var skip=new Button{Content="略過網路設定並啟動（可能無法收訊）",Visibility=Visibility.Collapsed,Margin=new Thickness(0,12,0,0),Padding=new Thickness(10),HorizontalAlignment=HorizontalAlignment.Left};panel.Children.Add(skip);
-        string? installedFolder=null;
+        InstallationUpdate? pending=null;
         bool installing=false;
-        void Launch(){Process.Start(new ProcessStartInfo(Path.Combine(installedFolder!,"NekoChat.Windows.exe")){WorkingDirectory=installedFolder,UseShellExecute=true});installing=false;window.Close();}
-        skip.Click+=(_,_)=>{if(!installing && installedFolder is not null)Launch();};
-        window.Closing+=(_,e)=>{if(installing)e.Cancel=true;};
+        void Launch()
+        {
+            var transaction=pending??throw new InvalidOperationException("尚未完成安裝。");
+            var result=transaction.AcceptLaunch(folder=>
+            {
+                using var process=Process.Start(new ProcessStartInfo(Path.Combine(folder,"NekoChat.Windows.exe")){WorkingDirectory=folder,UseShellExecute=true})
+                    ??throw new IOException("無法啟動新版，將還原原版。");
+            });
+            var notices=result.Warnings.ToList();
+            try{CreateShortcut(transaction.Destination);}catch(Exception ex)when(ex is IOException or System.Runtime.InteropServices.COMException)
+            {notices.Add("新版已啟動，但開始功能表捷徑未完成。"+ex.Message);}
+            if(result.PreservedFiles>0)notices.Add("自訂或無法確認歸屬的檔案已保留於："+PreservedFilesRoot());
+            transaction.Dispose();pending=null;installing=false;
+            if(notices.Count>0)MessageBox.Show(string.Join("\n\n",notices),"NekoChat 安裝完成",MessageBoxButton.OK,MessageBoxImage.Information);
+            window.Close();
+        }
+        skip.Click+=(_,_)=>{if(!installing && pending is not null){try{Launch();}catch(Exception ex){status.Text=ex.Message;if(pending is not null && !pending.IsPending){pending.Dispose();pending=null;}button.Content="重試安裝";}}};
+        window.Closing+=(_,e)=>
+        {
+            if(installing){e.Cancel=true;return;}
+            try{pending?.Dispose();}
+            catch(Exception ex)when(ex is IOException or UnauthorizedAccessException)
+            {status.Text="還原未完成，請保留安裝位置旁的暫存與舊版資料夾。"+ex.Message;e.Cancel=true;pending=null;}
+        };
         button.Click+=async(_,_)=> {
             installing=true;button.IsEnabled=false;skip.IsEnabled=false;status.Text="正在安裝…";
             try {
-                if(installedFolder is null){installedFolder=await Task.Run(Install);CreateShortcut(installedFolder);}
+                if(pending is null)pending=await Task.Run(Install);
                 status.Text="正在設定同網段收訊權限，請確認 Windows 管理員授權提示…";
-                await ConfigureFirewallAsync(Path.Combine(installedFolder,"NekoChat.Windows.exe"));
+                await ConfigureFirewallAsync(Path.Combine(pending.Destination,"NekoChat.Windows.exe"));
                 Launch();
             }catch(Exception ex){
+                if(pending is not null && !pending.IsPending){pending.Dispose();pending=null;}
                 status.Text=ex is Win32Exception {NativeErrorCode:1223}
                     ?"程式已安裝，但你尚未同意網路設定。可重試管理員授權；略過後可能無法收到同學訊息。"
                     :ex is InvalidDataException or IOException or InvalidOperationException?ex.Message
                     :"安裝或網路設定未完成。請確認已離開舊版程式，且學校允許安裝與內網通訊。";
-                button.Content=installedFolder is null?"重試安裝":"重試網路設定";
-                button.IsEnabled=true;skip.IsEnabled=true;skip.Visibility=installedFolder is null?Visibility.Collapsed:Visibility.Visible;
+                button.Content=pending is null?"重試安裝":"重試網路設定";
+                button.IsEnabled=true;skip.IsEnabled=true;skip.Visibility=pending is null?Visibility.Collapsed:Visibility.Visible;
             }
             finally{installing=false;}
         };
@@ -86,30 +108,18 @@ internal static class Program
             payload.Position=0;return payload;
         }catch{payload.Dispose();throw;}
     }
-    private static string Install()
+    private static InstallationUpdate Install()
     {
         if(new[]{"NekoChat.Windows","NekoChat-Lite"}.SelectMany(Process.GetProcessesByName).Any(p=>{using(p)return p.SessionId==Process.GetCurrentProcess().SessionId;}))
             throw new IOException("請先從貓咪右鍵選單離開舊版 NekoChat，再按安裝。");
         var parent=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs");
         return InstallAt(parent);
     }
-    private static string InstallAt(string parent)
+    private static string PreservedFilesRoot()=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NekoChat.WindowsLite","UpgradePreservedFiles");
+    private static InstallationUpdate InstallAt(string parent,string? preservedRoot=null)
     {
-        Directory.CreateDirectory(parent);
-        var destination=Path.Combine(parent,"NekoChat.WindowsLite");
-        if(Directory.Exists(destination) && !File.Exists(Path.Combine(destination,"NekoChat.Windows.exe")))
-            throw new IOException("安裝資料夾已有其他內容，請先由管理者確認；本次未覆寫任何檔案。");
-        var staging=Path.Combine(parent,".nekochat-install-"+Guid.NewGuid().ToString("N"));
-        var backup=Path.Combine(parent,".nekochat-previous-"+DateTime.UtcNow.ToString("yyyyMMddHHmmss")+"-"+Guid.NewGuid().ToString("N"));
-        bool moved=false;
-        try {
-            using(var payload=VerifiedPayload())PayloadArchive.Extract(payload,staging);
-            if(Directory.Exists(destination)){Directory.Move(destination,backup);moved=true;}
-            try{Directory.Move(staging,destination);}
-            catch{if(moved && !Directory.Exists(destination))Directory.Move(backup,destination);throw;}
-            // Keep the previous app folder recoverable; it may contain user-provided artwork.
-            return destination;
-        }finally{if(Directory.Exists(staging))Directory.Delete(staging,true);}
+        using var payload=VerifiedPayload();
+        return InstallationUpdate.Begin(payload,parent,preservedRoot??PreservedFilesRoot());
     }
     private static void CreateShortcut(string installed,string? shortcutPath=null)
     {
@@ -126,21 +136,33 @@ internal static class Program
         Directory.CreateDirectory(root);
         try {
             var parent=Path.Combine(root,"Programs");
-            var installed=InstallAt(parent);
+            var recovery=Path.Combine(root,"user-data","UpgradePreservedFiles");
+            void StartSmoke(string folder,string name)
+            {
+                var start=new ProcessStartInfo(Path.Combine(folder,"NekoChat.Windows.exe")){WorkingDirectory=folder,UseShellExecute=false};
+                start.ArgumentList.Add("--startup-smoke-test");start.ArgumentList.Add(Path.Combine(root,name));
+                using var child=Process.Start(start)??throw new IOException("Installed App could not launch");
+                if(!child.WaitForExit(45000)){child.Kill(entireProcessTree:true);throw new IOException("Installed App startup timed out");}
+                if(child.ExitCode!=0 || !File.Exists(Path.Combine(root,name,"startup-result.txt")))throw new IOException("Installed App startup failed");
+            }
+            string installed;
+            using(var fresh=InstallAt(parent,recovery))
+            {fresh.AcceptLaunch(folder=>StartSmoke(folder,"fresh-startup"));installed=fresh.Destination;}
             File.WriteAllText(Path.Combine(installed,"user-artwork-sentinel.txt"),"preserve-test-only-artwork");
             var settings=Path.Combine(root,"settings-sentinel.txt");File.WriteAllText(settings,"preserve-test-only-settings");
-            installed=InstallAt(parent);
-            var previous=Directory.GetDirectories(parent,".nekochat-previous-*").Single();
-            if(File.ReadAllText(Path.Combine(previous,"user-artwork-sentinel.txt"))!="preserve-test-only-artwork" ||
-                File.ReadAllText(settings)!="preserve-test-only-settings")throw new IOException("Upgrade did not preserve previous data");
+            using(var upgrade=InstallAt(parent,recovery))
+            {
+                var result=upgrade.AcceptLaunch(folder=>StartSmoke(folder,"startup"));
+                if(result.Warnings.Count!=0 || result.PreservedFiles!=1 || Directory.GetDirectories(parent,".nekochat-previous-*").Length!=0)
+                    throw new IOException("Upgrade did not clean completed backups");
+                installed=upgrade.Destination;
+            }
+            var artwork=Directory.GetFiles(recovery,"user-artwork-sentinel.txt",SearchOption.AllDirectories).Single();
+            if(File.ReadAllText(artwork)!="preserve-test-only-artwork" || File.ReadAllText(settings)!="preserve-test-only-settings")
+                throw new IOException("Upgrade did not preserve custom artwork/settings");
             var shortcut=Path.Combine(root,"NekoChat Test.lnk");CreateShortcut(installed,shortcut);
             if(!File.Exists(shortcut))throw new IOException("Shortcut creation failed");
-            var start=new ProcessStartInfo(Path.Combine(installed,"NekoChat.Windows.exe")){WorkingDirectory=installed,UseShellExecute=false};
-            start.ArgumentList.Add("--startup-smoke-test");start.ArgumentList.Add(Path.Combine(root,"startup"));
-            using var child=Process.Start(start)??throw new IOException("Installed App could not launch");
-            if(!child.WaitForExit(45000)){child.Kill(entireProcessTree:true);throw new IOException("Installed App startup timed out");}
-            if(child.ExitCode!=0 || !File.Exists(Path.Combine(root,"startup","startup-result.txt")))throw new IOException("Installed App startup failed");
-            File.WriteAllText(Path.Combine(root,"result.txt"),"PASS: single-file setup checksum, fresh install, transactional upgrade, preserved previous artwork/settings, Start menu shortcut mechanism and actual installed App startup; no external Python/.NET installation or config edits.");return 0;
+            File.WriteAllText(Path.Combine(root,"result.txt"),"PASS: single-file setup checksum, fresh install, transactional upgrade, successful-launch old-file cleanup, preserved custom artwork/settings, Start menu shortcut mechanism and actual installed App startup; no external Python/.NET installation or config edits.");return 0;
         }catch(Exception ex){File.WriteAllText(Path.Combine(root,"result.txt"),"FAIL: "+ex.GetType().Name+" "+ex.Message);return 1;}
     }
 }
