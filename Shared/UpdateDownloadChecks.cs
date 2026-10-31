@@ -37,10 +37,43 @@ namespace NekoChat.Tests
         {
             private readonly byte[] bytes;
             private readonly bool slow;
+            private readonly Stream body;
             internal UnknownLength(byte[] bytes, bool slow = false) { this.bytes = bytes; this.slow = slow; }
+            internal UnknownLength(Stream body) { bytes = Array.Empty<byte>(); this.body = body; }
             protected override bool TryComputeLength(out long length) { length = 0; return false; }
             protected override Task SerializeToStreamAsync(Stream stream, TransportContext context) => stream.WriteAsync(bytes, 0, bytes.Length);
-            protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromResult<Stream>(slow ? new SlowStream() : new MemoryStream(bytes, false));
+            protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromResult<Stream>(body ?? (slow ? new SlowStream() : new MemoryStream(bytes, false)));
+        }
+        /// <summary>
+        /// Mirrors .NET Framework's ConnectStream after headers: the first chunk arrives, then the body stalls and
+        /// ReadAsync ignores the token entirely. Only tearing the stream down releases the pending read.
+        /// </summary>
+        private sealed class StalledStream : Stream
+        {
+            private readonly byte[] head;
+            private readonly TaskCompletionSource<int> pending = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private bool served;
+            internal volatile bool Disposed;
+            internal StalledStream(byte[] head) { this.head = head; }
+            public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                if (!served) { served = true; Array.Copy(head, 0, buffer, offset, head.Length); return Task.FromResult(head.Length); }
+                return pending.Task;
+            }
+            protected override void Dispose(bool disposing)
+            {
+                Disposed = true;
+                pending.TrySetException(new ObjectDisposedException(nameof(StalledStream)));
+                base.Dispose(disposing);
+            }
+            public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         }
         private sealed class SlowStream : MemoryStream
         {
@@ -190,6 +223,33 @@ namespace NekoChat.Tests
                     cancellation.Cancel();
                     await reject(async () => { await first.ConfigureAwait(false); }).ConfigureAwait(false);
                     check(Directory.GetFiles(folder("cancel"), "*.part").Length == 0 && Directory.GetFiles(folder("cancel"), "*.exe").Length == 0, "cancel and duplicate download leave no partial or executable");
+                }
+
+                // A body that stalls after headers and ignores the token (net48 ConnectStream behaviour).
+                foreach (var mode in new[] { "user-cancel", "idle-timeout" })
+                {
+                    var stalled = new StalledStream(Encoding.ASCII.GetBytes("MZ" + new string('a', 64)));
+                    var handler = Server(bytes);
+                    handler.Reply = (request, token) => Task.FromResult(Ok(request.RequestUri.AbsolutePath.EndsWith(".sha256", StringComparison.Ordinal)
+                        ? (HttpContent)new StringContent(Hash(bytes)) : new UnknownLength(stalled)));
+                    string directory = folder("stalled-" + mode);
+                    var idle = mode == "idle-timeout" ? TimeSpan.FromMilliseconds(300) : TimeSpan.FromMinutes(5);
+                    using (var cancellation = new CancellationTokenSource())
+                    using (var downloader = new UpdateDownloader(handler, idleTimeout: idle))
+                    {
+                        var clock = System.Diagnostics.Stopwatch.StartNew();
+                        var download = downloader.DownloadAsync(Url, Url + ".sha256", directory, cancellation: cancellation.Token);
+                        if (mode == "user-cancel") { await Task.Delay(200).ConfigureAwait(false); cancellation.Cancel(); }
+                        var finished = await Task.WhenAny(download, Task.Delay(10000)).ConfigureAwait(false) == download;
+                        check(finished && clock.ElapsedMilliseconds < 5000, mode + ": stalled body releases the download promptly");
+                        Exception error = null;
+                        try { await download.ConfigureAwait(false); } catch (Exception ex) { error = ex; }
+                        check(mode == "user-cancel" ? error is OperationCanceledException : error is TimeoutException,
+                            mode + ": stalled body reports " + (mode == "user-cancel" ? "cancellation" : "a timeout"));
+                        for (int i = 0; i < 50 && !stalled.Disposed; i++) await Task.Delay(20).ConfigureAwait(false);
+                        check(stalled.Disposed, mode + ": abandoned response stream is torn down");
+                        check(Directory.GetFiles(directory, "*.part").Length == 0 && Directory.GetFiles(directory, "*.exe").Length == 0, mode + ": stalled download leaves no partial or executable");
+                    }
                 }
 #if !NETFRAMEWORK
                 string link = folder("linked"), external = folder("outside"); Directory.CreateDirectory(external);

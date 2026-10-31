@@ -32,11 +32,16 @@ namespace NekoChat.Core
         public const long DefaultMaximumBytes = 512L * 1024 * 1024;
         private readonly HttpClient client;
         private readonly long maximumBytes;
+        private readonly TimeSpan idleTimeout;
+        public static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromSeconds(60);
 
-        public UpdateDownloader(HttpMessageHandler handler = null, long maximumBytes = DefaultMaximumBytes)
+        public UpdateDownloader(HttpMessageHandler handler = null, long maximumBytes = DefaultMaximumBytes, TimeSpan? idleTimeout = null)
         {
             if (maximumBytes < 2 || maximumBytes > DefaultMaximumBytes) throw new ArgumentOutOfRangeException(nameof(maximumBytes));
+            var idle = idleTimeout ?? DefaultIdleTimeout;
+            if (idle <= TimeSpan.Zero || idle > TimeSpan.FromMinutes(30)) throw new ArgumentOutOfRangeException(nameof(idleTimeout));
             this.maximumBytes = maximumBytes;
+            this.idleTimeout = idle;
             var transport = handler ?? new HttpClientHandler();
             if (transport is HttpClientHandler http) http.AllowAutoRedirect = false;
             client = new HttpClient(transport);
@@ -82,7 +87,7 @@ namespace NekoChat.Core
                         var bytes = new MemoryStream();
                         using (bytes)
                         {
-                            await CopyBoundedAsync(body, bytes, 4096, null, null, token).ConfigureAwait(false);
+                            await CopyBoundedAsync(body, bytes, 4096, null, null, token, idleTimeout, response.Dispose).ConfigureAwait(false);
                             expected = ParseChecksum(Encoding.UTF8.GetString(bytes.ToArray()), name);
                         }
                     }
@@ -114,7 +119,7 @@ namespace NekoChat.Core
                         using (var output = new FileStream(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, true))
                         {
                             createdPartial = true;
-                            actual = await CopyBoundedAsync(body, output, maximumBytes, length, progress, token).ConfigureAwait(false);
+                            actual = await CopyBoundedAsync(body, output, maximumBytes, length, progress, token, idleTimeout, response.Dispose).ConfigureAwait(false);
                             await output.FlushAsync(token).ConfigureAwait(false);
                         }
                         if (actual != expected || !IsExecutable(partial))
@@ -187,8 +192,10 @@ namespace NekoChat.Core
             return match.Groups[1].Value.ToUpperInvariant();
         }
         private static async Task<string> CopyBoundedAsync(Stream input, Stream output, long limit, long? expectedLength,
-            IProgress<UpdateDownloadProgress> progress, CancellationToken cancellation)
+            IProgress<UpdateDownloadProgress> progress, CancellationToken cancellation, TimeSpan? idleTimeout = null, Action abort = null)
         {
+            // Network reads get a per-read idle deadline; it is re-armed after every chunk.
+            using (var idle = CancellationTokenSource.CreateLinkedTokenSource(cancellation))
             using (var hash = SHA256.Create())
             {
                 var buffer = new byte[65536];
@@ -197,8 +204,13 @@ namespace NekoChat.Core
                 long lastReport = 0;
                 int count;
                 progress?.Report(new UpdateDownloadProgress(0, expectedLength));
-                while ((count = await input.ReadAsync(buffer, 0, buffer.Length, cancellation).ConfigureAwait(false)) != 0)
+                while (true)
                 {
+                    if (idleTimeout.HasValue) idle.CancelAfter(idleTimeout.Value);
+                    try { count = await ReadAbortableAsync(input, buffer, idle.Token, abort).ConfigureAwait(false); }
+                    catch (OperationCanceledException) when (idle.IsCancellationRequested && !cancellation.IsCancellationRequested)
+                    { throw new TimeoutException("下載更新時連線停止回應，請稍後重試。"); }
+                    if (count == 0) break;
                     copied += count;
                     if (copied > limit || expectedLength.HasValue && copied > expectedLength.Value)
                         throw new InvalidDataException("更新檔案大小超出限制。");
@@ -216,6 +228,32 @@ namespace NekoChat.Core
                 progress?.Report(new UpdateDownloadProgress(copied, expectedLength));
                 return BitConverter.ToString(hash.Hash).Replace("-", "");
             }
+        }
+        /// <summary>
+        /// .NET Framework response streams inherit Stream.ReadAsync, which only checks the token before the
+        /// read starts; a body that stalls after headers would ignore Cancel and every timeout. Race the read
+        /// against the token so cancellation always returns promptly, and abort the transport off-thread so
+        /// the abandoned read is released without blocking the caller (or the UI thread that cancelled).
+        /// </summary>
+        private static async Task<int> ReadAbortableAsync(Stream input, byte[] buffer, CancellationToken cancellation, Action abort)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var read = input.ReadAsync(buffer, 0, buffer.Length, cancellation);
+            if (read.IsCompleted) return await read.ConfigureAwait(false);
+            var cancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (cancellation.Register(state => ((TaskCompletionSource<bool>)state).TrySetResult(true), cancelled))
+            {
+                if (await Task.WhenAny(read, cancelled.Task).ConfigureAwait(false) == read)
+                    return await read.ConfigureAwait(false);
+            }
+            // The read ignored cancellation. Observe its eventual fault and tear down the connection.
+            _ = read.ContinueWith(t => _ = t.Exception, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try { if (abort != null) abort(); else input.Dispose(); } catch { }
+            });
+            throw new OperationCanceledException(cancellation);
         }
         private static Task<string> DigestAsync(Stream input, CancellationToken cancellation) =>
             CopyBoundedAsync(input, Stream.Null, DefaultMaximumBytes, null, null, cancellation);
