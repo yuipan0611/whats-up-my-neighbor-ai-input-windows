@@ -87,6 +87,17 @@ public sealed partial class ChatStore
     }
 
     public CompleteResult CompleteAttempt(string messageId, AttemptOutcome outcome, int? expectedTryCount = null)
+        => CompleteAttemptCore(messageId, outcome, expectedTryCount, null);
+
+    public CompleteResult CompleteV2Send(NekoChat.Core.V2.V2VerifiedAck ack, PeerSecuritySnapshot expected, Func<bool> stillCurrent)
+    {
+        ArgumentNullException.ThrowIfNull(ack); ArgumentNullException.ThrowIfNull(expected); ArgumentNullException.ThrowIfNull(stillCurrent);
+        if (ack.Status is not ("stored" or "duplicate") || ack.ContentFingerprint is null) return new Discarded("invalid-ack-kind");
+        return CompleteAttemptCore(ack.MessageId, new RemoteStoredOutcome(_options.UtcNow(), Convert.FromHexString(ack.ContentFingerprint)), null,
+            new(expected, ack.ReceiverId, ack.SenderId, stillCurrent));
+    }
+
+    private CompleteResult CompleteAttemptCore(string messageId, AttemptOutcome outcome, int? expectedTryCount, SecurityWriteFence? fence)
     {
         ValidateMessageId(messageId); ArgumentNullException.ThrowIfNull(outcome);
         if (expectedTryCount is <= 0) throw new ArgumentOutOfRangeException(nameof(expectedTryCount));
@@ -95,6 +106,7 @@ public sealed partial class ChatStore
         return Write<CompleteResult>("complete-attempt", ctx => {
             var old = FindAttempt(ctx, messageId);
             if (old is null) return (new Discarded("not-found"), false);
+            if (fence is not null && (old.Sender != fence.Local || old.Recipient != fence.Peer)) return (new Discarded("ack-binding"), false);
             if (old.State == "superseded") return (new Discarded("identity-replaced"), false);
             if (old.State == "confirmed")
             {
@@ -135,7 +147,7 @@ public sealed partial class ChatStore
                 ctx.Exec("UPDATE Conversation SET draftEpoch=draftEpoch+1 WHERE id=@conv", ("@conv", old.Conversation));
             }
             return (new Confirmed(sequenceId, clear), true);
-        });
+        }, guardRejected: fence is null ? null : () => new Discarded("stale-security"), transactionGuard: fence is null ? null : ctx => SecurityMatches(ctx, fence));
     }
 
     public CancelResult CancelAttempt(string messageId, int? expectedTryCount = null)
@@ -154,6 +166,16 @@ public sealed partial class ChatStore
     }
 
     public ReceiptApplyResult ApplyRemoteReceipt(string verifiedPeerId, string messageId, RemoteReceiptKind kind, string? originalSenderId = null)
+        => ApplyReceipt(verifiedPeerId, messageId, kind, originalSenderId, null);
+
+    public ReceiptApplyResult ApplyV2Receipt(NekoChat.Core.V2.V2VerifiedReceipt receipt, PeerSecuritySnapshot expected, Func<bool> stillCurrent)
+    {
+        ArgumentNullException.ThrowIfNull(receipt); ArgumentNullException.ThrowIfNull(expected); ArgumentNullException.ThrowIfNull(stillCurrent);
+        return ApplyReceipt(receipt.SenderId, receipt.MessageId, RemoteReceiptKind.Read, receipt.RecipientId,
+            new(expected, receipt.SenderId, receipt.RecipientId, stillCurrent));
+    }
+
+    private ReceiptApplyResult ApplyReceipt(string verifiedPeerId, string messageId, RemoteReceiptKind kind, string? originalSenderId, SecurityWriteFence? fence)
     {
         if (!StoreIds.IsValid(verifiedPeerId)) throw new ArgumentException("Invalid peer id.", nameof(verifiedPeerId));
         ValidateMessageId(messageId); if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
@@ -174,7 +196,7 @@ public sealed partial class ChatStore
             ctx.Exec("UPDATE Message SET remoteStoredAt=coalesce(remoteStoredAt,@now),remoteReadAt=CASE WHEN @read=1 THEN coalesce(remoteReadAt,@now) ELSE remoteReadAt END WHERE localSeq=@seq",
                 ("@now", ctx.NowUtc), ("@read", kind == RemoteReceiptKind.Read ? 1 : 0), ("@seq", row.Seq));
             return (new ReceiptApplyResult(true, "applied", row.Seq), true);
-        });
+        }, guardRejected: fence is null ? null : () => new ReceiptApplyResult(false, "stale-security"), transactionGuard: fence is null ? null : ctx => SecurityMatches(ctx, fence));
     }
 
     private (BeginSendResult Value, bool Commit) StartNew(WriteContext ctx, string conversation, string text, string kind, string? reaction, long epoch, long revision, bool mayHaveDelivered)

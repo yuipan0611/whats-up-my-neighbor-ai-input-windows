@@ -5,7 +5,29 @@ namespace NekoChat.Core.Storage;
 
 public sealed partial class ChatStore
 {
-    private const string PeerSecuritySql = "SELECT l.id,ls.revision,p.id,p.pairingState,p.publicKey,ps.revision FROM LocalSecurityRevision ls LEFT JOIN LocalIdentity l ON l.singleton=1 LEFT JOIN Peer p ON p.id=@peer LEFT JOIN PeerSecurityRevision ps ON ps.peerId=@peer WHERE ls.singleton=1";
+    private const string PeerSecuritySql = "SELECT l.id,ls.revision,p.id,p.pairingState,p.publicKey,ps.revision,l.publicKey FROM LocalSecurityRevision ls LEFT JOIN LocalIdentity l ON l.singleton=1 LEFT JOIN Peer p ON p.id=@peer LEFT JOIN PeerSecurityRevision ps ON ps.peerId=@peer WHERE ls.singleton=1";
+
+    public PeerVerificationContext GetPeerVerificationContext(string peerId)
+    {
+        if (!StoreIds.IsValid(peerId)) throw new ArgumentException("Invalid peer id.", nameof(peerId));
+        return Read(c => {
+            using var cmd = c.CreateCommand(); cmd.CommandText = PeerSecuritySql; cmd.Parameters.AddWithValue("@peer", peerId);
+            using var r = cmd.ExecuteReader();
+            if (!r.Read()) throw new StoreException(StoreErrorKind.Corrupt, "Security revision records are missing.");
+            return new PeerVerificationContext(MapPeerSecurity(r, peerId), r.IsDBNull(4) ? null : Convert.ToBase64String((byte[])r.GetValue(4)),
+                r.IsDBNull(6) ? null : Convert.ToBase64String((byte[])r.GetValue(6)));
+        });
+    }
+
+    private sealed record SecurityWriteFence(PeerSecuritySnapshot Expected, string Peer, string Local, Func<bool> StillCurrent);
+    private static bool SecurityMatches(WriteContext ctx, SecurityWriteFence fence)
+    {
+        var expected = fence.Expected;
+        if (!fence.StillCurrent() || !expected.PeerExists || expected.Pairing != PairingState.Paired || expected.KeySha256 is null ||
+            expected.PeerId != fence.Peer || expected.LocalIdentityId != fence.Local) return false;
+        var current = ctx.Query(PeerSecuritySql, r => MapPeerSecurity(r, fence.Peer), ("@peer", fence.Peer));
+        return current.Count == 1 && current[0] == expected;
+    }
 
     public PeerSecuritySnapshot GetPeerSecuritySnapshot(string peerId)
     {

@@ -62,6 +62,17 @@ public sealed partial class ChatStore
 
     /// <summary>Only after the transport verifies receipt.ack signature, nonce, status and all id bindings.</summary>
     public bool CompleteReadReceipt(PendingReadReceipt receipt)
+        => CompleteReadReceiptCore(receipt, null);
+
+    public bool CompleteV2ReadReceipt(PendingReadReceipt receipt, NekoChat.Core.V2.V2VerifiedAck ack, PeerSecuritySnapshot expected, Func<bool> stillCurrent)
+    {
+        ArgumentNullException.ThrowIfNull(receipt); ArgumentNullException.ThrowIfNull(ack); ArgumentNullException.ThrowIfNull(expected); ArgumentNullException.ThrowIfNull(stillCurrent);
+        if (ack.Status is not ("ok" or "duplicate" or "discarded") || ack.ContentFingerprint is not null || ack.MessageId != receipt.MessageId ||
+            ack.SenderId != receipt.ReaderId || ack.ReceiverId != receipt.OriginalSenderId) return false;
+        return CompleteReadReceiptCore(receipt, new(expected, receipt.OriginalSenderId, receipt.ReaderId, stillCurrent));
+    }
+
+    private bool CompleteReadReceiptCore(PendingReadReceipt receipt, SecurityWriteFence? fence)
     {
         ArgumentNullException.ThrowIfNull(receipt);
         if (receipt.OriginalLocalSeq <= 0 || receipt.PolicyGeneration < 0 || !StoreIds.IsValid(receipt.MessageId) ||
@@ -73,7 +84,7 @@ public sealed partial class ChatStore
             int deleted = ctx.Exec("DELETE FROM ReceiptOutbox WHERE originalLocalSeq=@seq AND recipientId=@peer AND EXISTS(SELECT 1 FROM Message m WHERE m.localSeq=ReceiptOutbox.originalLocalSeq AND m.conversationId=ReceiptOutbox.conversationId AND m.direction='incoming' AND m.senderId=@peer AND m.recipientId=@reader AND m.messageId=@id AND m.localReadAt IS NOT NULL)",
                 ("@seq", receipt.OriginalLocalSeq), ("@peer", receipt.OriginalSenderId), ("@reader", receipt.ReaderId), ("@id", receipt.MessageId));
             return (deleted != 0, deleted != 0);
-        });
+        }, guardRejected: fence is null ? null : () => false, transactionGuard: fence is null ? null : ctx => SecurityMatches(ctx, fence));
     }
 
     private static ReadReceiptPolicy ReadPolicy(WriteContext ctx)

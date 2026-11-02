@@ -6,7 +6,17 @@ namespace NekoChat.Core.Storage;
 
 public sealed partial class ChatStore
 {
-    public ReceiveResult ReceiveVerifiedMessage(IncomingMessage message)
+    public ReceiveResult ReceiveVerifiedMessage(IncomingMessage message) => ReceiveMessage(message, null);
+
+    /// <summary>V2 receiver path: signature and nonce have passed; trust revisions and live session are checked inside the write transaction.</summary>
+    public ReceiveResult ReceiveV2Message(NekoChat.Core.V2.V2VerifiedMessage message, PeerSecuritySnapshot expected, Func<bool> stillCurrent, string? sourceEndpoint = null)
+    {
+        ArgumentNullException.ThrowIfNull(message); ArgumentNullException.ThrowIfNull(expected); ArgumentNullException.ThrowIfNull(stillCurrent);
+        return ReceiveMessage(new(message.SenderId, message.MessageId, message.RecipientId, message.Text, "text", message.Reaction, sourceEndpoint),
+            new(expected, message.SenderId, message.RecipientId, stillCurrent));
+    }
+
+    private ReceiveResult ReceiveMessage(IncomingMessage message, SecurityWriteFence? fence)
     {
         ArgumentNullException.ThrowIfNull(message);
         if (!StoreIds.IsValid(message.VerifiedSenderPeerId) || !StoreIds.IsValid(message.RecipientId) || !StoreIds.IsValid(message.MessageId))
@@ -24,12 +34,12 @@ public sealed partial class ChatStore
         catch (EncoderFallbackException) { return new InvalidPayload("invalid-unicode"); }
         // Immediate transactions serialize all writers. The unique index remains the final defense;
         // one bounded retry also handles a competing writer or a generated conversation-id collision.
-        try { return ReceiveTransaction(message, fingerprint); }
+        try { return ReceiveTransaction(message, fingerprint, fence); }
         catch (StoreException e) when (e.Kind == StoreErrorKind.ConstraintViolation && e.SqliteExtendedCode is 1555 or 2067)
-        { return ReceiveTransaction(message, fingerprint); }
+        { return ReceiveTransaction(message, fingerprint, fence); }
     }
 
-    private ReceiveResult ReceiveTransaction(IncomingMessage message, byte[] fingerprint) => Write<ReceiveResult>("receive", ctx =>
+    private ReceiveResult ReceiveTransaction(IncomingMessage message, byte[] fingerprint, SecurityWriteFence? fence) => Write<ReceiveResult>("receive", ctx =>
     {
         if (!string.Equals(ctx.Scalar("SELECT id FROM LocalIdentity WHERE singleton=1") as string, message.RecipientId, StringComparison.Ordinal))
             return (new WrongRecipient(), false);
@@ -61,7 +71,7 @@ public sealed partial class ChatStore
         int unread = Convert.ToInt32(ctx.Scalar("SELECT count(*) FROM Message WHERE conversationId=@conv AND direction='incoming' AND localReadAt IS NULL",
             ("@conv", conversation.ConversationId)), CultureInfo.InvariantCulture);
         return (new Stored(message.MessageId, sequence, unread), true);
-    });
+    }, guardRejected: fence is null ? null : () => new StaleSecurity(), transactionGuard: fence is null ? null : ctx => SecurityMatches(ctx, fence));
 
     public int GetUnreadCount(string conversationId)
     {

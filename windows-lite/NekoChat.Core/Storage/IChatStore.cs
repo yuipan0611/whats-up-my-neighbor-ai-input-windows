@@ -51,6 +51,11 @@ public interface IChatStore : IDisposable
     IReadOnlyList<NekoChat.Core.Presence.PresenceTarget> GetPresenceTargets();
     PresenceWriteResult ApplyRosterPresenceEvidence(NekoChat.Core.Presence.PresenceWriteJob job, Func<bool> stillCurrent);
     PeerSecuritySnapshot GetPeerSecuritySnapshot(string peerId);
+    PeerVerificationContext GetPeerVerificationContext(string peerId);
+    ReceiveResult ReceiveV2Message(NekoChat.Core.V2.V2VerifiedMessage message, PeerSecuritySnapshot expected, Func<bool> stillCurrent, string? sourceEndpoint = null);
+    ReceiptApplyResult ApplyV2Receipt(NekoChat.Core.V2.V2VerifiedReceipt receipt, PeerSecuritySnapshot expected, Func<bool> stillCurrent);
+    CompleteResult CompleteV2Send(NekoChat.Core.V2.V2VerifiedAck ack, PeerSecuritySnapshot expected, Func<bool> stillCurrent);
+    bool CompleteV2ReadReceipt(PendingReadReceipt receipt, NekoChat.Core.V2.V2VerifiedAck ack, PeerSecuritySnapshot expected, Func<bool> stillCurrent);
     PeerSecurityChange SetPairingStateIfCurrent(PeerSecuritySnapshot expected, PairingState next, Func<bool> stillCurrent);
 
     StoreDiagnostics GetDiagnostics();

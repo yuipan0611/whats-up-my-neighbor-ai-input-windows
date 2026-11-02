@@ -234,9 +234,9 @@ public sealed partial class ChatStore : IChatStore
     }
 
     /// <summary>One write transaction: BeginTransaction(deferred:false) takes the write lock at BEGIN (verified, N001A §1.5). Non-success results roll back unless the body says otherwise.</summary>
-    private T Write<T>(string op, Func<WriteContext, (T Value, bool Commit)> body, Func<bool>? commitGuard = null, Func<T>? guardRejected = null)
+    private T Write<T>(string op, Func<WriteContext, (T Value, bool Commit)> body, Func<bool>? commitGuard = null, Func<T>? guardRejected = null, Func<WriteContext, bool>? transactionGuard = null)
     {
-        if ((commitGuard is null) != (guardRejected is null)) throw new ArgumentException("Both commit guard and rejection result are required.");
+        if ((commitGuard is not null || transactionGuard is not null) != (guardRejected is not null)) throw new ArgumentException("Both commit guard and rejection result are required.");
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -245,10 +245,13 @@ public sealed partial class ChatStore : IChatStore
                 using var tx = _write.BeginTransaction(deferred: false);
                 _options.Faults?.AfterBegin(op);
                 var ctx = new WriteContext(_write, tx, Iso(_options.UtcNow()), _options.AppVersion);
+                if (transactionGuard is not null && !transactionGuard(ctx)) { tx.Rollback(); return guardRejected!(); }
                 var (value, commit) = body(ctx);
+                if (commit) _options.Faults?.BeforeCommit(op);
+                // Wire duplicates/discards also require a current trust/session fence before returning an ACK-able result.
+                if (transactionGuard is not null && !transactionGuard(ctx)) { tx.Rollback(); return guardRejected!(); }
                 if (commit)
                 {
-                    _options.Faults?.BeforeCommit(op);
                     if (commitGuard is not null && !commitGuard())
                     {
                         tx.Rollback(); return guardRejected!();

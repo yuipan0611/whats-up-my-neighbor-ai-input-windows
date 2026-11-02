@@ -14,6 +14,7 @@ public sealed record ClearedDuplicate(string MessageId) : ReceiveResult;
 public sealed record Conflict(string MessageId) : ReceiveResult;
 public sealed record WrongRecipient : ReceiveResult;
 public sealed record UntrustedPeer : ReceiveResult;
+public sealed record StaleSecurity : ReceiveResult;
 public sealed record InvalidPayload(string Reason) : ReceiveResult;
 public sealed record PresenceWriteResult(bool Written, string Reason);
 
