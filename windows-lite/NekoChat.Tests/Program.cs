@@ -17,6 +17,7 @@ if (args.SequenceEqual(new[] { "--v2-boundaries" })) { await NekoChat.Tests.V2Bo
 if (args.SequenceEqual(new[] { "--v2-storage-fences" })) { NekoChat.Tests.V2StorageFenceChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--v2-tcp" })) { await NekoChat.Tests.V2TcpChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--v2-tcp-crashes" })) { await NekoChat.Tests.V2CrashChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--shared-port" })) { await NekoChat.Tests.SharedPortChecks.Run(); return; }
 
 int checks=0;
 void Check(bool result,string description) {checks++;if(!result)throw new Exception(description);}
@@ -150,4 +151,5 @@ checks += await NekoChat.Tests.V2BoundaryChecks.Run();
 checks += NekoChat.Tests.V2StorageFenceChecks.Run();
 checks += await NekoChat.Tests.V2TcpChecks.Run();
 checks += await NekoChat.Tests.V2CrashChecks.Run();
+checks += await NekoChat.Tests.SharedPortChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");

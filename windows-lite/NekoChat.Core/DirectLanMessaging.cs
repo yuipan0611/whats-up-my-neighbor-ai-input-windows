@@ -62,191 +62,40 @@ public static class DirectLanMessaging
     }
 }
 
+/// <summary>Compatibility facade: v1's two events are retained; verified v2 storage notices have a separate event.</summary>
 public sealed class DirectLanListener : IAsyncDisposable
 {
-    private readonly TcpListener listener;
-    private readonly CancellationTokenSource lifetime = new();
-    private Task? loop;
-    public int Port { get; }
-    public bool Running { get; private set; }
+    private readonly V2.V2TcpListener _transport;
+    public int Port => _transport.Port;
+    public bool Running => _transport.Running;
     public string? Error { get; private set; }
-
     public event Action<string, string>? MessageReceived;
     public event Action<string, DirectMessage>? DirectMessageReceived;
+    public event Action<V2.V2DeliveryNotice>? V2MessageStored;
+    public event Action<string>? Diagnostic;
 
-    public DirectLanListener(int port = DirectLanMessaging.DefaultPort)
+    public DirectLanListener(int port = DirectLanMessaging.DefaultPort) : this(null, new V2.V2ListenerOptions { Port = port }) { }
+    public DirectLanListener(V2.V2Receiver receiver, int port = DirectLanMessaging.DefaultPort) : this(receiver, new V2.V2ListenerOptions { Port = port }) { }
+    public DirectLanListener(V2.V2Receiver? receiver, V2.V2ListenerOptions options)
     {
-        Port = port;
-        listener = new TcpListener(IPAddress.Any, port);
+        _transport = new(receiver, options);
+        _transport.LegacyMessageReceived += (source, message) => {
+            DirectMessageReceived?.Invoke(source, message);
+            MessageReceived?.Invoke(source, message.Text);
+        };
+        _transport.MessageStored += notice => V2MessageStored?.Invoke(notice);
+        _transport.Diagnostic += code => {
+            if (code == "receiver_not_ready") Error = "接收服務已停止，請重新啟動。";
+            Diagnostic?.Invoke(code);
+        };
     }
-
     public void Start()
     {
-        if (Running) return;
-        try
-        {
-            listener.Start();
-            Running = true;
-            loop = ListenLoopAsync(lifetime.Token);
-        }
-        catch (Exception ex)
-        {
-            Error = ex.Message;
-        }
+        try { _transport.Start(); Error = null; }
+        catch (Exception e) when (e is SocketException or InvalidOperationException or ObjectDisposedException)
+        { Error = "接收服務無法啟動，請檢查 TCP 接收埠是否已被占用。"; }
     }
-
-    private async Task ListenLoopAsync(CancellationToken cancellation)
-    {
-        while (!cancellation.IsCancellationRequested && Running)
-        {
-            try
-            {
-                var client = await listener.AcceptTcpClientAsync(cancellation);
-                _ = HandleClientAsync(client, cancellation);
-            }
-            catch when (cancellation.IsCancellationRequested || !Running) { break; }
-            catch (ObjectDisposedException) { break; }
-            catch (InvalidOperationException) { break; }
-            catch (SocketException) when (cancellation.IsCancellationRequested || !Running) { break; }
-            catch { /* Continue accepting if still active */ }
-        }
-    }
-
-    private async Task HandleClientAsync(TcpClient client, CancellationToken cancellation)
-    {
-        using (client)
-        using (var stream = client.GetStream())
-        {
-            try
-            {
-                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-                timeoutCts.CancelAfter(TimeSpan.FromSeconds(6));
-
-                var remoteEndpoint = client.Client.RemoteEndPoint as IPEndPoint;
-                var remoteIp = remoteEndpoint?.Address.ToString() ?? "unknown";
-
-                var buffer = new byte[8192];
-                int totalRead = 0;
-                int headerEnd = -1;
-
-                while (headerEnd < 0 && totalRead < buffer.Length)
-                {
-                    int n = await stream.ReadAsync(buffer.AsMemory(totalRead, buffer.Length - totalRead), timeoutCts.Token);
-                    if (n == 0) break;
-                    totalRead += n;
-                    headerEnd = FindHeaderEnd(buffer, totalRead);
-                }
-
-                if (headerEnd < 0)
-                {
-                    await SendResponseAsync(stream, 400, "Bad Request", "{\"error\":\"bad_request\"}");
-                    return;
-                }
-
-                string headerString = Encoding.ASCII.GetString(buffer, 0, headerEnd);
-                var lines = headerString.Split(new[] { "\r\n" }, StringSplitOptions.None);
-                if (lines.Length == 0 || !lines[0].StartsWith("POST ", StringComparison.OrdinalIgnoreCase))
-                {
-                    await SendResponseAsync(stream, 400, "Bad Request", "{\"error\":\"method_not_allowed\"}");
-                    return;
-                }
-
-                int contentLength = 0;
-                foreach (var line in lines)
-                {
-                    if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        int.TryParse(line.Substring(15).Trim(), out contentLength);
-                        break;
-                    }
-                }
-
-                if (contentLength <= 0 || contentLength > 65536)
-                {
-                    await SendResponseAsync(stream, 400, "Bad Request", "{\"error\":\"invalid_length\"}");
-                    return;
-                }
-
-                byte[] bodyBytes = new byte[contentLength];
-                int bodyAlreadyRead = totalRead - headerEnd;
-                if (bodyAlreadyRead > 0)
-                {
-                    int toCopy = Math.Min(bodyAlreadyRead, contentLength);
-                    Array.Copy(buffer, headerEnd, bodyBytes, 0, toCopy);
-                }
-
-                int bodyRemaining = contentLength - bodyAlreadyRead;
-                int bodyReadPos = Math.Min(bodyAlreadyRead, contentLength);
-                while (bodyRemaining > 0)
-                {
-                    int n = await stream.ReadAsync(bodyBytes.AsMemory(bodyReadPos, bodyRemaining), timeoutCts.Token);
-                    if (n == 0) break;
-                    bodyReadPos += n;
-                    bodyRemaining -= n;
-                }
-
-                string body = Encoding.UTF8.GetString(bodyBytes);
-                using var doc = JsonDocument.Parse(body);
-                var root = doc.RootElement;
-                if (root.ValueKind != JsonValueKind.Object ||
-                    !root.TryGetProperty("text", out var textElem) || textElem.ValueKind != JsonValueKind.String ||
-                    !Protocol.ValidText(textElem.GetString()!))
-                {
-                    await SendResponseAsync(stream, 400, "Bad Request", "{\"error\":\"empty_text\"}");
-                    return;
-                }
-
-                string text = textElem.GetString()!;
-                string? reaction = null;
-                if (root.TryGetProperty("reaction", out var reactionElem))
-                    reaction = reactionElem.ValueKind == JsonValueKind.String ? reactionElem.GetString()
-                        : reactionElem.ValueKind == JsonValueKind.Null ? null : "";
-                DirectMessageReceived?.Invoke(remoteIp, new DirectMessage(text, reaction));
-                MessageReceived?.Invoke(remoteIp, text);
-
-                await SendResponseAsync(stream, 200, "OK", "{\"status\":\"delivered\"}");
-            }
-            catch
-            {
-                // Drop malformed connection
-            }
-        }
-    }
-
-    private static int FindHeaderEnd(byte[] buffer, int length)
-    {
-        for (int i = 0; i <= length - 4; i++)
-        {
-            if (buffer[i] == 13 && buffer[i + 1] == 10 && buffer[i + 2] == 13 && buffer[i + 3] == 10)
-                return i + 4;
-        }
-        return -1;
-    }
-
-    private static async Task SendResponseAsync(Stream stream, int statusCode, string reason, string json)
-    {
-        byte[] bodyBytes = Encoding.UTF8.GetBytes(json);
-        string headers = $"HTTP/1.1 {statusCode} {reason}\r\n" +
-                         "Content-Type: application/json; charset=utf-8\r\n" +
-                         $"Content-Length: {bodyBytes.Length}\r\n" +
-                         "Connection: close\r\n\r\n";
-        byte[] headerBytes = Encoding.ASCII.GetBytes(headers);
-        await stream.WriteAsync(headerBytes);
-        await stream.WriteAsync(bodyBytes);
-        await stream.FlushAsync();
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        Running = false;
-        lifetime.Cancel();
-        try { listener.Stop(); } catch { }
-        if (loop != null)
-        {
-            try { await loop.WaitAsync(TimeSpan.FromSeconds(2)); } catch { }
-        }
-        lifetime.Dispose();
-    }
+    public ValueTask DisposeAsync() => _transport.DisposeAsync();
 }
 
 public sealed record DirectMessage(string Text, string? Reaction);

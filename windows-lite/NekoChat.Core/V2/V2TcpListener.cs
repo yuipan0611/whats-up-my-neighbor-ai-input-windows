@@ -20,7 +20,7 @@ public sealed record V2ListenerOptions
 public sealed class V2TcpListener : IAsyncDisposable
 {
     private readonly object _gate = new();
-    private readonly V2Receiver _receiver;
+    private readonly V2Receiver? _receiver;
     private readonly V2ListenerOptions _options;
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _lifetime = new();
@@ -32,10 +32,12 @@ public sealed class V2TcpListener : IAsyncDisposable
     public int Port => Volatile.Read(ref _boundPort);
     public int ActiveConnections { get { lock (_gate) return _workers.Count; } }
     public event Action<V2DeliveryNotice>? MessageStored;
+    /// <summary>Legacy source is the TCP IPv4 address. No sender identity, persisted delivery or read fact is asserted.</summary>
+    public event Action<string, DirectMessage>? LegacyMessageReceived;
     public event Action<string>? Diagnostic;
-    public V2TcpListener(V2Receiver receiver, V2ListenerOptions? options = null)
+    public V2TcpListener(V2Receiver? receiver, V2ListenerOptions? options = null)
     {
-        ArgumentNullException.ThrowIfNull(receiver); _receiver = receiver; _options = options ?? new();
+        _receiver = receiver; _options = options ?? new();
         if (_options.BindAddress.AddressFamily != AddressFamily.InterNetwork ||
             !(_options.BindAddress.Equals(IPAddress.Any) || LanInvitation.PrivateIPv4(_options.BindAddress.ToString())) ||
             _options.Port is < 0 or > 65535 || _options.MaxConnections is < 1 or > 128 ||
@@ -51,7 +53,7 @@ public sealed class V2TcpListener : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
             if (Running) return;
             _listener.Start(32); Volatile.Write(ref _boundPort, ((IPEndPoint)_listener.LocalEndpoint).Port);
-            Volatile.Write(ref _running, 1); _receiver.SetReady(true); _loop = AcceptAsync();
+            Volatile.Write(ref _running, 1); _receiver?.SetReady(true); _loop = AcceptAsync();
         }
     }
     private async Task AcceptAsync()
@@ -90,7 +92,7 @@ public sealed class V2TcpListener : IAsyncDisposable
         }
         catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException or SocketException or InvalidOperationException)
         { if (!_lifetime.IsCancellationRequested) Report("receiver_not_ready"); }
-        finally { Volatile.Write(ref _running, 0); _receiver.SetReady(false); }
+        finally { Volatile.Write(ref _running, 0); _receiver?.SetReady(false); }
     }
     private async Task HandleAsync(TcpClient client, string source)
     {
@@ -113,7 +115,9 @@ public sealed class V2TcpListener : IAsyncDisposable
                 string path = "", code = "invalid_payload"; int length = 0;
                 if (end < 0 || !TryHeaders(header.AsSpan(0, end), out path, out length, out code))
                 { await RespondAsync(stream, V2HttpResponse.Error(end < 0 ? "invalid_payload" : code), timeout.Token).ConfigureAwait(false); return; }
-                int limit = path == "/nekochat/v2/message" ? _receiver.MaxMessageBodyBytes : V2JsonLimits.Control.MaxBytes;
+                if (path != "/nekochat/v1/direct" && _receiver is null)
+                { await RespondAsync(stream, V2HttpResponse.Error("receiver_not_ready"), timeout.Token).ConfigureAwait(false); return; }
+                int limit = path == "/nekochat/v1/direct" ? LegacyDirectProtocol.MaxBodyBytes : path == "/nekochat/v2/message" ? _receiver!.MaxMessageBodyBytes : V2JsonLimits.Control.MaxBytes;
                 if (length > limit) { await RespondAsync(stream, V2HttpResponse.Error("payload_too_large"), timeout.Token).ConfigureAwait(false); return; }
                 int buffered = count - end;
                 if (buffered > length) { await RespondAsync(stream, V2HttpResponse.Error("invalid_payload"), timeout.Token).ConfigureAwait(false); return; }
@@ -124,7 +128,14 @@ public sealed class V2TcpListener : IAsyncDisposable
                     if (read == 0) { await RespondAsync(stream, V2HttpResponse.Error("invalid_payload"), timeout.Token).ConfigureAwait(false); return; }
                     buffered += read;
                 }
-                var response = _receiver.Handle(path, body, source, () => !timeout.IsCancellationRequested);
+                V2HttpResponse response;
+                if (path == "/nekochat/v1/direct")
+                {
+                    if (!LegacyDirectProtocol.TryParse(body, out var legacy, out var problem)) response = V2HttpResponse.Error(problem);
+                    else if (timeout.IsCancellationRequested) response = V2HttpResponse.Error("receiver_not_ready");
+                    else { LegacyMessageReceived?.Invoke(source, legacy!); response = new(200, "{\"status\":\"delivered\"}"u8.ToArray()); }
+                }
+                else response = _receiver!.Handle(path, body, source, () => !timeout.IsCancellationRequested);
                 if (response.Notice is { } notice)
                 {
                     try { MessageStored?.Invoke(notice); } catch { Report("notification_failed"); }
@@ -144,7 +155,7 @@ public sealed class V2TcpListener : IAsyncDisposable
         string[] request = lines[0].Split(' ', StringSplitOptions.None);
         if (request.Length != 3 || request[0] != "POST" || request[2] != "HTTP/1.1") return false;
         path = request[1];
-        if (path is not ("/nekochat/v2/hello" or "/nekochat/v2/message" or "/nekochat/v2/receipt")) { error = "unsupported_version"; return false; }
+        if (path is not ("/nekochat/v1/direct" or "/nekochat/v2/hello" or "/nekochat/v2/message" or "/nekochat/v2/receipt")) { error = "unsupported_version"; return false; }
         if (lines.Length is < 2 or > 65) return false;
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 1; i < lines.Length; i++)
@@ -188,7 +199,7 @@ public sealed class V2TcpListener : IAsyncDisposable
     public ValueTask DisposeAsync() { lock (_gate) return new(_disposal ??= StopAsync()); }
     private async Task StopAsync()
     {
-        _receiver.SetReady(false); _lifetime.Cancel(); _listener.Stop(); Volatile.Write(ref _running, 0);
+        _receiver?.SetReady(false); _lifetime.Cancel(); _listener.Stop(); Volatile.Write(ref _running, 0);
         if (_loop is not null) await _loop.ConfigureAwait(false);
         Task[] tasks; lock (_gate) tasks = _workers.ToArray();
         await Task.WhenAll(tasks).ConfigureAwait(false); _lifetime.Dispose();
