@@ -234,8 +234,9 @@ public sealed partial class ChatStore : IChatStore
     }
 
     /// <summary>One write transaction: BeginTransaction(deferred:false) takes the write lock at BEGIN (verified, N001A §1.5). Non-success results roll back unless the body says otherwise.</summary>
-    private T Write<T>(string op, Func<WriteContext, (T Value, bool Commit)> body)
+    private T Write<T>(string op, Func<WriteContext, (T Value, bool Commit)> body, Func<bool>? commitGuard = null, Func<T>? guardRejected = null)
     {
+        if ((commitGuard is null) != (guardRejected is null)) throw new ArgumentException("Both commit guard and rejection result are required.");
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -248,6 +249,10 @@ public sealed partial class ChatStore : IChatStore
                 if (commit)
                 {
                     _options.Faults?.BeforeCommit(op);
+                    if (commitGuard is not null && !commitGuard())
+                    {
+                        tx.Rollback(); return guardRejected!();
+                    }
                     tx.Commit();
                     _options.Faults?.AfterCommit(op);
                 }

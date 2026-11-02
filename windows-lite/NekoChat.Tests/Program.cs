@@ -135,4 +135,5 @@ checks += await NekoChat.Tests.StorageReadChecks.Run();
 checks += await NekoChat.Tests.StorageRosterChecks.Run();
 checks += await NekoChat.Tests.StorageLegacyRosterChecks.Run();
 checks += NekoChat.Tests.StorageBackupChecks.Run();
+checks += await NekoChat.Tests.PresenceChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");

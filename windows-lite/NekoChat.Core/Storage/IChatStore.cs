@@ -48,6 +48,8 @@ public interface IChatStore : IDisposable
     LegacyRosterImportResult ImportLegacyRoster(IReadOnlyList<LegacyRosterContact> contacts);
     IReadOnlyList<StoreBackupInfo> ListBackups();
     BackupMaintenanceResult MaintainBackups();
+    IReadOnlyList<NekoChat.Core.Presence.PresenceTarget> GetPresenceTargets();
+    PresenceWriteResult ApplyRosterPresenceEvidence(NekoChat.Core.Presence.PresenceWriteJob job, Func<bool> stillCurrent);
 
     StoreDiagnostics GetDiagnostics();
 }
