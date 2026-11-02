@@ -46,6 +46,8 @@ public interface IChatStore : IDisposable
     RosterApplyResult ApplyRosterPreview(NekoChat.Core.Roster.RosterImportPreview preview);
     bool LegacyRosterImportCompleted();
     LegacyRosterImportResult ImportLegacyRoster(IReadOnlyList<LegacyRosterContact> contacts);
+    IReadOnlyList<StoreBackupInfo> ListBackups();
+    BackupMaintenanceResult MaintainBackups();
 
     StoreDiagnostics GetDiagnostics();
 }

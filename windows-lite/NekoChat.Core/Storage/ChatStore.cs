@@ -93,6 +93,7 @@ public sealed partial class ChatStore : IChatStore
             _recoveredAttempts = Write("recover", ctx =>
                 (ctx.Exec("UPDATE ManualSendAttempt SET attemptState='unconfirmed', updatedUtc=@now WHERE attemptState='sending'", ("@now", ctx.NowUtc)), true));
             CheckWalSize("open");
+            _ = MaintainBackups();
             return 0;
         });
     }
@@ -156,36 +157,7 @@ public sealed partial class ChatStore : IChatStore
 
     private void BackupBeforeUpgrade(int fromVersion)
     {
-        var dir = Path.Combine(_options.DataDirectory, "backup");
-        string? path = null;
-        try
-        {
-            Directory.CreateDirectory(dir);
-            string stamp = _options.UtcNow().ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture);
-            for (int i = 0; i < 100 && path == null; i++)
-            {
-                string candidate = Path.Combine(dir, $"nekochat-v{fromVersion}-{stamp}" + (i == 0 ? "" : "-" + (i + 1).ToString(CultureInfo.InvariantCulture)) + ".db");
-                try
-                {
-                    using (new FileStream(candidate, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
-                    path = candidate;
-                }
-                catch (IOException) when (File.Exists(candidate))
-                {
-                    // name taken: never overwrite an existing backup; try the next suffix
-                }
-            }
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            throw new StoreException(StoreErrorKind.CannotOpen, StoreErrors.Describe(StoreErrorKind.CannotOpen), e);
-        }
-        if (path == null) throw new StoreException(StoreErrorKind.CannotOpen, "No free backup file name.");
-
-        var destBuilder = new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = _options.CommandTimeoutSeconds };
-        using var dest = new SqliteConnection(destBuilder.ToString());
-        dest.Open();
-        _write.BackupDatabase(dest);
+        CreateStoreBackup("v" + fromVersion.ToString(CultureInfo.InvariantCulture), _write);
     }
 
     private void RunMigrations(int fromVersion)
