@@ -1,0 +1,58 @@
+using Microsoft.Data.Sqlite;
+
+namespace NekoChat.Core.Storage;
+
+internal static class SchemaGuard
+{
+    private sealed record Definition(string Type, string Name, string Table, string Sql);
+    private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV1 = new(CreateExpected);
+
+    internal static long Inspect(SqliteConnection connection, int latestVersion)
+    {
+        long version = Scalar(connection, "PRAGMA user_version");
+        if (version > latestVersion)
+            throw new StoreException(StoreErrorKind.SchemaTooNew, StoreErrors.Describe(StoreErrorKind.SchemaTooNew),
+                fromVersion: checked((int)version), toVersion: latestVersion);
+        var actual = Definitions(connection);
+        if (version == 0 && Scalar(connection, "SELECT count(*) FROM sqlite_master") == 0) return 0;
+        var expected = ExpectedV1.Value;
+        var byName = actual.ToDictionary(d => d.Name, StringComparer.Ordinal);
+        if (version < 1 || expected.Any(d => !byName.TryGetValue(d.Name, out var found) || found != d) ||
+            version == 1 && actual.Count != expected.Count)
+            throw new StoreException(StoreErrorKind.UnrecognizedDatabase, StoreErrors.Describe(StoreErrorKind.UnrecognizedDatabase));
+        if (Scalar(connection, "SELECT count(*) FROM SchemaVersion") != version ||
+            Scalar(connection, "SELECT coalesce(min(version),0) FROM SchemaVersion") != 1 ||
+            Scalar(connection, "SELECT coalesce(max(version),0) FROM SchemaVersion") != version)
+            throw new StoreException(StoreErrorKind.Corrupt, "Schema version records are inconsistent.");
+        return version;
+    }
+
+    private static long Scalar(SqliteConnection connection, string sql)
+    {
+        using var command = connection.CreateCommand(); command.CommandText = sql;
+        return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static List<Definition> Definitions(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name";
+        using var reader = command.ExecuteReader();
+        var result = new List<Definition>();
+        while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2),
+            reader.IsDBNull(3) ? "" : reader.GetString(3).Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n')));
+        return result;
+    }
+
+    private static IReadOnlyList<Definition> CreateExpected()
+    {
+        // Ask the same SQLite engine to normalize the frozen schema; no disk file is opened or modified.
+        using var memory = new SqliteConnection("Data Source=:memory:;Pooling=False");
+        memory.Open();
+        using var command = memory.CreateCommand(); command.CommandText = Migration.ReadSchemaV1();
+        command.Parameters.AddWithValue("@now", "2000-01-01T00:00:00.000Z");
+        command.Parameters.AddWithValue("@appVersion", "schema-reference");
+        command.ExecuteNonQuery();
+        return Definitions(memory).AsReadOnly();
+    }
+}

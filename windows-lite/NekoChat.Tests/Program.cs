@@ -118,4 +118,5 @@ checks += await ReactionChecks.Run();
 checks += NekoChat.Tests.MessageFormattingChecks.Run();
 checks += NekoChat.Tests.RosterCsvChecks.Run();
 checks += NekoChat.Tests.RosterImportChecks.Run();
+checks += NekoChat.Tests.StorageFoundationChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
