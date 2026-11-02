@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using NekoChat.Core;
 
+if (await NekoChat.Tests.V2CrashChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageReceiveChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageSendChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageHistoryChecks.RunChild(args)) return;
@@ -15,6 +16,7 @@ if (args.SequenceEqual(new[] { "--v2-vectors" })) { await NekoChat.Tests.V2Vecto
 if (args.SequenceEqual(new[] { "--v2-boundaries" })) { await NekoChat.Tests.V2BoundaryChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--v2-storage-fences" })) { NekoChat.Tests.V2StorageFenceChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--v2-tcp" })) { await NekoChat.Tests.V2TcpChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--v2-tcp-crashes" })) { await NekoChat.Tests.V2CrashChecks.Run(); return; }
 
 int checks=0;
 void Check(bool result,string description) {checks++;if(!result)throw new Exception(description);}
@@ -147,4 +149,5 @@ checks += await NekoChat.Tests.V2VectorChecks.Run();
 checks += await NekoChat.Tests.V2BoundaryChecks.Run();
 checks += NekoChat.Tests.V2StorageFenceChecks.Run();
 checks += await NekoChat.Tests.V2TcpChecks.Run();
+checks += await NekoChat.Tests.V2CrashChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
