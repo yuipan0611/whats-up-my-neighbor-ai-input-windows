@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
   </PropertyGroup>
   <ItemGroup><PackageReference Include="Microsoft.Data.Sqlite" Version="[10.0.14]" /></ItemGroup>
   <ItemGroup><InternalsVisibleTo Include="NekoChat.Tests" /></ItemGroup>
