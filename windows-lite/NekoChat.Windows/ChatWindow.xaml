@@ -74,6 +74,8 @@
      <TextBlock Text="名單與設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,16"/>
      <TextBlock x:Name="MyDirectIP" Text="我的 IP：偵測中…" TextWrapping="Wrap"/><Button x:Name="CopyMyIPButton" Content="複製我的 IP" Click="CopyMyIPClick" HorizontalAlignment="Left" Margin="0,8"/>
      <CheckBox x:Name="AutoStartCheck" Content="開機啟動" Checked="AutoStartChecked" Unchecked="AutoStartUnchecked" Margin="0,8,0,16"/>
+     <Button x:Name="CheckIdentityButton" Content="檢查本機身分…" Click="CheckIdentityClick" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+     <TextBlock x:Name="IdentityRecoveryStatus" Text="檢查不會自動建立或替換身分。" TextWrapping="Wrap" Foreground="#596B80" FontSize="12" Margin="0,0,0,16"/>
      <TextBlock x:Name="ManualRosterTitle" Text="手動新增同學（不會自動配對）" FontWeight="Bold"/>
      <TextBlock Text="姓名" Margin="0,8,0,4"/><TextBox x:Name="ContactName" AutomationProperties.Name="同學姓名"/>
      <TextBlock Text="學號（可留白）" Margin="0,8,0,4"/><TextBox x:Name="StudentNumberBox" AutomationProperties.Name="學號"/>

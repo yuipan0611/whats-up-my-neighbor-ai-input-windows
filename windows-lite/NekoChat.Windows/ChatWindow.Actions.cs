@@ -87,9 +87,10 @@ public partial class ChatWindow
         UpdateComposer();
     }
     internal void BeginClosing() { _closingRequested = true; IsEnabled = false; _saveTimer.Stop(); _readTimer.Stop(); _userOpened = false; ViewChanged(); UpdateComposer(); }
+    internal bool HasUnsavedDrafts => _drafts.Values.Any(buffer => buffer.Dirty && !buffer.Clearing);
     internal Task FlushForExitAsync()
     {
-        if (_runtime is null) return Task.CompletedTask;
+        if (_runtime is null) return HasUnsavedDrafts ? Task.FromException(new InvalidOperationException("Draft storage is unavailable.")) : Task.CompletedTask;
         var runtime = _runtime;
         var writes = _drafts.Where(p => p.Value.Dirty && !p.Value.Clearing).Select(p => (p.Key, Buffer: p.Value, Ticket: p.Value.Capture())).ToArray();
         return Task.WhenAll(writes.Select(write => runtime.Worker.Run(s => {

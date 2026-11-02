@@ -32,4 +32,11 @@ public sealed partial class ChatStore
         ArgumentNullException.ThrowIfNull(newPublicKey); ArgumentException.ThrowIfNullOrEmpty(newCredentialRef);
         return ReplaceLocalIdentityCore(newId, newPublicKey, newCredentialRef, expected, stillCurrent);
     }
+
+    public ReplaceIdentityResult RecoverLocalIdentityIfCurrent(LocalIdentitySnapshot expected, string newId, byte[] newPublicKey, string newCredentialRef, Func<bool> stillCurrent)
+    {
+        ArgumentNullException.ThrowIfNull(expected); ArgumentNullException.ThrowIfNull(stillCurrent);
+        ArgumentNullException.ThrowIfNull(newPublicKey); ArgumentException.ThrowIfNullOrEmpty(newCredentialRef);
+        return ReplaceLocalIdentityCore(newId, newPublicKey, newCredentialRef, expected, stillCurrent, suspendPairings: true);
+    }
 }

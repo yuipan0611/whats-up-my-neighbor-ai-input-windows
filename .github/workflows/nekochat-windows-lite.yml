@@ -56,6 +56,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Copy-Item windows-lite/README.md build/windows-lite-package/README.md
           Copy-Item windows-lite/BACKUP-RESTORE.md build/windows-lite-package/BACKUP-RESTORE.md
+          Copy-Item windows-lite/IDENTITY-VERIFICATION.md build/windows-lite-package/IDENTITY-VERIFICATION.md
           Copy-Item LICENSE build/windows-lite-package/LICENSE
           Copy-Item windows-lite/THIRD-PARTY.md build/windows-lite-package/THIRD-PARTY.md
       - name: Verify installed App without external runtimes

@@ -149,6 +149,7 @@ public partial class App : Application
             startupSource = settingsSource ?? new SettingsLoadResult(settings, smokeDirectory is not null ? SettingsSourceStatus.Loaded : SettingsSourceStatus.Unavailable);
             isolatedData = smokeDirectory is not null; startupPort = messagingSmoke?.ListenPort ?? DirectLanMessaging.DefaultPort;
             chat.DataRetryRequested += () => _ = StartDataAsync();
+            chat.IdentityRecoveryRequested += () => _ = RecoverIdentityAsync();
 
             if (Appearance.Presets.Contains(settings.Coat))
             {
@@ -210,6 +211,13 @@ public partial class App : Application
     }
 
     private async Task SendDirectMessageAsync(string targetIp, string text, ClassroomReaction? reaction = null, bool preserveDraft = false)
+    {
+        if (!_activeLegacySend.IsCompleted) return;
+        _activeLegacySend = SendLegacyReactionCoreAsync(targetIp, text, reaction, preserveDraft);
+        await _activeLegacySend;
+    }
+    private Task _activeLegacySend = Task.CompletedTask;
+    private async Task SendLegacyReactionCoreAsync(string targetIp, string text, ClassroomReaction? reaction, bool preserveDraft)
     {
         if (reaction is null)
         { chat.SetStatus("一般私訊需要已配對身分與訊息上限設定；不使用舊版直接傳送。"); return; }
@@ -318,6 +326,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _identityRecoveryCancellation?.Cancel();
         SystemEvents.PowerModeChanged -= AppPowerModeChanged;
         if (chatRuntime is not null)
         {
@@ -341,20 +350,20 @@ public partial class App : Application
             if (closingApp) return;
             await chat.AttachRuntimeAsync(candidate, directSendPort);
             candidate.DataChanged += () => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.DataChanged(); }));
-            directListener = candidate.Listener;
-            directListener.LegacyMessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
-                if (closingApp) return;
+            var listener = candidate.Listener; directListener = listener;
+            listener.LegacyMessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
+                if (closingApp || !ReferenceEquals(directListener, listener)) return;
                 chat.DataChanged();
                 bool teacher = LanInvitation.LocalAddresses().Contains(settings.TeacherIp) || settings.TeacherIp == "127.0.0.1";
                 var reaction = notice.Reaction is { } id ? ClassroomReactions.Find(id) : null;
                 if (settings.ShowReactionPreviews && reaction is not null && (!reaction.TeacherOnly || teacher)) pet.NotifyReaction(reaction, notice.Scope.ContextId);
                 else pet.NotifyChat("新訊息", notice.Scope.ContextId, chat.LegacyNotificationName(notice));
             }));
-            directListener.V2MessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
-                if (closingApp) return;
+            listener.V2MessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
+                if (closingApp || !ReferenceEquals(directListener, listener)) return;
                 chat.DataChanged(); pet.NotifyChat("新訊息", "peer:" + notice.SenderId, chat.PeerNotificationName(notice.SenderId));
             }));
-            directListener.Diagnostic += code => { if (code == "receiver_not_ready") Dispatcher.BeginInvoke(new Action(() => chat.SetReceiverState(false, startupPort, directListener.Error))); };
+            listener.Diagnostic += code => { if (code == "receiver_not_ready") Dispatcher.BeginInvoke(new Action(() => { if (!closingApp && ReferenceEquals(directListener, listener)) chat.SetReceiverState(false, startupPort, listener.Error); })); };
             candidate.Start(); chatRuntime = candidate; candidate = null;
             chat.SetReceiverState(directListener.Running, directListener.Port, directListener.Error);
             chat.SetStatus("本機資料已就緒；私訊仍需完成身分與訊息上限設定。");
@@ -366,8 +375,9 @@ public partial class App : Application
 
     private async Task RequestShutdownAsync()
     {
+        if (_recoveringIdentity) { _shutdownAfterIdentityRecovery = true; _identityRecoveryCancellation?.Cancel(); return; }
         if (closingApp) return; closingApp = true;
-        try { chat.BeginClosing(); if (chatRuntime is not null) await chatRuntime.StopReceivingAsync(); await chat.PrepareForShutdownAsync(); if (chatRuntime is not null) await chatRuntime.DisposeAsync(); Shutdown(); }
+        try { chat.BeginClosing(); if (chatRuntime is not null) await chatRuntime.StopReceivingAsync(); await _activeLegacySend; await chat.PrepareForShutdownAsync(); if (chatRuntime is not null) await chatRuntime.DisposeAsync(); Shutdown(); }
         catch
         {
             try { if (chatRuntime is not null) await chatRuntime.DisposeAsync(); } catch { }

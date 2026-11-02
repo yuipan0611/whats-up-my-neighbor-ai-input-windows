@@ -47,6 +47,11 @@ public partial class ChatWindow
     private bool _historyLoaded;
     private int _peerPort = DirectLanMessaging.DefaultPort;
     internal event Action? DataRetryRequested;
+    internal event Action? IdentityRecoveryRequested;
+    private bool _identityRecoveryBusy;
+    private void CheckIdentityClick(object sender, RoutedEventArgs e) => IdentityRecoveryRequested?.Invoke();
+    internal void SetIdentityRecoveryStatus(string text, bool busy)
+    { _identityRecoveryBusy = busy; IdentityRecoveryStatus.Text = text; CheckIdentityButton.IsEnabled = !busy && _runtime is not null && !_closingRequested; }
 
     private void InitializeInbox()
     {
@@ -209,6 +214,7 @@ public partial class ChatWindow
         RetryAttempt.IsEnabled = ready && !_sending && attempt is { State: not "sending" } && attempt.RawSnapshot == Draft.Text;
         CancelAttemptButton.IsEnabled = !_sending && attempt is { State: not "sending" };
         ClearConversationButton.IsEnabled = attached && _selected is not null && buffer?.Clearing != true;
+        CheckIdentityButton.IsEnabled = attached && !_identityRecoveryBusy && !_closingRequested;
         string count = _runtime?.MaximumTextBytes is { } maximum ? $"{Encoding.UTF8.GetByteCount(Draft.Text)} / {maximum} UTF-8 位元組 · " : "";
         DraftStatus.Text = (buffer?.Dirty == true ? "草稿尚未儲存 · " : "") + count + (!attached ? "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出" :
             buffer is null ? "先完成身分配對，才能儲存草稿與傳送私訊。" : !_runtime!.CanSend ? "身分與訊息上限尚未設定；可編輯及儲存既有草稿。" : !valid && Draft.Text.Length > 0 ? "內容不符合訊息格式或超過上限。" : "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出");

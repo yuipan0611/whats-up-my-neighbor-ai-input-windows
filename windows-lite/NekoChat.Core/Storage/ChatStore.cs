@@ -317,7 +317,7 @@ public sealed partial class ChatStore : IChatStore
     public ReplaceIdentityResult ReplaceLocalIdentity(string newId, byte[]? newPublicKey, string? newCredentialRef)
         => ReplaceLocalIdentityCore(newId, newPublicKey, newCredentialRef, null, null);
 
-    private ReplaceIdentityResult ReplaceLocalIdentityCore(string newId, byte[]? newPublicKey, string? newCredentialRef, LocalIdentitySnapshot? expected, Func<bool>? stillCurrent)
+    private ReplaceIdentityResult ReplaceLocalIdentityCore(string newId, byte[]? newPublicKey, string? newCredentialRef, LocalIdentitySnapshot? expected, Func<bool>? stillCurrent, bool suspendPairings = false)
     {
         if (!StoreIds.IsValid(newId)) throw new ArgumentException("invalid identity id", nameof(newId));
         if (newPublicKey is { Length: 0 }) throw new ArgumentException("publicKey must not be empty", nameof(newPublicKey));
@@ -339,6 +339,11 @@ public sealed partial class ChatStore : IChatStore
                 ("@id", old.Id), ("@pk", old.Key), ("@c", old.Created), ("@now", ctx.NowUtc));
             int superseded = ctx.Exec("UPDATE ManualSendAttempt SET attemptState = 'superseded', updatedUtc = @now WHERE attemptState IN ('sending','unconfirmed','failed')", ("@now", ctx.NowUtc));
             int dropped = ctx.Exec("DELETE FROM ReceiptOutbox");
+            if (suspendPairings)
+            {
+                ctx.Exec("UPDATE Peer SET pairingState='suspended' WHERE pairingState='paired'");
+                ctx.Exec("UPDATE ReadReceiptPolicy SET enabled=0,generation=CASE WHEN enabled=1 AND generation<9223372036854775807 THEN generation+1 ELSE generation END WHERE singleton=1");
+            }
             return (new IdentityReplaced(old.Id, newId, superseded, dropped), true);
         }, commitGuard: stillCurrent, guardRejected: stillCurrent is null ? null : () => new IdentityChangeDiscarded("stale-identity"));
     }

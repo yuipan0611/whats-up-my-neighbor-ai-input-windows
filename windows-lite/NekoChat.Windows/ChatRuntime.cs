@@ -28,6 +28,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal DirectLanListener Listener { get; }
     internal PresenceService? Presence { get; }
     internal ReadReceiptService? Receipts { get; }
+    internal IdentityRecoveryFlow IdentityRecovery { get; }
     private readonly Task _maintenance;
     internal event Action? DataChanged;
     internal int? MaximumTextBytes { get; }
@@ -40,6 +41,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     {
         _store = store; DataDirectory = dataDirectory; StartupWarning = warning; Reads = new(store);
         var local = store.GetLocalIdentitySnapshot(); var vault = WindowsIdentityVault.Create(identityDirectory); var coordinator = new LocalIdentityCoordinator(store, vault);
+        IdentityRecovery = new(store, vault);
         IdentityStatus = local.Id is null || local.PublicSpkiBase64 is null && local.CredentialRef is null ? "身分方案尚未設定" :
             coordinator.Inspect() is IdentityConsistent ? "本機身分檢查通過" : "本機身分遺失或不符，請明確建立新身分";
         V2Receiver? receiver = null;

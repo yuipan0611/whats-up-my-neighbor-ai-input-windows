@@ -40,7 +40,22 @@ internal static class IdentityVaultSmoke
                 Check(coordinator.Replace(original, () => true) is IdentityReplaced && coordinator.Inspect() is IdentityConsistent && reopenedVault.CanSign(original.CredentialRef!), "explicit replacement keeps old encrypted credential");
             }
             using (var store = ChatStore.Open(new(Path.Combine(fixture, "data"))))
-                Check(new LocalIdentityCoordinator(store, WindowsIdentityVault.Create(keyDirectory)).Inspect() is IdentityConsistent, "store and vault reopen agree");
+            {
+                var reopenedVault = WindowsIdentityVault.Create(keyDirectory);
+                Check(new LocalIdentityCoordinator(store, reopenedVault).Inspect() is IdentityConsistent, "store and vault reopen agree");
+                var recovery = new IdentityRecoveryFlow(store, reopenedVault);
+                Check(recovery.Inspect() is null, "healthy key cannot produce a recovery confirmation");
+                store.RegisterPeer("recovery-peer", PairingState.Paired); store.SetReadReceiptPolicy(true);
+                var original = store.GetLocalIdentitySnapshot();
+                string currentFile = Path.Combine(keyDirectory, original.CredentialRef!["dpapi-v1:".Length..] + ".dpapi");
+                File.Move(currentFile, currentFile + ".held");
+                var canceled = recovery.Inspect()!; recovery.Cancel();
+                Check(recovery.Confirm(canceled, () => true) is IdentityChangeDiscarded && store.GetLocalIdentitySnapshot() == original, "one-use recovery cancellation leaves identity unchanged");
+                var confirmed = recovery.Inspect()!;
+                Check(recovery.Confirm(confirmed, () => true) is IdentityReplaced && store.GetPeerSecuritySnapshot("recovery-peer").Pairing == PairingState.Suspended && !store.GetReadReceiptPolicy().Enabled,
+                    "explicit lost-key recovery creates a new DPAPI identity and atomically suspends pairing and resets privacy");
+                Check(new LocalIdentityCoordinator(store, reopenedVault).Inspect() is IdentityConsistent && File.Exists(currentFile + ".held"), "recovery keeps old encrypted file and new key is usable");
+            }
         }
         catch (Exception ex) { failure = ex.GetType().Name; }
         finally
