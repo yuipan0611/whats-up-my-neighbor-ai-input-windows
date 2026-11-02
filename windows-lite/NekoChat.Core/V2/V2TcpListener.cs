@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using NekoChat.Core.Storage;
 
 namespace NekoChat.Core.V2;
 
@@ -34,6 +35,8 @@ public sealed class V2TcpListener : IAsyncDisposable
     public event Action<V2DeliveryNotice>? MessageStored;
     /// <summary>Legacy source is the TCP IPv4 address. No sender identity, persisted delivery or read fact is asserted.</summary>
     public event Action<string, DirectMessage>? LegacyMessageReceived;
+    /// <summary>Optional local persistence before the legacy courtesy reply. The host owns and drains the borrowed store.</summary>
+    public Func<string, DirectMessage, Func<bool>, bool>? LegacyMessageHandler { private get; init; }
     public event Action<string>? Diagnostic;
     public V2TcpListener(V2Receiver? receiver, V2ListenerOptions? options = null)
     {
@@ -133,7 +136,15 @@ public sealed class V2TcpListener : IAsyncDisposable
                 {
                     if (!LegacyDirectProtocol.TryParse(body, out var legacy, out var problem)) response = V2HttpResponse.Error(problem);
                     else if (timeout.IsCancellationRequested) response = V2HttpResponse.Error("receiver_not_ready");
-                    else { LegacyMessageReceived?.Invoke(source, legacy!); response = new(200, "{\"status\":\"delivered\"}"u8.ToArray()); }
+                    else
+                    {
+                        try
+                        {
+                            if (LegacyMessageHandler is { } save && !save(source, legacy!, () => !timeout.IsCancellationRequested)) response = V2HttpResponse.Error("storage_unavailable");
+                            else { LegacyMessageReceived?.Invoke(source, legacy!); response = new(200, "{\"status\":\"delivered\"}"u8.ToArray()); }
+                        }
+                        catch (Exception e) when (e is StoreException or IOException or UnauthorizedAccessException) { response = V2HttpResponse.Error("storage_unavailable"); }
+                    }
                 }
                 else response = _receiver!.Handle(path, body, source, () => !timeout.IsCancellationRequested);
                 if (response.Notice is { } notice)

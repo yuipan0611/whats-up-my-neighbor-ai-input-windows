@@ -46,8 +46,9 @@ public sealed partial class ChatStore
                 int attempts = ctx.Exec("DELETE FROM ManualSendAttempt WHERE conversationId=@id", ("@id", conversationId));
                 int drafts = ctx.Exec("DELETE FROM Draft WHERE conversationId=@id", ("@id", conversationId));
                 int messages = ctx.Exec("DELETE FROM Message WHERE conversationId=@id", ("@id", conversationId));
+                int legacy = ClearLegacyForConversation(ctx, conversationId);
                 ctx.Exec("UPDATE Conversation SET draftEpoch=draftEpoch+1 WHERE id=@id", ("@id", conversationId));
-                return (new ClearResult(messages, drafts, attempts, receipts, false, epoch + 1), true);
+                return (new ClearResult(messages, drafts, attempts, receipts, false, epoch + 1, legacy), true);
             });
             if (result is null) return new(0, 0, 0, 0, false, 0);
             bool truncated = CheckpointLocked();

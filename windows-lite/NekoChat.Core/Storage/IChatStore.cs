@@ -52,6 +52,12 @@ public interface IChatStore : IDisposable
     PresenceWriteResult ApplyRosterPresenceEvidence(NekoChat.Core.Presence.PresenceWriteJob job, Func<bool> stillCurrent);
     PeerSecuritySnapshot GetPeerSecuritySnapshot(string peerId);
     PeerVerificationContext GetPeerVerificationContext(string peerId);
+    LegacyReceiveContext GetLegacyReceiveContext(string sourceIp);
+    LegacyReceiveResult ReceiveLegacyMessage(DirectMessage message, LegacyReceiveContext expected, Func<bool> stillCurrent);
+    IReadOnlyList<LegacyHistorySummary> ListLegacyHistories(long? beforeLastLegacySeq = null, int limit = 200);
+    LegacyMessagePage ListLegacyMessages(LegacyHistoryScope scope, long? beforeLegacySeq = null, int pageSize = 50);
+    VisibleReadResult MarkLegacyVisibleRead(LegacyHistoryScope scope, IReadOnlyList<long> visibleLegacySeqs, VisibleReadContext context, Func<bool> stillCurrent);
+    LegacyClearResult ClearLegacyHistory(LegacyHistoryScope scope);
     ReceiveResult ReceiveV2Message(NekoChat.Core.V2.V2VerifiedMessage message, PeerSecuritySnapshot expected, Func<bool> stillCurrent, string? sourceEndpoint = null);
     ReceiptApplyResult ApplyV2Receipt(NekoChat.Core.V2.V2VerifiedReceipt receipt, PeerSecuritySnapshot expected, Func<bool> stillCurrent);
     CompleteResult CompleteV2Send(NekoChat.Core.V2.V2VerifiedAck ack, PeerSecuritySnapshot expected, Func<bool> stillCurrent);

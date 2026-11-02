@@ -76,9 +76,12 @@ public sealed class DirectLanListener : IAsyncDisposable
 
     public DirectLanListener(int port = DirectLanMessaging.DefaultPort) : this(null, new V2.V2ListenerOptions { Port = port }) { }
     public DirectLanListener(V2.V2Receiver receiver, int port = DirectLanMessaging.DefaultPort) : this(receiver, new V2.V2ListenerOptions { Port = port }) { }
-    public DirectLanListener(V2.V2Receiver? receiver, V2.V2ListenerOptions options)
+    public DirectLanListener(V2.V2Receiver? receiver, V2.V2ListenerOptions options, Storage.IChatStore? legacyStore = null)
     {
-        _transport = new(receiver, options);
+        _transport = new(receiver, options) {
+            LegacyMessageHandler = legacyStore is null ? null : (source, message, live) =>
+                legacyStore.ReceiveLegacyMessage(message, legacyStore.GetLegacyReceiveContext(source), live).Stored
+        };
         _transport.LegacyMessageReceived += (source, message) => {
             DirectMessageReceived?.Invoke(source, message);
             MessageReceived?.Invoke(source, message.Text);
