@@ -38,7 +38,7 @@ public sealed partial class ChatStore : IChatStore
     {
         ArgumentNullException.ThrowIfNull(options);
         if (string.IsNullOrWhiteSpace(options.DataDirectory)) throw new ArgumentException("DataDirectory is required", nameof(options));
-        if (options.DataDirectory.StartsWith("\\\\", StringComparison.Ordinal) || options.DataDirectory.StartsWith("//", StringComparison.Ordinal))
+        if (IsNetworkDataPath(options.DataDirectory))
             throw new StoreException(StoreErrorKind.DataLocationUnsupported, StoreErrors.Describe(StoreErrorKind.DataLocationUnsupported));
         if (options.CommandTimeoutSeconds < 1) throw new ArgumentOutOfRangeException(nameof(options));
         var store = new ChatStore(options);
@@ -52,6 +52,26 @@ public sealed partial class ChatStore : IChatStore
             store.AbortInitialize();
             throw;
         }
+    }
+
+    /// <summary>
+    /// True for UNC / network locations (\\server\share, //server/share, \\?\UNC\..., \\.\UNC\...).
+    /// Local extended-length paths (\\?\C:\..., \\?\Volume{...}\...) are NOT network paths and stay allowed.
+    /// Necessary, not sufficient: real network drives mapped to a letter are only caught by the WAL check and the Windows layer.
+    /// </summary>
+    internal static bool IsNetworkDataPath(string path)
+    {
+        string p = path.Replace('/', '\\');
+        if (!p.StartsWith("\\\\", StringComparison.Ordinal)) return false;
+        if (p.Length >= 4 && (p[2] == '?' || p[2] == '.') && p[3] == '\\')
+        {
+            string rest = p[4..];
+            if (rest.StartsWith("UNC\\", StringComparison.OrdinalIgnoreCase)) return true;
+            bool driveLetter = rest.Length >= 2 && char.IsAsciiLetter(rest[0]) && rest[1] == ':';
+            bool volumeGuid = rest.StartsWith("Volume{", StringComparison.OrdinalIgnoreCase);
+            return !(driveLetter || volumeGuid);
+        }
+        return true;
     }
 
     private void Initialize()
