@@ -43,57 +43,39 @@ internal static class ChatLayoutChecks
         }
 
         var visual = (FrameworkElement)chat.Content;
-        // Client sizes reserve non-client chrome and taskbar space. Includes 1366x768/125%,
-        // 150%, minimum manual resize, a wide window, and returning to the default size.
-        foreach (var size in new[] { new Size(464, 530), new Size(424, 450), new Size(424, 320), new Size(800, 500), new Size(900, 1000), new Size(464, 700), new Size(424, 320) })
+        // Native WPF geometry only: this runs on Windows, not during a Mac cross-build.
+        foreach (var size in new[] { new Size(424, 320), new Size(440, 550), new Size(800, 500), new Size(1100, 700), new Size(900, 1000), new Size(424, 320) })
         {
-            chat.SetReceiverState(false, 8768, new string('測', 200));
-            chat.SetStatus(new string('試', 200));
-            visual.Measure(size);
-            visual.Arrange(new Rect(new Point(), size));
-            visual.UpdateLayout();
-            var available = new Rect(new Point(), visual.RenderSize);
-            foreach (var control in new FrameworkElement[] { chat.Draft, chat.SendButton, chat.History, chat.SettingsScroll })
+            chat.SetReceiverState(false, 8768, new string('測', 200)); chat.SetStatus(new string('試', 200));
+            chat.ShowConversationForLayoutCheck(); visual.Measure(size); visual.Arrange(new Rect(new Point(), size)); visual.UpdateLayout();
+            chat.ShowConversationForLayoutCheck(); visual.UpdateLayout(); var available = new Rect(new Point(), visual.RenderSize);
+            foreach (var control in new FrameworkElement[] { chat.Draft, chat.SendButton, chat.History })
             {
                 var bounds = control.TransformToAncestor(visual).TransformBounds(new Rect(control.RenderSize));
-                Require(control.ActualHeight > 0 && available.Contains(bounds),
-                    control.Name + " must remain within the client area after resize");
+                Require(control.ActualHeight > 0 && available.Contains(bounds), control.Name + " must stay visible in the client area");
             }
-            Require(chat.Draft.ActualHeight >= 55 && chat.SendButton.ActualHeight >= 55, "Composer must not be squeezed away");
-            // Settings must not reserve blank space; on large windows the history gets it.
-            Require(chat.SettingsScroll.ViewportHeight <= chat.SettingsScroll.ExtentHeight + 0.5,
-                $"Settings must not leave empty space: client={size}, viewport={chat.SettingsScroll.ViewportHeight}, extent={chat.SettingsScroll.ExtentHeight}");
-            if (size.Height >= 900)
-                Require(chat.SettingsScroll.ScrollableHeight == 0 && chat.History.ActualHeight > chat.SettingsScroll.ActualHeight,
-                    $"Large windows must show all settings and give the history the remaining space: client={size}, history={chat.History.ActualHeight}");
-            if (size.Height <= 530)
-                Require(chat.SettingsScroll.ScrollableHeight > 0, "Small windows must scroll settings");
-            chat.SettingsScroll.ScrollToEnd();
-            visual.UpdateLayout();
-            Require(chat.SettingsScroll.VerticalOffset > 0 || chat.SettingsScroll.ScrollableHeight == 0, "Settings must scroll to the last controls");
-            // At the absolute end, trailing explanatory text may put this control above a
-            // very short viewport. Scroll to the control itself, as keyboard navigation does.
-            var displayBounds = chat.ReactionDisplay.TransformToAncestor(chat.SettingsScroll)
-                .TransformBounds(new Rect(chat.ReactionDisplay.RenderSize));
-            chat.SettingsScroll.ScrollToVerticalOffset(chat.SettingsScroll.VerticalOffset + displayBounds.Top);
-            visual.UpdateLayout();
-            displayBounds = chat.ReactionDisplay.TransformToAncestor(chat.SettingsScroll)
-                .TransformBounds(new Rect(chat.ReactionDisplay.RenderSize));
-            Require(displayBounds.Top >= -0.5 && displayBounds.Bottom <= chat.SettingsScroll.ActualHeight + 0.5,
-                $"Last settings control must be reachable: client={size}, control={displayBounds}, viewport={chat.SettingsScroll.ActualHeight}");
-            chat.SettingsScroll.ScrollToHome();
-            visual.UpdateLayout();
-            var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
-            bitmap.Render(visual);
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(bitmap));
-            using var file = File.Create(Path.Combine(directory, $"chat-layout-{size.Width}x{size.Height}.png"));
-            encoder.Save(file);
+            Require(chat.Draft.ActualHeight >= 55 && chat.SendButton.ActualHeight >= 40, "Input and send action cannot be squeezed away");
+            if (size.Width <= 700)
+            {
+                Require(chat.InboxPane.Visibility == Visibility.Collapsed && chat.BackToInbox.Visibility == Visibility.Visible, "Narrow conversation must expose Inbox navigation");
+                chat.ShowInboxForLayoutCheck(); visual.UpdateLayout();
+                Require(chat.InboxPane.Visibility == Visibility.Visible && chat.ConversationPane.Visibility == Visibility.Collapsed, "Narrow Inbox must replace conversation pane");
+                chat.ShowConversationForLayoutCheck(); visual.UpdateLayout();
+            }
+            else Require(chat.InboxPane.Visibility == Visibility.Visible && chat.ConversationPane.Visibility == Visibility.Visible, "Wide view must show both panes");
+            var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using (var file = File.Create(Path.Combine(directory, $"chat-layout-{size.Width}x{size.Height}.png"))) encoder.Save(file);
+            chat.ShowSettingsForLayoutCheck(true); visual.UpdateLayout();
+            Require(chat.SettingsScroll.ActualHeight > 0, "Settings must have a reachable scrolling viewport");
+            var target = chat.ReactionDisplay.TransformToAncestor(chat.SettingsScroll).TransformBounds(new Rect(chat.ReactionDisplay.RenderSize));
+            chat.SettingsScroll.ScrollToVerticalOffset(chat.SettingsScroll.VerticalOffset + target.Top); visual.UpdateLayout();
+            target = chat.ReactionDisplay.TransformToAncestor(chat.SettingsScroll).TransformBounds(new Rect(chat.ReactionDisplay.RenderSize));
+            Require(target.Top >= -1 && target.Bottom <= chat.SettingsScroll.ActualHeight + 1, "Screen chooser must remain reachable at every window size");
+            chat.ShowSettingsForLayoutCheck(false);
         }
-        chat.SetReceiverState(true, 8768, null);
-        chat.SetStatus("Windows CI 視窗繪製驗證完成");
-        File.WriteAllText(Path.Combine(directory, "chat-layout-result.txt"),
-            "PASS: work-area fitting at 100/125/150/200%, negative monitor origin, stable repeated fit, small/large/repeated WPF layout, no blank settings space, DWM-border-aware fitting, scrollable settings and visible composer. Physical mixed-DPI monitor testing remains required.");
+        chat.SetReceiverState(true, 8768, null); chat.SetStatus("Windows WPF 版面檢查完成");
+        File.WriteAllText(Path.Combine(directory, "chat-layout-result.txt"), "PASS: work-area/DWM fitting, normal and narrow Inbox/conversation switching, compact composer, visible history/input/send and reachable settings. Installed IME, real mixed-DPI monitors and visual fidelity remain manual.");
     }
 
     private static void Require(bool condition, string message)

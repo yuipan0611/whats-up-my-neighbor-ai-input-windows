@@ -107,7 +107,7 @@ internal static class DisplayScreens
         };
     }
 
-    internal static void FitChat(ChatWindow chat)
+    internal static void FitChat(System.Windows.Window chat)
     {
         var window = new System.Windows.Interop.WindowInteropHelper(chat).Handle;
         if (window == IntPtr.Zero) return;

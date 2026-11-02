@@ -72,6 +72,7 @@ public sealed class DirectLanListener : IAsyncDisposable
     public event Action<string, string>? MessageReceived;
     public event Action<string, DirectMessage>? DirectMessageReceived;
     public event Action<V2.V2DeliveryNotice>? V2MessageStored;
+    public event Action<LegacyDeliveryNotice>? LegacyMessageStored;
     public event Action<string>? Diagnostic;
 
     public DirectLanListener(int port = DirectLanMessaging.DefaultPort) : this(null, new V2.V2ListenerOptions { Port = port }) { }
@@ -79,8 +80,12 @@ public sealed class DirectLanListener : IAsyncDisposable
     public DirectLanListener(V2.V2Receiver? receiver, V2.V2ListenerOptions options, Storage.IChatStore? legacyStore = null)
     {
         _transport = new(receiver, options) {
-            LegacyMessageHandler = legacyStore is null ? null : (source, message, live) =>
-                legacyStore.ReceiveLegacyMessage(message, legacyStore.GetLegacyReceiveContext(source), live).Stored
+            LegacyMessageHandler = legacyStore is null ? null : (source, message, live) => {
+                var captured = legacyStore.GetLegacyReceiveContext(source); var result = legacyStore.ReceiveLegacyMessage(message, captured, live);
+                if (result.Stored && result.LegacySeq is { } seq)
+                { try { LegacyMessageStored?.Invoke(new(source, captured.Scope, seq, message.Reaction ?? ClassroomReactions.MatchText(message.Text)?.Id)); } catch { try { Diagnostic?.Invoke("notification_failed"); } catch { } } }
+                return result.Stored;
+            }
         };
         _transport.LegacyMessageReceived += (source, message) => {
             DirectMessageReceived?.Invoke(source, message);
@@ -102,3 +107,4 @@ public sealed class DirectLanListener : IAsyncDisposable
 }
 
 public sealed record DirectMessage(string Text, string? Reaction);
+public sealed record LegacyDeliveryNotice(string SourceIp, Storage.LegacyHistoryScope Scope, long LegacySeq, string? Reaction);

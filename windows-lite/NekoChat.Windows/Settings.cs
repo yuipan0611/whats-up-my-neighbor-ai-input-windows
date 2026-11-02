@@ -27,6 +27,7 @@ internal record Settings
     public List<ContactItem> Contacts { get; init; } = new();
     public string TeacherIp { get; init; } = NekoChat.Core.ClassroomReactions.DefaultTeacherIp;
     public string ReactionDisplayDevice { get; init; } = "";
+    public bool ShowReactionPreviews { get; init; }
 
     // Legacy fields kept for seamless JSON compatibility
     public bool Lan { get; init; } = true;

@@ -1,0 +1,285 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-02T23:14:36.831983+00:00",
+  "title": "Design System: Neko Chat Lite — Windows Inbox",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "primary",
+        "tonalRamp": [
+          "oklch(0.150 0.17724 263.11)",
+          "oklch(0.264 0.17724 263.11)",
+          "oklch(0.379 0.17724 263.11)",
+          "oklch(0.493 0.17724 263.11)",
+          "oklch(0.607 0.17724 263.11)",
+          "oklch(0.721 0.17724 263.11)",
+          "oklch(0.836 0.17724 263.11)",
+          "oklch(0.950 0.17724 263.11)"
+        ],
+        "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
+      },
+      "primary-soft": {
+        "role": "primary",
+        "displayName": "primary-soft",
+        "tonalRamp": [
+          "oklch(0.150 0.01991 267.29)",
+          "oklch(0.264 0.01991 267.29)",
+          "oklch(0.379 0.01991 267.29)",
+          "oklch(0.493 0.01991 267.29)",
+          "oklch(0.607 0.01991 267.29)",
+          "oklch(0.721 0.01991 267.29)",
+          "oklch(0.836 0.01991 267.29)",
+          "oklch(0.950 0.01991 267.29)"
+        ],
+        "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "canvas",
+        "tonalRamp": [
+          "oklch(0.150 0.00000 89.88)",
+          "oklch(0.264 0.00000 89.88)",
+          "oklch(0.379 0.00000 89.88)",
+          "oklch(0.493 0.00000 89.88)",
+          "oklch(0.607 0.00000 89.88)",
+          "oklch(0.721 0.00000 89.88)",
+          "oklch(0.836 0.00000 89.88)",
+          "oklch(0.950 0.00000 89.88)"
+        ],
+        "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "surface",
+        "tonalRamp": [
+          "oklch(0.150 0.00623 255.47)",
+          "oklch(0.264 0.00623 255.47)",
+          "oklch(0.379 0.00623 255.47)",
+          "oklch(0.493 0.00623 255.47)",
+          "oklch(0.607 0.00623 255.47)",
+          "oklch(0.721 0.00623 255.47)",
+          "oklch(0.836 0.00623 255.47)",
+          "oklch(0.950 0.00623 255.47)"
+        ],
+        "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
+      },
+      "row-hover": {
+        "role": "neutral",
+        "displayName": "row-hover",
+        "tonalRamp": [
+          "oklch(0.150 0.00967 252.81)",
+          "oklch(0.264 0.00967 252.81)",
+          "oklch(0.379 0.00967 252.81)",
+          "oklch(0.493 0.00967 252.81)",
+          "oklch(0.607 0.00967 252.81)",
+          "oklch(0.721 0.00967 252.81)",
+          "oklch(0.836 0.00967 252.81)",
+          "oklch(0.950 0.00967 252.81)"
+        ],
+        "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "text",
+        "tonalRamp": [
+          "oklch(0.150 0.04431 255.57)",
+          "oklch(0.264 0.04431 255.57)",
+          "oklch(0.379 0.04431 255.57)",
+          "oklch(0.493 0.04431 255.57)",
+          "oklch(0.607 0.04431 255.57)",
+          "oklch(0.721 0.04431 255.57)",
+          "oklch(0.836 0.04431 255.57)",
+          "oklch(0.950 0.04431 255.57)"
+        ],
+        "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "muted",
+        "tonalRamp": [
+          "oklch(0.150 0.03978 252.50)",
+          "oklch(0.264 0.03978 252.50)",
+          "oklch(0.379 0.03978 252.50)",
+          "oklch(0.493 0.03978 252.50)",
+          "oklch(0.607 0.03978 252.50)",
+          "oklch(0.721 0.03978 252.50)",
+          "oklch(0.836 0.03978 252.50)",
+          "oklch(0.950 0.03978 252.50)"
+        ],
+        "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
+      },
+      "divider": {
+        "role": "neutral",
+        "displayName": "divider",
+        "tonalRamp": [
+          "oklch(0.150 0.01440 254.61)",
+          "oklch(0.264 0.01440 254.61)",
+          "oklch(0.379 0.01440 254.61)",
+          "oklch(0.493 0.01440 254.61)",
+          "oklch(0.607 0.01440 254.61)",
+          "oklch(0.721 0.01440 254.61)",
+          "oklch(0.836 0.01440 254.61)",
+          "oklch(0.950 0.01440 254.61)"
+        ],
+        "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
+      },
+      "warning-text": {
+        "role": "neutral",
+        "displayName": "warning-text",
+        "tonalRamp": [
+          "oklch(0.150 0.10560 71.70)",
+          "oklch(0.264 0.10560 71.70)",
+          "oklch(0.379 0.10560 71.70)",
+          "oklch(0.493 0.10560 71.70)",
+          "oklch(0.607 0.10560 71.70)",
+          "oklch(0.721 0.10560 71.70)",
+          "oklch(0.836 0.10560 71.70)",
+          "oklch(0.950 0.10560 71.70)"
+        ],
+        "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
+      },
+      "warning-surface": {
+        "role": "neutral",
+        "displayName": "warning-surface",
+        "tonalRamp": [
+          "oklch(0.150 0.02232 87.15)",
+          "oklch(0.264 0.02232 87.15)",
+          "oklch(0.379 0.02232 87.15)",
+          "oklch(0.493 0.02232 87.15)",
+          "oklch(0.607 0.02232 87.15)",
+          "oklch(0.721 0.02232 87.15)",
+          "oklch(0.836 0.02232 87.15)",
+          "oklch(0.950 0.02232 87.15)"
+        ],
+        "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
+      }
+    },
+    "shadows": [],
+    "motion": [],
+    "breakpoints": [
+      {
+        "name": "narrow-shell",
+        "value": "700px",
+        "purpose": "WPF Shell.ActualWidth ≤700 DIP；px 為 panel 表示。"
+      },
+      {
+        "name": "compact-shell-height",
+        "value": "430px",
+        "purpose": "WPF Shell.ActualHeight <430 DIP。"
+      }
+    ],
+    "evidence": {
+      "level": "source-declared",
+      "sources": [
+        "NekoChat.Windows/ChatWindow.xaml",
+        "NekoChat.Windows/ChatWindow.Inbox.cs",
+        "NekoChat.Windows/MessageHistoryView.cs",
+        "NekoChat.Windows/RosterImportWindow.cs"
+      ],
+      "nativeDisposition": "fix",
+      "unverified": [
+        "Windows screenshots",
+        "font resolution",
+        "DPI",
+        "IME",
+        "visual fidelity"
+      ],
+      "previewOnly": true,
+      "panelTranslation": "HTML/CSS 僅示意來源 token，不是 WPF 控制項 template 或還原驗收。瀏覽器 focus-visible 為原生焦點 fallback；不新增 WPF hover、pressed 或 motion 規則。",
+      "notCanonized": [
+        "原生預設控制項字型與 template 未驗證",
+        "CSV 匯入外觀未取得新視覺核准",
+        "三項已修來源問題不轉為系統規則",
+        "P1/L 未決、教材占位非已交付能力"
+      ]
+    }
+  },
+  "components": [
+    {
+      "name": "傳送",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "來源宣告的預設傳送按鈕；原生 hover／focus／disabled template 未模擬。",
+      "html": "<button class=\"ds-send\">傳送</button>",
+      "css": ".ds-send{font-family:\"Microsoft JhengHei UI\",\"Microsoft JhengHei\",sans-serif;font-size:13px;color:#1C2C41;background:#2859C5;color:#fff;border:0;padding:8px 18px;font-weight:700;min-height:40px}.ds-send:focus-visible{outline:auto}"
+    },
+    {
+      "name": "一般動作",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "白底一般按鈕；原生 template 未模擬。",
+      "html": "<button class=\"ds-default\">新增同學</button>",
+      "css": ".ds-default{font-family:\"Microsoft JhengHei UI\",\"Microsoft JhengHei\",sans-serif;font-size:13px;color:#1C2C41;background:#fff;border:1px solid #596B80;padding:4px 8px;min-height:28px}.ds-default:focus-visible{outline:auto}"
+    },
+    {
+      "name": "搜尋欄",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "來源輸入框宣告；焦點為瀏覽器 fallback，並非 Windows 證據。",
+      "html": "<input class=\"ds-search\" aria-label=\"搜尋姓名、學號、完整 IP 或 IP 尾碼\">",
+      "css": ".ds-search{font-family:\"Microsoft JhengHei UI\",\"Microsoft JhengHei\",sans-serif;font-size:13px;color:#1C2C41;border:1px solid #596B80;padding:4px 6px}.ds-search:focus-visible{outline:auto}"
+    },
+    {
+      "name": "Inbox 導覽",
+      "kind": "nav",
+      "refersTo": "inbox-navigation",
+      "description": "來源固定導覽標籤，不添加未實作的互動。",
+      "html": "<nav class=\"ds-nav\">Inbox</nav>",
+      "css": ".ds-nav{font-family:\"Microsoft JhengHei UI\",\"Microsoft JhengHei\",sans-serif;font-size:13px;color:#1C2C41;background:#E9EFFD;color:#2859C5;border-radius:8px;padding:8px 12px;font-weight:700}"
+    },
+    {
+      "name": "收到訊息",
+      "kind": "card",
+      "refersTo": "message-incoming",
+      "description": "收到訊息的 token 示意，未重現原生文字選取。",
+      "html": "<article class=\"ds-incoming\">老師您好<div class=\"ds-meta\">10:30 · 本機已讀</div></article>",
+      "css": ".ds-incoming{font-family:\"Microsoft JhengHei UI\",\"Microsoft JhengHei\",sans-serif;font-size:13px;color:#1C2C41;background:#F3F6FA;border-radius:12px;padding:8px 12px;max-width:520px}.ds-meta{font-size:12px;color:#596B80;margin-top:4px}"
+    },
+    {
+      "name": "送出訊息",
+      "kind": "card",
+      "refersTo": "message-outgoing",
+      "description": "送出訊息的 token 示意，不表示真實傳送。",
+      "html": "<article class=\"ds-outgoing\">這段程式碼想請老師幫忙<div class=\"ds-out-meta\">10:31 · 對方已儲存</div></article>",
+      "css": ".ds-outgoing{font-family:\"Microsoft JhengHei UI\",\"Microsoft JhengHei\",sans-serif;font-size:13px;color:#1C2C41;background:#E9EFFD;border-radius:12px;padding:8px 12px;max-width:520px;margin-left:auto}.ds-out-meta{font-size:12px;color:#596B80;margin-top:4px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Operate — themeA 平面淺色",
+    "overview": "Operate：沿用已核准的 themeA 平面淺色 Inbox／對話方向，以清楚的名單、訊息與可操作狀態支援課堂交流。這是現有 WPF 原始碼的視覺系統記錄，並非新的視覺身份提案；既有貓與五項課堂反應資產保留。\n\n記錄範圍為 `NekoChat.Windows/ChatWindow.xaml`、`ChatWindow.Inbox.cs`、`MessageHistoryView.cs`、`RosterImportWindow.cs`。視覺方向權威為 `/Users/panh.c/Desktop/NekoChat Lite/docs/team/ui/preview/evidence/01-default-1440.jpg` 與 `05-narrow440-conversation-optA.jpg`；它們是瀏覽器 preview，並非 Windows 執行截圖。本文件的 token 來自 WPF 宣告，所有尺寸以 DIP 解讀；YAML 的 `px` 僅為跨工具表示法。\n\nWindows 原生執行截圖尚不存在；Mac cross-build 不構成字型、DPI、IME、控制項主題或視覺還原的證據。原三項來源審查問題已修正，原生驗證 disposition 仍為 `fix`，不得將此文件視為通過視覺驗收。",
+    "keyCharacteristics": [
+      "白底、淡藍選取與低彩度中性色。",
+      "窄寬改為名單／對話單頁切換；短高保留 compact composer。",
+      "主要狀態同時提供文字，不只依賴圓點與顏色。"
+    ],
+    "rules": [
+      {
+        "name": "The State Has Words Rule",
+        "body": "主要狀態同時提供文字，不只依賴圓點與顏色。在線圓點使用 WPF `SeaGreen`；警示外框使用 `DarkGoldenrod`，未知狀態另有虛線。",
+        "section": "colors"
+      },
+      {
+        "name": "The Flat Surface Rule",
+        "body": "主畫面使用填色與分隔線分層，未宣告陰影或漸層。",
+        "section": "elevation"
+      },
+      {
+        "name": "The Source Is Not Acceptance Rule",
+        "body": "原始碼 token 與跨平台編譯只能證明宣告及編譯；Windows 字型、DPI、IME 與視覺還原須另驗。",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Do 沿用核准貓／反應資產與繁體中文介面文案。",
+      "Do 使用既有白底、淡藍選取、細分隔線與訊息左右對齊。",
+      "Do 在窄寬保留「同學」返回路徑，在短高保留「功能」選單。",
+      "Do 保留身分未驗證、草稿與送達狀態的文字說明。"
+    ],
+    "donts": [
+      "Don’t 把原生預設控制項的未驗證外觀寫成新的品牌規則。",
+      "Don’t 以 Mac cross-build、HTML sidecar 或 preview 截圖宣稱 WPF 還原驗收通過。",
+      "Don’t 新創貓圖、反應圖或動畫風格。"
+    ]
+  }
+}

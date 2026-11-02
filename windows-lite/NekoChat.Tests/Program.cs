@@ -24,6 +24,8 @@ if (args.SequenceEqual(new[] { "--presence-wire" })) { await NekoChat.Tests.Pres
 if (args.SequenceEqual(new[] { "--passive-identity" })) { await NekoChat.Tests.PassiveIdentityChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--identity-vault" })) { await NekoChat.Tests.IdentityVaultChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--settings-source" })) { NekoChat.Tests.SettingsSourceChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--inbox-workspace" })) { await NekoChat.Tests.InboxWorkspaceChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--receipt-worker" })) { await NekoChat.Tests.ReceiptServiceChecks.Run(); return; }
 
 int checks=0;
 void Check(bool result,string description) {checks++;if(!result)throw new Exception(description);}
@@ -163,4 +165,6 @@ checks += await NekoChat.Tests.PresenceWireChecks.Run();
 checks += await NekoChat.Tests.PassiveIdentityChecks.Run();
 checks += await NekoChat.Tests.IdentityVaultChecks.Run();
 checks += NekoChat.Tests.SettingsSourceChecks.Run();
+checks += await NekoChat.Tests.InboxWorkspaceChecks.Run();
+checks += await NekoChat.Tests.ReceiptServiceChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");

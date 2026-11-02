@@ -48,6 +48,8 @@ public partial class ChatWindow : Window
         TeacherIpBox.Text = settings.TeacherIp;
         RefreshReactionTargets();
         RefreshDisplays();
+        ReactionPreviewToggle.IsChecked = settings.ShowReactionPreviews;
+        InitializeInbox();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -58,7 +60,8 @@ public partial class ChatWindow : Window
 
     internal void ShowChat(string? targetIp = null)
     {
-        if (!string.IsNullOrWhiteSpace(targetIp))
+        _userOpened = true;
+        if (!string.IsNullOrWhiteSpace(targetIp) && !targetIp.StartsWith("peer:", StringComparison.Ordinal) && !targetIp.StartsWith("legacy-", StringComparison.Ordinal))
         {
             RecipientIp.Text = targetIp.Trim();
             var match = settings.Contacts.FirstOrDefault(c => c.Ip == targetIp.Trim());
@@ -69,6 +72,7 @@ public partial class ChatWindow : Window
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Activate();
         Draft.Focus();
+        SelectEndpoint(targetIp);
     }
 
     internal void UpdateWanderEnabled(bool enabled) => UpdateSettings(settings with { WanderEnabled = enabled });
@@ -77,20 +81,19 @@ public partial class ChatWindow : Window
 
     internal void SetReceiverState(bool running, int port, string? error)
     {
-        SendButton.IsEnabled = running;
-        TeacherReactions.IsEnabled = running;
-        ScrollReaction.IsEnabled = running;
+        _receiverRunning = running;
         ReceiverStatus.Foreground = running ? System.Windows.Media.Brushes.DarkGreen : System.Windows.Media.Brushes.Firebrick;
         ReceiverStatus.Text = running
             ? $"接收已啟動（TCP {port}）；對方可輸入你的 IP 傳訊。"
+            : error?.Contains("本機資料", StringComparison.Ordinal) == true ? "接收尚未啟動：本機資料尚未就緒。請先處理資料錯誤並重新讀取。"
             : $"無法接收訊息（TCP {port}）：{error}。請先從舊版貓咪右鍵選「離開」，再重開此版本；仍失敗請將此提示交給教室管理者。";
+        UpdateComposer();
     }
 
     internal void AddHistory(string text)
     {
-        History.AppendText(text + Environment.NewLine);
-        if (History.Text.Length > 30000) History.Text = History.Text[^20000..];
-        History.ScrollToEnd();
+        History.AddTransient(text);
+        if (History.Rows.Count > 0) History.ScrollIntoView(History.Rows[^1]);
     }
 
     internal void UpdateLocalIPDisplay()
@@ -149,11 +152,12 @@ public partial class ChatWindow : Window
         }
     }
 
-    private void SaveContactClick(object sender, RoutedEventArgs e)
+    private async void SaveContactClick(object sender, RoutedEventArgs e)
     {
+        if (_runtime is null) { SetStatus("本機資料尚未就緒，請先重新讀取。"); return; }
         var ip = RecipientIp.Text.Trim();
         var name = ContactName.Text.Trim();
-        if (string.IsNullOrWhiteSpace(ip) || !LanInvitation.PrivateIPv4(ip))
+        if (ip.Length > 0 && !LanInvitation.PrivateIPv4(ip))
         {
             SetStatus("請先輸入有效的內網 IP（例如 192.168.1.25）。");
             RecipientIp.Focus();
@@ -166,10 +170,7 @@ public partial class ChatWindow : Window
             return;
         }
 
-        bool saved = UpdateSettings(settings.WithContact(ip, name));
-        PopulateContactsCombo();
-        UpdateComboSelection(ip);
-        if (saved) SetStatus($"已記住：{name} ({ip})");
+        await SaveRosterAsync(name, ip);
     }
 
     private void DraftPreviewKeyDown(object sender, KeyEventArgs e)
@@ -184,6 +185,7 @@ public partial class ChatWindow : Window
     private void SendClick(object sender, RoutedEventArgs e)
     {
         if (!SendButton.IsEnabled) return;
+        if (_runtime is not null) { _ = SendCurrentAsync(false); return; }
         var targetIp = RecipientIp.Text.Trim();
         var text = Draft.Text;
         if (string.IsNullOrWhiteSpace(targetIp))
@@ -230,9 +232,7 @@ public partial class ChatWindow : Window
 
     internal void SetSending(bool sending)
     {
-        SendButton.IsEnabled = !sending;
-        TeacherReactions.IsEnabled = !sending;
-        ScrollReaction.IsEnabled = !sending;
+        _sending = sending; UpdateComposer();
     }
 
     private void SaveTeacherClick(object sender, RoutedEventArgs e)
@@ -246,9 +246,9 @@ public partial class ChatWindow : Window
 
     private void ReactionSendClick(object sender, RoutedEventArgs e)
     {
-        if (!SendButton.IsEnabled || sender is not Button button ||
-            ClassroomReactions.Find(button.Tag as string) is not { } reaction) return;
-        string target = reaction.TeacherOnly ? settings.TeacherIp : RecipientIp.Text.Trim();
+        if (!CanSendReaction || sender is not FrameworkElement element ||
+            ClassroomReactions.Find(element.Tag as string) is not { } reaction) return;
+        string target = reaction.TeacherOnly ? settings.TeacherIp : (_runtime is null ? RecipientIp.Text.Trim() : _selected?.Endpoint ?? "");
         if (!LanInvitation.PrivateIPv4(target)) { SetStatus("請先設定有效的收件對象 IP。"); return; }
         ReactionRequested?.Invoke(target, reaction);
     }
@@ -261,9 +261,10 @@ public partial class ChatWindow : Window
     private void RefreshReactionTargets()
     {
         TeacherTarget.Text = $"上面四款 → 老師 {settings.TeacherIp}";
-        ScrollTarget.Text = string.IsNullOrWhiteSpace(RecipientIp.Text)
+        string target = _runtime is null ? RecipientIp.Text.Trim() : _selected?.Endpoint ?? "";
+        ScrollTarget.Text = string.IsNullOrWhiteSpace(target)
             ? "你再給我滑！ → 請先選定上方聊天對象"
-            : $"你再給我滑！ → {RecipientIp.Text.Trim()}";
+            : $"你再給我滑！ → {target}";
     }
 
     private void RefreshDisplays()

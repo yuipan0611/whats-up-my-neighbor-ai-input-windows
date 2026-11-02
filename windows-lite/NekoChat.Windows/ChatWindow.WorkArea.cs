@@ -33,9 +33,7 @@ public partial class ChatWindow
     // let them scroll, which keeps the history and composer visible.
     private void ChatLayoutSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        double composer = ChatLayout.RowDefinitions[2].ActualHeight;
-        double cap = Math.Max(0, (ChatLayout.ActualHeight - composer) * 2 / 3 - SettingsScroll.Margin.Bottom);
-        if (Math.Abs(SettingsScroll.MaxHeight - cap) > 0.5) SettingsScroll.MaxHeight = cap;
+        UpdateShellLayout();
     }
 
     private IntPtr WorkAreaMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)

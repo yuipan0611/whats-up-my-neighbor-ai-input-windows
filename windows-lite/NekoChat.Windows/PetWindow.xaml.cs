@@ -17,6 +17,7 @@ public partial class PetWindow : Window
     internal event Action<string>? SelectCoat;
     internal event Action? ImportCoat;
     internal event Action? CheckUpdates;
+    internal event Action? ExitRequested;
     internal event Action<bool>? AutoStartToggled;
     internal event Action<bool>? WanderToggled;
     private MenuItem? wanderMenuItem;
@@ -99,7 +100,7 @@ public partial class PetWindow : Window
         menu.Items.Add(new Separator());
 
         var exit = new MenuItem { Header = "❌ 離開 NekoChat" };
-        exit.Click += (_, _) => Application.Current.Shutdown();
+        exit.Click += (_, _) => { if (ExitRequested is { } request) request(); else Application.Current.Shutdown(); };
         menu.Items.Add(exit);
 
         Cat.ContextMenu = menu;
@@ -153,7 +154,7 @@ public partial class PetWindow : Window
     {
         if (currentChat is null) return;
         sender = currentChat.From;
-        BubbleText.Text = $"{currentChat.Text}\n點擊回覆" + (chatNotices.Count > 0 ? $" · 另有 {chatNotices.Count} 則" : "");
+        BubbleText.Text = $"{currentChat.Name}：{currentChat.Text}\n點擊回覆" + (chatNotices.Count > 0 ? $" · 另有 {chatNotices.Count} 則" : "");
     }
 
     internal void AdvanceChatNotice()

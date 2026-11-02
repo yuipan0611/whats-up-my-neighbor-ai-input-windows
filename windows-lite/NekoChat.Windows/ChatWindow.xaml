@@ -1,110 +1,94 @@
 <Window x:Class="NekoChat.Windows.ChatWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="NekoChat" Width="480" Height="740" MinWidth="440" MinHeight="360"
-        Background="#FAF9F7" WindowStartupLocation="CenterScreen">
-    <DockPanel Margin="16">
-        <ScrollViewer DockPanel.Dock="Bottom" MaxHeight="64" VerticalScrollBarVisibility="Auto">
-        <TextBlock x:Name="ReceiverStatus" Text="接收服務啟動中…"
-                   Foreground="#64748B" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
-        </ScrollViewer>
-        <TextBlock DockPanel.Dock="Bottom" Text="Enter 傳送 · Shift＋Enter 換行" FontSize="11"
-                   Foreground="#64748B" Margin="0,6,0,0"/>
-        <!-- 底部狀態 -->
-        <ScrollViewer DockPanel.Dock="Bottom" MaxHeight="48" VerticalScrollBarVisibility="Auto">
-        <TextBlock x:Name="Status" Text="就緒"
-                   Foreground="#64748B" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
-        </ScrollViewer>
-
-        <Grid x:Name="ChatLayout" SizeChanged="ChatLayoutSizeChanged">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-
-            <!-- Settings take their natural height, capped in code so small windows scroll them;
-                 the composer never scrolls out of view. -->
-            <ScrollViewer x:Name="SettingsScroll" Grid.Row="0" VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,8">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <!-- 1. 頂部我的 IP 與開機啟動 -->
-                    <Border Grid.Row="0" Background="#F1F5F9" CornerRadius="8" Padding="10" Margin="0,0,0,10">
-                        <DockPanel>
-                            <CheckBox x:Name="AutoStartCheck" Content="開機啟動" DockPanel.Dock="Right"
-                                      VerticalAlignment="Center" FontSize="12" Foreground="#475569"
-                                      Checked="AutoStartChecked" Unchecked="AutoStartUnchecked"/>
-                            <WrapPanel VerticalAlignment="Center">
-                                <TextBlock x:Name="MyDirectIP" Text="我的 IP：偵測中…" FontWeight="Bold" FontSize="13" Foreground="#0F172A" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <Button x:Name="CopyMyIPButton" Content="複製" Click="CopyMyIPClick" Padding="8,2" FontSize="11" Background="White" BorderBrush="#CBD5E1" Cursor="Hand"/>
-                            </WrapPanel>
-                        </DockPanel>
-                    </Border>
-
-                    <!-- 2. 對象與通訊錄 -->
-                    <Grid Grid.Row="1" Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1.5*"/>
-                            <ColumnDefinition Width="1*"/>
-                            <ColumnDefinition Width="1*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="RecipientIp" Grid.Column="0" Margin="0,0,4,0" Padding="5,3" FontSize="12" TextChanged="RecipientChanged" ToolTip="輸入同學 IP（例如 192.168.1.25）"/>
-                        <ComboBox x:Name="ContactsCombo" Grid.Column="1" Margin="0,0,4,0" SelectionChanged="ContactsComboChanged" FontSize="12" ToolTip="快速選擇常用同學"/>
-                        <TextBox x:Name="ContactName" Grid.Column="2" Margin="0,0,4,0" Padding="5,3" FontSize="12" ToolTip="名稱／座位備註（例如 隔壁小明）"/>
-                        <Button x:Name="SaveContactButton" Grid.Column="3" Content="記住" Click="SaveContactClick" Padding="8,3" FontSize="12" Cursor="Hand"/>
-                    </Grid>
-
-                    <StackPanel Grid.Row="2" Margin="0,0,0,10">
-                        <WrapPanel Margin="0,0,0,6" VerticalAlignment="Center">
-                            <TextBlock Text="老師 IP：" VerticalAlignment="Center"/>
-                            <TextBox x:Name="TeacherIpBox" Width="120" Padding="5,3" AutomationProperties.Name="老師 IP"/>
-                            <Button Content="記住老師" Click="SaveTeacherClick" Padding="8,3" Margin="6,0,0,0"/>
-                        </WrapPanel>
-                        <TextBlock x:Name="TeacherTarget" Foreground="#475569" FontSize="12" Margin="0,0,0,4"/>
-                        <UniformGrid x:Name="TeacherReactions" Columns="2" Margin="0,0,0,4">
-                            <Button Content="講太快了" Tag="too-fast" Click="ReactionSendClick" Padding="4,6" Margin="0,0,4,4"/>
-                            <Button Content="跟不上" Tag="cant-keep-up" Click="ReactionSendClick" Padding="4,6" Margin="0,0,0,4"/>
-                            <Button Content="聽不懂" Tag="dont-understand" Click="ReactionSendClick" Padding="4,6" Margin="0,0,4,0"/>
-                            <Button Content="再講一次" Tag="say-again" Click="ReactionSendClick" Padding="4,6"/>
-                        </UniformGrid>
-                        <Button x:Name="ScrollReaction" Content="你再給我滑！" Tag="stop-scrolling" Click="ReactionSendClick" Padding="4,6"/>
-                        <TextBlock x:Name="ScrollTarget" Text="傳給上方選定的聊天對象" FontSize="12" Foreground="#475569" TextWrapping="Wrap" Margin="0,4,0,8"/>
-                        <DockPanel>
-                            <TextBlock Text="提醒螢幕：" VerticalAlignment="Center"/>
-                            <ComboBox x:Name="ReactionDisplay" DisplayMemberPath="Label" SelectedValuePath="DeviceName" SelectionChanged="ReactionDisplayChanged" DropDownOpened="ReactionDisplayOpened" AutomationProperties.Name="提醒螢幕"/>
-                        </DockPanel>
-                        <TextBlock Text="中央放大 1.5 倍 · 停留 2 秒 · 圖片泡泡不顯示 IP" Foreground="#64748B" FontSize="11" Margin="0,4,0,0"/>
-                    </StackPanel>
-
-                </Grid>
-            </ScrollViewer>
-
-            <!-- 3. 對話紀錄 -->
-            <TextBox x:Name="History" Grid.Row="1" IsReadOnly="True" TextWrapping="Wrap"
-                     VerticalScrollBarVisibility="Auto" Background="White" BorderBrush="#CBD5E1"
-                     Padding="8" FontSize="13" FontFamily="Segoe UI, Microsoft JhengHei" Margin="0,0,0,8"/>
-
-            <!-- 4. 輸入框與發送 -->
-            <DockPanel Grid.Row="2">
-                <Button x:Name="SendButton" Content="傳送" Click="SendClick" DockPanel.Dock="Right"
-                        Width="70" Margin="6,0,0,0" FontWeight="Bold" FontSize="13"
-                        Background="#2563EB" Foreground="White" BorderThickness="0" Cursor="Hand">
-                    <Button.Resources>
-                        <Style TargetType="Border">
-                            <Setter Property="CornerRadius" Value="6"/>
-                        </Style>
-                    </Button.Resources>
-                </Button>
-                <TextBox x:Name="Draft" AcceptsReturn="True" Height="55" TextWrapping="Wrap"
-                         VerticalScrollBarVisibility="Auto" Background="White" BorderBrush="#CBD5E1"
-                         Padding="6" FontSize="13" FontFamily="Segoe UI, Microsoft JhengHei" PreviewKeyDown="DraftPreviewKeyDown"/>
-            </DockPanel>
-        </Grid>
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:NekoChat.Windows"
+ Title="Neko Chat Lite" Width="1100" Height="740" MinWidth="440" MinHeight="360" Background="White" Foreground="#1C2C41"
+ FontFamily="Microsoft JhengHei UI, Microsoft JhengHei" FontSize="13" WindowStartupLocation="CenterScreen">
+ <Window.Resources>
+  <Style TargetType="Button"><Setter Property="Padding" Value="8,4"/><Setter Property="MinHeight" Value="28"/><Setter Property="Background" Value="White"/><Setter Property="BorderBrush" Value="#596B80"/><Setter Property="Cursor" Value="Hand"/></Style>
+  <Style TargetType="TextBox"><Setter Property="Padding" Value="6,4"/><Setter Property="BorderBrush" Value="#596B80"/></Style>
+  <Style x:Key="InboxItem" TargetType="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="Transparent"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="RowBackground" Background="{TemplateBinding Background}" Padding="16,8"><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="RowBackground" Property="Background" Value="#EDF2F8"/></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="RowBackground" Property="Background" Value="#E9EFFD"/></Trigger><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="RowBackground" Property="BorderBrush" Value="#2859C5"/><Setter TargetName="RowBackground" Property="BorderThickness" Value="2"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+  </Style>
+ </Window.Resources>
+ <Grid>
+  <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <Grid x:Name="Shell" SizeChanged="ShellSizeChanged">
+   <Grid.ColumnDefinitions><ColumnDefinition x:Name="InboxColumn" Width="288"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+   <Border x:Name="InboxPane" Grid.Column="0" BorderBrush="#DCE3EC" BorderThickness="0,0,1,0">
+    <DockPanel>
+     <StackPanel DockPanel.Dock="Top" Margin="16,16,16,8">
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,12"><Image Source="Assets/original.png" Width="36" Height="36" Margin="0,0,8,0"/><TextBlock Text="Neko Chat Lite" FontWeight="Bold" FontSize="18" VerticalAlignment="Center"/></StackPanel>
+      <Border Background="#E9EFFD" CornerRadius="8" Padding="12,8"><TextBlock Text="Inbox" Foreground="#2859C5" FontWeight="Bold"/></Border>
+      <TextBlock Text="教材功能保留" Foreground="#596B80" Margin="12,8,0,16"/>
+      <TextBlock x:Name="InboxCount" Text="同學 · 載入中…" Foreground="#596B80" FontSize="12" Margin="0,0,0,4"/>
+      <TextBox x:Name="InboxSearch" TextChanged="InboxSearchChanged" AutomationProperties.Name="搜尋姓名、學號、完整 IP 或 IP 尾碼" ToolTip="姓名、學號、完整 IP 或 IP 尾碼" Margin="0,0,0,8"/>
+      <ComboBox x:Name="InboxFilter" SelectedIndex="0" SelectionChanged="InboxFilterChanged" AutomationProperties.Name="名單篩選"><ComboBoxItem Content="全部"/><ComboBoxItem Content="未讀"/></ComboBox>
+     </StackPanel>
+     <StackPanel DockPanel.Dock="Bottom" Margin="16,12">
+      <WrapPanel><Button Content="新增同學" Click="AddRosterClick" Margin="0,0,8,8"/><Button Content="匯入 CSV" Click="ImportRosterClick" Margin="0,0,0,8"/><Button Content="設定" Click="OpenSettingsClick"/></WrapPanel>
+      <TextBlock x:Name="IdentityStatus" Text="身分尚未設定" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
+     </StackPanel>
+     <Grid><ListBox x:Name="InboxList" BorderThickness="0" SelectionChanged="InboxSelectionChanged" ItemContainerStyle="{StaticResource InboxItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
+      <ListBox.ItemTemplate><DataTemplate><Grid AutomationProperties.Name="{Binding AccessibleLabel}"><Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <Grid Width="36" Height="36" VerticalAlignment="Top" Margin="0,2,0,0"><Ellipse Fill="#E9EFFD"/><TextBlock Text="{Binding Initial}" Foreground="#2859C5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/><Ellipse Width="12" Height="12" HorizontalAlignment="Right" VerticalAlignment="Bottom" Fill="{Binding DotFill}" Stroke="{Binding DotStroke}" StrokeThickness="2" StrokeDashArray="{Binding DotDash}"/></Grid>
+       <StackPanel Grid.Column="1" Margin="8,0,4,0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Student}" Foreground="#596B80" FontSize="12"/><TextBlock Text="{Binding State}" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/><TextBlock Text="{Binding Draft}" Foreground="#916015" FontSize="12"/></StackPanel>
+       <Border Grid.Column="2" Background="#2859C5" CornerRadius="10" VerticalAlignment="Top" Padding="6,0" Visibility="{Binding BadgeVisibility}"><TextBlock Text="{Binding Badge}" Foreground="White" FontSize="12"/></Border>
+      </Grid></DataTemplate></ListBox.ItemTemplate>
+     </ListBox><TextBlock x:Name="InboxEmpty" Text="尚無同學，可手動新增或匯入 CSV。" TextWrapping="Wrap" Margin="16" Foreground="#596B80" Visibility="Collapsed" IsHitTestVisible="False"/></Grid>
     </DockPanel>
+   </Border>
+   <Grid x:Name="ConversationPane" Grid.Column="1">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Border BorderBrush="#DCE3EC" BorderThickness="0,0,0,1" Padding="16,12"><DockPanel>
+     <Button x:Name="BackToInbox" Content="同學" Click="BackToInboxClick" DockPanel.Dock="Left" Margin="0,0,12,0" Visibility="Collapsed"/>
+     <Button x:Name="CompactActions" Content="功能" Click="CompactActionsClick" DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Top" Visibility="Collapsed"/>
+     <Button x:Name="ClearConversationButton" Content="清除對話…" Click="ClearConversationClick" DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Top"/>
+     <StackPanel><TextBlock x:Name="ConversationTitle" Text="選擇一位同學" FontSize="16" FontWeight="Bold" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="ConversationMeta" Text="對話紀錄保存在本機" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/></StackPanel>
+    </DockPanel></Border>
+    <Border x:Name="TrustBanner" Grid.Row="1" Background="#FFF8E8" Padding="16,6" Visibility="Collapsed"><TextBlock Text="含舊版・未驗證訊息；位址或名單名稱不代表身分。" Foreground="#916015" FontSize="12" TextWrapping="Wrap"/></Border>
+    <Grid Grid.Row="2"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+     <Button x:Name="OlderMessages" Content="載入更早訊息" Click="OlderMessagesClick" HorizontalAlignment="Center" Margin="8" Visibility="Collapsed"/>
+     <local:MessageHistoryView x:Name="History" Grid.Row="1" BorderThickness="0" Padding="16,8" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" VirtualizingPanel.ScrollUnit="Pixel" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" ScrollViewer.ScrollChanged="HistoryScrolled">
+      <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Focusable" Value="False"/></Style></ListBox.ItemContainerStyle>
+      <ListBox.ItemTemplate><DataTemplate><local:MessageCard Message="{Binding}"/></DataTemplate></ListBox.ItemTemplate>
+     </local:MessageHistoryView>
+     <TextBlock x:Name="HistoryState" Grid.Row="1" Text="尚未選擇對象" Foreground="#596B80" TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+     <Button x:Name="NewMessages" Grid.Row="2" Content="有新訊息，移到最新" Click="NewMessagesClick" HorizontalAlignment="Center" Visibility="Collapsed" Margin="8"/>
+    </Grid>
+    <Border Grid.Row="3" BorderBrush="#DCE3EC" BorderThickness="0,1,0,0" Padding="16,12"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><ScrollViewer x:Name="ComposerToolsScroll" Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="170"><StackPanel>
+     <WrapPanel x:Name="TeacherReactions" Margin="0,0,0,8"><TextBlock Text="傳給老師：" VerticalAlignment="Center" FontSize="12" Foreground="#596B80"/><Button Content="講太快了" Tag="too-fast" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Content="跟不上" Tag="cant-keep-up" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Content="聽不懂" Tag="dont-understand" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Content="再講一次" Tag="say-again" Click="ReactionSendClick" Margin="0,0,8,4"/><TextBlock Text="傳給目前對象：" VerticalAlignment="Center" FontSize="12" Foreground="#596B80"/><Button x:Name="ScrollReaction" Content="你再給我滑！" Tag="stop-scrolling" Click="ReactionSendClick" Margin="0,0,0,4"/></WrapPanel>
+     <Border x:Name="AttemptBanner" Background="#FFF8E8" BorderBrush="#ECD9A8" BorderThickness="1" CornerRadius="4" Padding="12,8" Margin="0,0,0,8" Visibility="Collapsed"><StackPanel><TextBlock x:Name="AttemptText" Foreground="#916015" TextWrapping="Wrap"/><WrapPanel Margin="0,6,0,0"><Button x:Name="RetryAttempt" Content="重送（沿用原 id）" Click="RetryAttemptClick" Margin="0,0,8,0"/><Button x:Name="CancelAttemptButton" Content="取消當次" Click="CancelAttemptClick"/></WrapPanel></StackPanel></Border>
+     </StackPanel></ScrollViewer>
+     <Border Grid.Row="1" BorderBrush="#596B80" BorderThickness="1" CornerRadius="8" Padding="8"><Grid x:Name="ComposerBox"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition x:Name="CodeToolbarRow" Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <TextBox x:Name="Draft" Grid.Row="0" Grid.ColumnSpan="2" AcceptsReturn="True" Height="72" MaxHeight="120" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" Padding="4" PreviewKeyDown="DraftPreviewKeyDown" TextChanged="DraftEdited" AutomationProperties.Name="訊息草稿"/>
+      <Button x:Name="SendButton" Grid.Row="1" Grid.Column="1" Content="傳送" Click="SendClick" Background="#2859C5" Foreground="White" BorderThickness="0" FontWeight="Bold" Padding="18,8" MinHeight="40" Margin="8,8,0,0"/>
+      <WrapPanel x:Name="CodeToolbar" Grid.Row="1" Grid.Column="0" Margin="0,8,0,0"><Button Content="插入程式碼" Click="InsertCodeClick" Margin="0,0,8,0"/><ComboBox x:Name="CodeLanguage" SelectedIndex="0" Width="88" AutomationProperties.Name="程式碼語言"><ComboBoxItem Content="Python" Tag="python"/><ComboBoxItem Content="C#" Tag="csharp"/><ComboBoxItem Content="JavaScript" Tag="javascript"/><ComboBoxItem Content="純文字" Tag="text"/></ComboBox></WrapPanel>
+     </Grid></Border>
+     <TextBlock Grid.Row="2" x:Name="DraftStatus" Text="Enter 傳送 · Shift＋Enter 換行 · 組字時不送出" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
+    </Grid></Border>
+   </Grid>
+  </Grid>
+  <Border Grid.Row="1" BorderBrush="#DCE3EC" BorderThickness="0,1,0,0" Padding="16,6"><ScrollViewer MaxHeight="76" VerticalScrollBarVisibility="Auto"><StackPanel><TextBlock x:Name="StorageStatus" Foreground="#B43E3E" TextWrapping="Wrap" FontSize="12"/><TextBlock x:Name="ReceiverStatus" Text="接收服務啟動中…" Foreground="#596B80" TextWrapping="Wrap" FontSize="12"/><TextBlock x:Name="Status" Text="載入本機資料中…" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/><Button x:Name="ReloadData" Content="重新讀取" Click="ReloadDataClick" HorizontalAlignment="Left" Visibility="Collapsed"/></StackPanel></ScrollViewer></Border>
+  <Border x:Name="SettingsPane" Grid.RowSpan="2" Background="#F3F6FA" BorderBrush="#DCE3EC" BorderThickness="1" Margin="16" Padding="16" Visibility="Collapsed">
+   <DockPanel><Button Content="完成" Click="CloseSettingsClick" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,12,0,0"/>
+    <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="ChatLayout">
+     <TextBlock Text="名單與設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,16"/>
+     <TextBlock x:Name="MyDirectIP" Text="我的 IP：偵測中…" TextWrapping="Wrap"/><Button x:Name="CopyMyIPButton" Content="複製我的 IP" Click="CopyMyIPClick" HorizontalAlignment="Left" Margin="0,8"/>
+     <CheckBox x:Name="AutoStartCheck" Content="開機啟動" Checked="AutoStartChecked" Unchecked="AutoStartUnchecked" Margin="0,8,0,16"/>
+     <TextBlock x:Name="ManualRosterTitle" Text="手動新增同學（不會自動配對）" FontWeight="Bold"/>
+     <TextBlock Text="姓名" Margin="0,8,0,4"/><TextBox x:Name="ContactName" AutomationProperties.Name="同學姓名"/>
+     <TextBlock Text="學號（可留白）" Margin="0,8,0,4"/><TextBox x:Name="StudentNumberBox" AutomationProperties.Name="學號"/>
+     <TextBlock Text="內網 IP（可留白）" Margin="0,8,0,4"/><TextBox x:Name="RecipientIp" TextChanged="RecipientChanged" AutomationProperties.Name="同學內網 IP"/>
+     <CheckBox x:Name="TeacherLabel" Content="老師標籤（不授權）" Margin="0,8"/>
+     <Button x:Name="SaveContactButton" Content="新增到名單" Click="SaveContactClick" HorizontalAlignment="Left"/>
+     <Button x:Name="DeleteContactButton" Content="移除此名單標籤" Click="DeleteRosterClick" HorizontalAlignment="Left" Margin="0,8,0,0" IsEnabled="False"/>
+     <ComboBox x:Name="ContactsCombo" SelectionChanged="ContactsComboChanged" Visibility="Collapsed"/>
+     <TextBlock Text="課堂反應" FontWeight="Bold" Margin="0,20,0,8"/><TextBlock Text="老師 IP"/><TextBox x:Name="TeacherIpBox" AutomationProperties.Name="老師 IP"/>
+     <Button Content="記住老師" Click="SaveTeacherClick" HorizontalAlignment="Left" Margin="0,8"/><TextBlock x:Name="TeacherTarget" TextWrapping="Wrap"/><TextBlock x:Name="ScrollTarget" TextWrapping="Wrap" Margin="0,8"/>
+     <TextBlock Text="提醒螢幕" Margin="0,8"/><ComboBox x:Name="ReactionDisplay" DisplayMemberPath="Label" SelectedValuePath="DeviceName" SelectionChanged="ReactionDisplayChanged" DropDownOpened="ReactionDisplayOpened" AutomationProperties.Name="提醒螢幕"/>
+     <CheckBox x:Name="ReactionPreviewToggle" Content="允許桌面顯示課堂反應圖片（可能透露內容）" Click="ReactionPreviewToggleClick" Margin="0,12,0,4"/>
+     <CheckBox x:Name="ReadReceiptToggle" Content="傳送對外已讀回條（預設關閉）" Click="ReadReceiptToggleClick" Margin="0,20,0,4"/><TextBlock Text="本機看過才標已讀。關閉不影響本機未讀，未送出的回條會移除；已送出的回條無法撤回。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/>
+    </StackPanel></ScrollViewer>
+   </DockPanel>
+  </Border>
+ </Grid>
 </Window>

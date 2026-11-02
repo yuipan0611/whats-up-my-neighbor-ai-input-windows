@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Win32;
 using NekoChat.Core;
+using NekoChat.Core.Storage;
 
 namespace NekoChat.Windows;
 
@@ -17,8 +18,12 @@ public partial class App : Application
     private int directSendPort = DirectLanMessaging.DefaultPort;
     private Mutex? instanceGate;
     private bool checkingUpdate;
+    private ChatRuntime? chatRuntime;
+    private SettingsLoadResult? startupSource;
+    private bool isolatedData, startingData, closingApp;
+    private int startupPort = DirectLanMessaging.DefaultPort;
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
@@ -68,6 +73,7 @@ public partial class App : Application
             var settingsSource = e.Args.Length == 0 ? Settings.LoadWithStatus() : null;
             string? smokeDirectory = messagingSmoke?.Directory ?? (e.Args.Length == 2 && (keyboardSmoke || gestureSmoke || receiverSmoke || instanceSmoke ||
                 e.Args[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test") ? e.Args[1] : null);
+            if (e.Args.Length > 0 && smokeDirectory is null) throw new ArgumentException("不支援這組啟動參數。");
             settings = settingsSource?.Value ?? (smokeDirectory is not null ? Settings.ForSmoke(smokeDirectory) : new Settings { AutoStartOnLogin = false, ReadOnlyFallback = true });
             if (messagingSmoke is not null) settings = settings with { TeacherIp = "127.0.0.1" };
             directSendPort = messagingSmoke?.PeerPort ?? DirectLanMessaging.DefaultPort;
@@ -132,21 +138,10 @@ public partial class App : Application
             };
             chat.SendRequested += async (targetIp, text) => await SendDirectMessageAsync(targetIp, text);
             chat.ReactionRequested += async (targetIp, reaction) => await SendDirectMessageAsync(targetIp, reaction.Text, reaction, preserveDraft: true);
-
-            directListener = new DirectLanListener(messagingSmoke?.ListenPort ?? DirectLanMessaging.DefaultPort);
-            directListener.DirectMessageReceived += (senderIp, message) => Dispatcher.Invoke(() =>
-            {
-                var displayName = settings.ResolveDisplayName(senderIp);
-                chat.AddHistory($"{displayName}：{message.Text}");
-                bool isTeacher = LanInvitation.LocalAddresses().Contains(settings.TeacherIp) ||
-                    settings.TeacherIp == "127.0.0.1";
-                var reaction = ClassroomReactions.ForIncoming(message.Text, message.Reaction, isTeacher);
-                if (reaction is not null) pet.NotifyReaction(reaction, senderIp);
-                else pet.NotifyChat(message.Text, senderIp, displayName);
-            });
-            directListener.Start();
-            chat.SetReceiverState(directListener.Running, directListener.Port, directListener.Error);
-            if (settingsSource is { CanImportLegacyRoster: false }) chat.SetStatus("設定檔讀取失敗，原檔已保留；目前設定不會覆寫原檔，未從這份設定匯入名單。");
+            pet.ExitRequested += async () => await RequestShutdownAsync();
+            startupSource = settingsSource ?? new SettingsLoadResult(settings, smokeDirectory is not null ? SettingsSourceStatus.Loaded : SettingsSourceStatus.Unavailable);
+            isolatedData = smokeDirectory is not null; startupPort = messagingSmoke?.ListenPort ?? DirectLanMessaging.DefaultPort;
+            chat.DataRetryRequested += () => _ = StartDataAsync();
 
             if (Appearance.Presets.Contains(settings.Coat))
             {
@@ -155,36 +150,38 @@ public partial class App : Application
 
             pet.Show();
             chat.Show();
+            await StartDataAsync();
+            SystemEvents.PowerModeChanged += AppPowerModeChanged;
 
             if (keyboardSmoke)
-                Dispatcher.BeginInvoke(new Action(async () => await RunKeyboardSmokeTestAsync(e.Args[1])));
+                _ = Dispatcher.BeginInvoke(new Action(async () => await RunKeyboardSmokeTestAsync(e.Args[1])));
 
             if (instanceSmoke)
-                Dispatcher.BeginInvoke(new Action(async () => await RunInstanceSmokeTestAsync(e.Args[1])));
+                _ = Dispatcher.BeginInvoke(new Action(async () => await RunInstanceSmokeTestAsync(e.Args[1])));
             if (receiverSmoke)
-                Dispatcher.BeginInvoke(new Action(() => RunReceiverFailureSmokeTest(e.Args[1])));
+                _ = Dispatcher.BeginInvoke(new Action(() => RunReceiverFailureSmokeTest(e.Args[1])));
 
             if (messagingSmoke is not null)
             {
-                Dispatcher.BeginInvoke(new Action(async () => await RunMessagingSmokeTestAsync(messagingSmoke)));
+                _ = Dispatcher.BeginInvoke(new Action(async () => await RunMessagingSmokeTestAsync(messagingSmoke)));
             }
             if (gestureSmoke)
             {
-                Dispatcher.BeginInvoke(new Action(async () => await RunInteractionSmokeTestAsync(e.Args[1])));
+                _ = Dispatcher.BeginInvoke(new Action(async () => await RunInteractionSmokeTestAsync(e.Args[1])));
             }
 
             if (e.Args.Length == 0)
             {
-                Task.Delay(3000).ContinueWith(_ => Dispatcher.Invoke(() => _ = CheckForUpdatesAsync(false)));
+                _ = Task.Delay(3000).ContinueWith(_ => Dispatcher.Invoke(() => _ = CheckForUpdatesAsync(false)));
             }
 
             if (e.Args.Length == 2 && e.Args[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test")
             {
-                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(() =>
+                _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(() =>
                 {
                     Directory.CreateDirectory(e.Args[1]);
                     bool visible = pet.IsVisible && chat.IsVisible;
-                    bool listenerRunning = directListener.Running;
+                    bool listenerRunning = directListener?.Running == true;
                     File.WriteAllText(Path.Combine(e.Args[1], "startup-result.txt"),
                         visible && listenerRunning ? "PASS: Lite edition direct LAN startup and UI rendered." : "FAIL: initial windows or listener state were incorrect.");
                     Environment.Exit(visible && listenerRunning ? 0 : 1);
@@ -200,12 +197,14 @@ public partial class App : Application
 
     private async Task SendDirectMessageAsync(string targetIp, string text, ClassroomReaction? reaction = null, bool preserveDraft = false)
     {
+        if (reaction is null)
+        { chat.SetStatus("一般私訊需要已配對身分與訊息上限設定；不使用舊版直接傳送。"); return; }
         if (directListener?.Running != true)
         {
             chat.SetStatus("接收服務未啟動，請先處理下方提示後重開 NekoChat。（草稿保留）");
             return;
         }
-        if (!chat.SendButton.IsEnabled) return;
+        if (!chat.CanSendReaction) return;
         var ownIps = LanInvitation.LocalAddresses();
         if (ownIps.Contains(targetIp))
         {
@@ -221,9 +220,7 @@ public partial class App : Application
         try
         {
             await DirectLanMessaging.SendDirectAsync(targetIp, text, directSendPort, reaction: reaction?.Id);
-            chat.AddHistory($"我 → {displayName}：{text}");
-            if (!preserveDraft && chat.Draft.Text == text) chat.Draft.Clear();
-            chat.SetStatus($"已送達 {displayName}！");
+            chat.SetStatus($"課堂反應已送出，對方回覆舊版確認；身分未驗證。");
         }
         catch (Exception ex)
         {
@@ -278,7 +275,7 @@ public partial class App : Application
                     {
                         using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(download.DownloadedPath) { UseShellExecute = true })
                             ?? throw new IOException("無法啟動安裝程式，已保留下載檔供重試。");
-                        Shutdown();
+                        await RequestShutdownAsync();
                     }
                 }
                 else
@@ -307,8 +304,62 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _ = directListener?.DisposeAsync();
+        SystemEvents.PowerModeChanged -= AppPowerModeChanged;
+        if (chatRuntime is not null)
+        {
+            if (!closingApp)
+            { closingApp = true; chat.BeginClosing(); chatRuntime.StopReceivingAsync().GetAwaiter().GetResult(); chatRuntime.DrainNetworkAsync().GetAwaiter().GetResult(); try { chat.FlushForExitAsync().GetAwaiter().GetResult(); } catch { } }
+            chatRuntime.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
         instanceGate?.Dispose();
         base.OnExit(e);
+    }
+    private void AppPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    { if (e.Mode == PowerModes.Resume) _ = Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) { chatRuntime?.ResetAfterResume(); chat.DataChanged(); } })); }
+
+    private async Task StartDataAsync()
+    {
+        if (startingData || closingApp || startupSource is null || chatRuntime is not null) return;
+        startingData = true; ChatRuntime? candidate = null;
+        try
+        {
+            candidate = await ChatRuntime.OpenAsync(startupSource, isolatedData, startupPort);
+            if (closingApp) return;
+            await chat.AttachRuntimeAsync(candidate, directSendPort);
+            candidate.DataChanged += () => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.DataChanged(); }));
+            directListener = candidate.Listener;
+            directListener.LegacyMessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
+                if (closingApp) return;
+                chat.DataChanged();
+                bool teacher = LanInvitation.LocalAddresses().Contains(settings.TeacherIp) || settings.TeacherIp == "127.0.0.1";
+                var reaction = notice.Reaction is { } id ? ClassroomReactions.Find(id) : null;
+                if (settings.ShowReactionPreviews && reaction is not null && (!reaction.TeacherOnly || teacher)) pet.NotifyReaction(reaction, notice.Scope.ContextId);
+                else pet.NotifyChat("新訊息", notice.Scope.ContextId, chat.LegacyNotificationName(notice));
+            }));
+            directListener.V2MessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
+                if (closingApp) return;
+                chat.DataChanged(); pet.NotifyChat("新訊息", "peer:" + notice.SenderId, chat.PeerNotificationName(notice.SenderId));
+            }));
+            directListener.Diagnostic += code => { if (code == "receiver_not_ready") Dispatcher.BeginInvoke(new Action(() => chat.SetReceiverState(false, startupPort, directListener.Error))); };
+            candidate.Start(); chatRuntime = candidate; candidate = null;
+            chat.SetReceiverState(directListener.Running, directListener.Port, directListener.Error);
+            chat.SetStatus("本機資料已就緒；私訊仍需完成身分與訊息上限設定。");
+        }
+        catch (Exception ex)
+        { chat.DetachRuntime(); chat.ShowDataFailure(ex is StoreException ? ex.Message : "無法開啟本機資料，請重新讀取。"); chat.SetReceiverState(false, startupPort, "本機資料尚未就緒"); }
+        finally { if (candidate is not null) await candidate.DisposeAsync(); startingData = false; }
+    }
+
+    private async Task RequestShutdownAsync()
+    {
+        if (closingApp) return; closingApp = true;
+        try { chat.BeginClosing(); if (chatRuntime is not null) await chatRuntime.StopReceivingAsync(); await chat.PrepareForShutdownAsync(); if (chatRuntime is not null) await chatRuntime.DisposeAsync(); Shutdown(); }
+        catch
+        {
+            try { if (chatRuntime is not null) await chatRuntime.DisposeAsync(); } catch { }
+            chatRuntime = null; directListener = null; chat.DetachRuntime(); chat.AbortClosing(); closingApp = false;
+            MessageBox.Show(chat, "關閉前無法完成存稿。這次不關閉；請保留目前文字，並處理資料讀寫問題後重試。", "無法完成存稿", MessageBoxButton.OK, MessageBoxImage.Warning);
+            await StartDataAsync();
+        }
     }
 }

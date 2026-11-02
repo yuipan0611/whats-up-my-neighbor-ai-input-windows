@@ -2,6 +2,7 @@ namespace NekoChat.Core.Storage;
 
 public interface IChatStore : IDisposable
 {
+    InboxSnapshot GetInboxSnapshot();
     LocalIdentitySnapshot GetLocalIdentitySnapshot();
     bool ProvisionLocalIdentityIfCurrent(LocalIdentitySnapshot expected, string id, byte[] publicKey, string credentialRef, Func<bool> stillCurrent);
     ReplaceIdentityResult ReplaceLocalIdentityIfCurrent(LocalIdentitySnapshot expected, string newId, byte[] newPublicKey, string newCredentialRef, Func<bool> stillCurrent);
