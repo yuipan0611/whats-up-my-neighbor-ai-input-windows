@@ -24,5 +24,14 @@ public interface IChatStore : IDisposable
     int GetUnreadCount(string conversationId);
     PresenceWriteResult ApplyPresenceEvidence(string peerId, string sourceEndpoint, bool installEvidenceAppVerified);
 
+    DraftSaveResult SaveDraft(string conversationId, string rawText, long draftEpoch, long draftRevision);
+    DraftState? GetDraftState(string conversationId);
+    BeginSendResult BeginManualSend(string conversationId, string rawText, long draftEpoch, long draftRevision, string kind = "text", string? reaction = null);
+    BeginSendResult BeginManualRetry(string messageId, string currentText, string currentConversationId, long draftEpoch, long draftRevision, string kind = "text", string? reaction = null);
+    PreparedSend? GetPreparedSend(string messageId);
+    CompleteResult CompleteAttempt(string messageId, AttemptOutcome outcome, int? expectedTryCount = null);
+    CancelResult CancelAttempt(string messageId, int? expectedTryCount = null);
+    ReceiptApplyResult ApplyRemoteReceipt(string verifiedPeerId, string messageId, RemoteReceiptKind kind, string? originalSenderId = null);
+
     StoreDiagnostics GetDiagnostics();
 }

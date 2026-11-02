@@ -4,6 +4,7 @@ using System.Text.Json;
 using NekoChat.Core;
 
 if (NekoChat.Tests.StorageReceiveChecks.RunChild(args)) return;
+if (NekoChat.Tests.StorageSendChecks.RunChild(args)) return;
 
 int checks=0;
 void Check(bool result,string description) {checks++;if(!result)throw new Exception(description);}
@@ -122,4 +123,5 @@ checks += NekoChat.Tests.RosterCsvChecks.Run();
 checks += NekoChat.Tests.RosterImportChecks.Run();
 checks += NekoChat.Tests.StorageFoundationChecks.Run();
 checks += await NekoChat.Tests.StorageReceiveChecks.Run();
+checks += await NekoChat.Tests.StorageSendChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
