@@ -10,6 +10,8 @@ public sealed record ChatStoreOptions(string DataDirectory)
     public string AppVersion { get; init; } = "";
     /// <summary>Receives size-only diagnostics (never message content).</summary>
     public Action<string>? DiagnosticSink { get; init; }
+    /// <summary>Current local interface addresses and directed broadcasts, supplied by the Windows adapter.</summary>
+    public Func<IReadOnlyCollection<string>> RosterExcludedEndpoints { get; init; } = () => Array.Empty<string>();
     internal IStoreFaults? Faults { get; init; }
     internal int? MaxPageCount { get; init; }
     internal IReadOnlyList<Migration>? Migrations { get; init; }

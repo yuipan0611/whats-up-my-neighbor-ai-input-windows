@@ -39,6 +39,11 @@ public interface IChatStore : IDisposable
     VisibleReadResult MarkVisibleRead(string conversationId, IReadOnlyList<long> visibleLocalSeqs, VisibleReadContext context, Func<bool>? visibilityStillCurrent = null);
     IReadOnlyList<PendingReadReceipt> ListPendingReadReceipts(int limit = 50);
     bool CompleteReadReceipt(PendingReadReceipt receipt);
+    IReadOnlyList<NekoChat.Core.Roster.RosterSnapshotRow> GetRosterSnapshot();
+    RosterMutationResult SaveManualRosterEntry(string? entryId, RosterEdit edit, string expectedSnapshotToken);
+    RosterMutationResult DeleteRosterEntry(string entryId, string expectedSnapshotToken);
+    RosterMutationResult BindPairedRosterPeer(string entryId, string? peerId, string expectedSnapshotToken);
+    RosterApplyResult ApplyRosterPreview(NekoChat.Core.Roster.RosterImportPreview preview);
 
     StoreDiagnostics GetDiagnostics();
 }

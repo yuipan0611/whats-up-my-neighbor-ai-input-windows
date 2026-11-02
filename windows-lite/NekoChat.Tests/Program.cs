@@ -7,6 +7,7 @@ if (NekoChat.Tests.StorageReceiveChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageSendChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageHistoryChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageReadChecks.RunChild(args)) return;
+if (NekoChat.Tests.StorageRosterChecks.RunChild(args)) return;
 
 int checks=0;
 void Check(bool result,string description) {checks++;if(!result)throw new Exception(description);}
@@ -129,4 +130,5 @@ checks += await NekoChat.Tests.StorageSendChecks.Run();
 checks += await NekoChat.Tests.StorageHistoryChecks.Run();
 checks += NekoChat.Tests.StorageTombstoneChecks.Run();
 checks += await NekoChat.Tests.StorageReadChecks.Run();
+checks += await NekoChat.Tests.StorageRosterChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");

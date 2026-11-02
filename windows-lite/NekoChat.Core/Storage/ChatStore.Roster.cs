@@ -1,0 +1,156 @@
+using Microsoft.Data.Sqlite;
+using NekoChat.Core.Roster;
+
+namespace NekoChat.Core.Storage;
+
+public sealed partial class ChatStore
+{
+    private const string RosterColumns = "id,displayName,studentNumber,isTeacher,endpoint,peerId,source,importBatchId";
+
+    public IReadOnlyList<RosterSnapshotRow> GetRosterSnapshot() => Read(c => {
+        using var cmd = c.CreateCommand(); cmd.CommandText = "SELECT " + RosterColumns + " FROM RosterEntry ORDER BY id";
+        using var r = cmd.ExecuteReader(); var rows = new List<RosterSnapshotRow>();
+        while (r.Read()) rows.Add(MapRoster(r));
+        return rows.AsReadOnly();
+    });
+
+    public RosterMutationResult SaveManualRosterEntry(string? entryId, RosterEdit edit, string expectedSnapshotToken)
+    {
+        ArgumentNullException.ThrowIfNull(edit); ValidateRosterToken(expectedSnapshotToken);
+        if (entryId is not null) ValidateRosterId(entryId);
+        string? name = edit.Name?.Trim(), number = NullIfEmpty(edit.StudentNumber), endpoint = NullIfEmpty(edit.Endpoint);
+        string? error = !RosterFields.ValidName(name) ? "invalid-name" : !RosterFields.ValidStudent(number) ? "invalid-student-number" :
+            endpoint is not null && !AllowedRosterEndpoint(endpoint) ? "invalid-endpoint" : null;
+        if (error is not null) return new(false, error, entryId, expectedSnapshotToken);
+        return Write("save-roster", ctx => {
+            var snapshot = ReadRoster(ctx); string token = RosterImportPreview.ComputeSnapshotToken(snapshot);
+            if (token != expectedSnapshotToken) return (new RosterMutationResult(false, "roster_changed", entryId, token), false);
+            if (endpoint is not null && !AllowedRosterEndpoint(endpoint)) return (new RosterMutationResult(false, "invalid-endpoint", entryId, token), false);
+            var old = snapshot.SingleOrDefault(r => r.Entry.Id == entryId);
+            if (entryId is not null && old is null) return (new RosterMutationResult(false, "not-found", entryId, token), false);
+            if (snapshot.Any(r => r.Entry.Id != entryId && number is not null && r.Entry.StudentNumberKey == RosterFields.StudentKey(number)))
+                return (new RosterMutationResult(false, "duplicate-student-number", entryId, token), false);
+            if (snapshot.Any(r => r.Entry.Id != entryId && endpoint is not null && r.Entry.Endpoint == endpoint))
+                return (new RosterMutationResult(false, "duplicate-endpoint", entryId, token), false);
+            if (old is not null && old.Entry.DisplayName == name && old.Entry.StudentNumber == number && old.Entry.IsTeacher == edit.IsTeacher && old.Entry.Endpoint == endpoint)
+                return (new RosterMutationResult(false, "unchanged", entryId, token), false);
+            string id = entryId ?? NewRosterId(ctx);
+            if (entryId is null)
+                ctx.Exec("INSERT INTO RosterEntry(id,displayName,studentNumber,isTeacher,endpoint,source) VALUES(@id,@name,@number,@teacher,@endpoint,'manual')",
+                    ("@id", id), ("@name", name), ("@number", number), ("@teacher", edit.IsTeacher ? 1 : 0), ("@endpoint", endpoint));
+            else
+                ctx.Exec("UPDATE RosterEntry SET displayName=@name,studentNumber=@number,isTeacher=@teacher,endpoint=@endpoint,source='manual',importBatchId=NULL WHERE id=@id",
+                    ("@id", id), ("@name", name), ("@number", number), ("@teacher", edit.IsTeacher ? 1 : 0), ("@endpoint", endpoint));
+            return (new RosterMutationResult(true, entryId is null ? "added" : "updated", id, RosterImportPreview.ComputeSnapshotToken(ReadRoster(ctx))), true);
+        });
+    }
+
+    public RosterMutationResult DeleteRosterEntry(string entryId, string expectedSnapshotToken) => ChangeRosterBindingOrDelete(entryId, expectedSnapshotToken, null, delete: true);
+    /// <summary>Explicit human selection after pairing. Never creates a Peer or changes pairingState.</summary>
+    public RosterMutationResult BindPairedRosterPeer(string entryId, string? peerId, string expectedSnapshotToken)
+    {
+        if (peerId is not null && !StoreIds.IsValid(peerId)) throw new ArgumentException("Invalid peer id.", nameof(peerId));
+        return ChangeRosterBindingOrDelete(entryId, expectedSnapshotToken, peerId, delete: false);
+    }
+
+    private RosterMutationResult ChangeRosterBindingOrDelete(string entryId, string expectedToken, string? peer, bool delete)
+    {
+        ValidateRosterId(entryId); ValidateRosterToken(expectedToken);
+        return Write(delete ? "delete-roster" : "bind-roster", ctx => {
+            var snapshot = ReadRoster(ctx); string token = RosterImportPreview.ComputeSnapshotToken(snapshot);
+            if (token != expectedToken) return (new RosterMutationResult(false, "roster_changed", entryId, token), false);
+            var old = snapshot.SingleOrDefault(r => r.Entry.Id == entryId);
+            if (old is null) return (new RosterMutationResult(false, "not-found", entryId, token), false);
+            if (!delete && peer is not null && !IsPaired(ctx, peer)) return (new RosterMutationResult(false, "peer-not-paired", entryId, token), false);
+            if (!delete && old.Entry.PeerId == peer) return (new RosterMutationResult(false, "unchanged", entryId, token), false);
+            if (delete) ctx.Exec("DELETE FROM RosterEntry WHERE id=@id", ("@id", entryId));
+            else ctx.Exec("UPDATE RosterEntry SET peerId=@peer WHERE id=@id", ("@peer", peer), ("@id", entryId));
+            return (new RosterMutationResult(true, delete ? "deleted" : "bound", entryId, RosterImportPreview.ComputeSnapshotToken(ReadRoster(ctx))), true);
+        });
+    }
+
+    /// <summary>Only after the user has reviewed and confirmed this immutable preview.</summary>
+    public RosterApplyResult ApplyRosterPreview(RosterImportPreview preview)
+    {
+        ArgumentNullException.ThrowIfNull(preview);
+        if (preview.Items.Count > RosterCsv.MaxRows) throw new ArgumentOutOfRangeException(nameof(preview));
+        int skipped = preview.Items.Count(i => i.Action is RosterImportAction.Error or RosterImportAction.Ambiguous);
+        int unchanged = preview.Items.Count(i => i.Action == RosterImportAction.Unchanged);
+        return Write("apply-roster", ctx => {
+            var snapshot = ReadRoster(ctx); string token = RosterImportPreview.ComputeSnapshotToken(snapshot);
+            RosterApplyResult Result(bool applied, string reason, int added = 0, int updated = 0, string? next = null) =>
+                new(applied, reason, added, updated, unchanged, skipped, next ?? token);
+            if (!preview.MatchesSnapshot(snapshot)) return (Result(false, "roster_changed"), false);
+            if (preview.Changes.Count == 0) return (Result(true, "no-changes"), false);
+            foreach (var item in preview.Changes)
+            {
+                var row = item.Row!;
+                if (!RosterFields.ValidName(row.Name) || !RosterFields.ValidStudent(row.StudentNumber) || row.Endpoint is not null && !AllowedRosterEndpoint(row.Endpoint))
+                    return (Result(false, "endpoint-or-row-no-longer-valid"), false);
+            }
+            // Use an independent reader: backing up the connection holding the write transaction can wait on itself.
+            BackupBeforeRosterImport();
+            string batch = NewUuid();
+            foreach (var item in preview.Changes.Where(i => i.Action == RosterImportAction.Update))
+            {
+                var old = snapshot.Single(s => s.Entry.Id == item.TargetId);
+                if (old.Entry.Endpoint != item.Row!.Endpoint)
+                    ctx.Exec("UPDATE RosterEntry SET endpoint=NULL WHERE id=@id", ("@id", item.TargetId));
+            }
+            int added = 0, updated = 0;
+            foreach (var item in preview.Changes)
+            {
+                var row = item.Row!;
+                if (item.Action == RosterImportAction.Add)
+                {
+                    ctx.Exec("INSERT INTO RosterEntry(id,displayName,studentNumber,isTeacher,endpoint,source,importBatchId) VALUES(@id,@name,@number,@teacher,@endpoint,'csv',@batch)",
+                        ("@id", NewRosterId(ctx)), ("@name", row.Name), ("@number", row.StudentNumber), ("@teacher", row.IsTeacher ? 1 : 0), ("@endpoint", row.Endpoint), ("@batch", batch));
+                    added++;
+                }
+                else
+                {
+                    ctx.Exec("UPDATE RosterEntry SET displayName=@name,studentNumber=@number,isTeacher=@teacher,endpoint=@endpoint,source='csv',importBatchId=@batch WHERE id=@id",
+                        ("@id", item.TargetId), ("@name", row.Name), ("@number", row.StudentNumber), ("@teacher", row.IsTeacher ? 1 : 0), ("@endpoint", row.Endpoint), ("@batch", batch));
+                    updated++;
+                }
+            }
+            return (Result(true, "applied", added, updated, RosterImportPreview.ComputeSnapshotToken(ReadRoster(ctx))), true);
+        });
+    }
+
+    private static List<RosterSnapshotRow> ReadRoster(WriteContext ctx) => ctx.Query("SELECT " + RosterColumns + " FROM RosterEntry ORDER BY id", MapRoster);
+    private static RosterSnapshotRow MapRoster(SqliteDataReader r)
+    {
+        try
+        {
+            return new(new(r.GetString(0), r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2), r.GetInt64(3) == 1,
+                r.IsDBNull(4) ? null : r.GetString(4), r.IsDBNull(5) ? null : r.GetString(5)),
+                r.IsDBNull(6) ? null : r.GetString(6), r.IsDBNull(7) ? null : r.GetString(7));
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
+        { throw new StoreException(StoreErrorKind.Corrupt, "The local roster contains invalid data.", e); }
+    }
+    private bool AllowedRosterEndpoint(string endpoint) => RosterFields.ValidEndpoint(endpoint) && !_options.RosterExcludedEndpoints().Contains(endpoint, StringComparer.Ordinal);
+    private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private string NewUuid()
+    {
+        string id = _options.NewId();
+        if (!StoreIds.IsUuid(id)) throw new InvalidOperationException("NewId produced an invalid UUID.");
+        return id;
+    }
+    private string NewRosterId(WriteContext ctx)
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            string id = NewUuid();
+            if (Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM RosterEntry WHERE id=@id", ("@id", id)), System.Globalization.CultureInfo.InvariantCulture) == 0) return id;
+        }
+        throw new InvalidOperationException("Roster id allocation failed.");
+    }
+    private static void ValidateRosterId(string id) { if (!StoreIds.IsValid(id)) throw new ArgumentException("Invalid roster id.", nameof(id)); }
+    private static void ValidateRosterToken(string token)
+    {
+        if (token is null || token.Length != 64 || token.Any(c => c is not ((>= '0' and <= '9') or (>= 'a' and <= 'f'))))
+            throw new ArgumentException("Invalid roster snapshot token.", nameof(token));
+    }
+}
