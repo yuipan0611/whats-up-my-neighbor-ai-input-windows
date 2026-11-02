@@ -29,6 +29,7 @@ public sealed partial class ChatStore
             if (binding is null) return (new DraftSaveResult(false, "not-found", 0, 0), false);
             if (binding.Epoch != draftEpoch) return (new DraftSaveResult(false, "stale-epoch", binding.Epoch, binding.Revision), false);
             if (draftRevision <= binding.Revision) return (new DraftSaveResult(false, "stale-revision", binding.Epoch, binding.Revision), false);
+            if (!DraftAllowed(rawText)) return (new DraftSaveResult(false, "draft-too-large", binding.Epoch, binding.Revision), false);
             ValidateJump(binding.Revision, draftRevision);
             WriteDraft(ctx, conversationId, rawText, draftRevision);
             return (new DraftSaveResult(true, "saved", draftEpoch, draftRevision), true);
@@ -257,6 +258,18 @@ public sealed partial class ChatStore
             !MessageFingerprint.ValidReaction(reaction) || kind == "reaction" && reaction is null) return false;
         try { _ = new UTF8Encoding(false, true).GetByteCount(text); return true; } catch (EncoderFallbackException) { return false; }
     }
+    /// <summary>
+    /// Draft size limit. No number is written here: by default a draft is acceptable when it is empty, or when the configured
+    /// TextValidator (the send limit, D-06) accepts it, or when it is only whitespace that the same validator would accept
+    /// next to one visible character. Inject ChatStoreOptions.DraftValidator to override.
+    /// </summary>
+    private bool DraftAllowed(string text)
+    {
+        if (_options.DraftValidator is { } custom) return custom(text);
+        if (text.Length == 0 || _options.TextValidator(text)) return true;
+        return string.IsNullOrWhiteSpace(text) && _options.TextValidator("x" + text);
+    }
+
     private static void ValidateDraftText(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
