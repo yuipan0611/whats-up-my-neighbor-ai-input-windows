@@ -23,11 +23,13 @@ public sealed class V2LanClient : IDisposable
     private readonly V2Verifier _verifier;
     private readonly V2ClientOptions _options;
     private readonly HttpClient _http;
-    public V2LanClient(IChatStore store, V2PacketWriter writer, V2ClientOptions? options = null) : this(store, writer, options, new SocketsHttpHandler()) { }
-    internal V2LanClient(IChatStore store, V2PacketWriter writer, V2ClientOptions? options, SocketsHttpHandler handler)
+    private readonly V2IdentityMonitor? _identities;
+    public V2LanClient(IChatStore store, V2PacketWriter writer, V2ClientOptions? options = null, V2IdentityMonitor? identities = null) : this(store, writer, options, new SocketsHttpHandler(), identities ?? new()) { }
+    internal V2LanClient(IChatStore store, V2PacketWriter writer, V2ClientOptions? options, SocketsHttpHandler handler, V2IdentityMonitor? identities = null)
     {
         ArgumentNullException.ThrowIfNull(store); ArgumentNullException.ThrowIfNull(writer);
         _store = store; _writer = writer; _verifier = new(writer.MaxTextBytes); _options = options ?? new();
+        _identities = identities;
         if (_options.ConnectTimeout <= TimeSpan.Zero || _options.ConnectTimeout > _options.RequestTimeout || _options.RequestTimeout > _options.OperationTimeout ||
             _options.OperationTimeout > TimeSpan.FromMinutes(1)) throw new ArgumentException("Invalid client timeouts.", nameof(options));
         handler.AllowAutoRedirect = false; handler.UseProxy = false; handler.ConnectTimeout = _options.ConnectTimeout; handler.MaxResponseHeadersLength = 8;
@@ -54,6 +56,7 @@ public sealed class V2LanClient : IDisposable
             if (response.Error is not null) return new(response.Error);
             var hello = _verifier.VerifyHello(response.Body, new(nonce, new(target.Pairing is { } state ? PairingStates.ToWire(state) : null, target.PeerId is null ? null : captured.PeerSpkiBase64), new[] { "msg.sign" }));
             if (hello.Success && target.Pairing == PairingState.Paired && hello.Value!.ReceiverId != target.PeerId) return new("hello_key_mismatch");
+            if (hello.Success && hello.Value!.EvidenceLevel == "E2" && CheckObservation(hello.Value, captured, ip, () => Current() && !timeout.IsCancellationRequested) is { } conflict) return new(conflict);
             return Current() ? hello : new("stale_target");
         }
         catch (OperationCanceledException) { return new(cancellation.IsCancellationRequested ? "cancelled" : "network_unconfirmed"); }
@@ -82,7 +85,7 @@ public sealed class V2LanClient : IDisposable
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 operation.Token.ThrowIfCancellationRequested(); if (!CurrentBeforeNetwork()) return Fail("receiver_not_ready");
-                var hello = await HelloAsync(targetIp, port, captured, new[] { "msg.sign" }, operation.Token).ConfigureAwait(false);
+                var hello = await HelloAsync(targetIp, port, captured, new[] { "msg.sign" }, sessionCurrent, operation.Token).ConfigureAwait(false);
                 if (!hello.Success) return Fail(hello.Code);
                 if (V2Text.Check(prepared.RawText, Math.Min(_writer.MaxTextBytes, hello.Value!.MaxTextBytes)) != V2TextProblem.None) return Fail("payload_too_large");
                 if (!CurrentBeforeNetwork()) return Fail("receiver_not_ready");
@@ -119,7 +122,7 @@ public sealed class V2LanClient : IDisposable
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 operation.Token.ThrowIfCancellationRequested();
-                var hello = await HelloAsync(targetIp, port, captured, new[] { "receipt.read" }, operation.Token).ConfigureAwait(false);
+                var hello = await HelloAsync(targetIp, port, captured, new[] { "receipt.read" }, sessionCurrent, operation.Token).ConfigureAwait(false);
                 if (!hello.Success) return new(hello.Code, false);
                 if (!Allowed()) return new("policy_changed", false);
                 var response = await ExchangeAsync(targetIp, port, "/nekochat/v2/receipt", _writer.Receipt(receipt.MessageId, receipt.OriginalSenderId, hello.Value!.Nonce), operation.Token).ConfigureAwait(false);
@@ -143,13 +146,23 @@ public sealed class V2LanClient : IDisposable
         if (context.Security.Pairing != PairingState.Paired) return "unpaired_sender";
         return context.PeerSpkiBase64 is null ? "key_mismatch" : null;
     }
-    private async Task<V2Verification<V2HelloInfo>> HelloAsync(string ip, int port, PeerVerificationContext captured, string[] capabilities, CancellationToken cancellation)
+    private async Task<V2Verification<V2HelloInfo>> HelloAsync(string ip, int port, PeerVerificationContext captured, string[] capabilities, Func<bool> sessionCurrent, CancellationToken cancellation)
     {
         string nonce = V2PacketWriter.NewClientNonce();
         var response = await ExchangeAsync(ip, port, "/nekochat/v2/hello", _writer.HelloRequest(nonce), cancellation).ConfigureAwait(false);
         if (response.Error is not null) return new(response.Error);
         var hello = _verifier.VerifyHello(response.Body, new(nonce, new("paired", captured.PeerSpkiBase64), capabilities));
-        return hello.Success && hello.Value!.ReceiverId != captured.Security.PeerId ? new("hello_key_mismatch") : hello;
+        if (hello.Success && hello.Value!.ReceiverId != captured.Security.PeerId) return new("hello_key_mismatch");
+        if (hello.Success && CheckObservation(hello.Value!, captured, ip, () => sessionCurrent() && !cancellation.IsCancellationRequested) is { } conflict) return new(conflict);
+        return hello;
+    }
+    private string? CheckObservation(V2HelloInfo hello, PeerVerificationContext captured, string source, Func<bool> live)
+    {
+        if (!live() || _store.GetPeerSecuritySnapshot(captured.Security.PeerId) != captured.Security) return "stale_target";
+        if (_identities is null) return null; var result = _identities.Observe(hello, captured, source);
+        if (result.Code == "ok") return null;
+        if (result.Code == "identity_conflict") { _ = _store.SetPairingStateIfCurrent(captured.Security, PairingState.Suspended, live); return "identity_conflict"; }
+        return result.Code;
     }
     private sealed record Response(byte[] Body, string? Error = null);
     private async Task<Response> ExchangeAsync(string ip, int port, string path, byte[] packet, CancellationToken cancellation)

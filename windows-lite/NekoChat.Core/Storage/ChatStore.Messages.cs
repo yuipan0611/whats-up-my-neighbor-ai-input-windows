@@ -111,7 +111,7 @@ public sealed partial class ChatStore
             throw new ArgumentException("Invalid source endpoint.", nameof(value));
     }
 
-    private PeerSeenResult UpdateEvidence(WriteContext ctx, string peerId, string endpoint, bool install, TimeSpan interval)
+    private PeerSeenResult UpdateEvidence(WriteContext ctx, string peerId, string endpoint, bool install, TimeSpan interval, DateTime? observedUtc = null)
     {
         var rows = ctx.Query("SELECT pairingState,lastSeenEndpoint,lastSeenUtc,installEvidence FROM Peer WHERE id=@id",
             r => (State: r.GetString(0), Endpoint: r.IsDBNull(1) ? null : r.GetString(1), Seen: r.IsDBNull(2) ? null : r.GetString(2),
@@ -125,7 +125,7 @@ public sealed partial class ChatStore
             return new(false, "unknown-or-untrusted-peer", false, null);
         }
         if (state != PairingState.Paired) return new(false, "unknown-or-untrusted-peer", false, null);
-        DateTime now = _options.UtcNow().ToUniversalTime();
+        DateTime now = (observedUtc ?? _options.UtcNow()).ToUniversalTime();
         bool changed = row.Endpoint is not null && row.Endpoint != endpoint;
         bool firstInstall = install && row.Install is null;
         if (row.Seen is not null && row.Endpoint is not null && !changed && !firstInstall &&

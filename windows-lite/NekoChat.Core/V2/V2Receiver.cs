@@ -21,19 +21,27 @@ public sealed class V2Receiver
     private readonly V2PacketWriter _writer;
     private readonly V2Verifier _verifier;
     private readonly V2NonceStore _nonces;
+    private readonly V2IdentityMonitor _identities;
+    internal TimeProvider Clock => _identities.Clock;
     private long _generation;
     private int _ready = 1;
     public int MaxMessageBodyBytes => _verifier.MessageLimits.MaxBytes;
-    public V2Receiver(IChatStore store, V2PacketWriter writer, TimeProvider? clock = null)
+    public event Action<V2VerifiedActivity>? VerifiedActivity;
+    public event Action<string>? Diagnostic;
+    public V2Receiver(IChatStore store, V2PacketWriter writer, TimeProvider? clock = null, V2IdentityMonitor? identities = null)
     {
         ArgumentNullException.ThrowIfNull(store); ArgumentNullException.ThrowIfNull(writer);
         _store = store; _writer = writer; _verifier = new(writer.MaxTextBytes); _nonces = new(clock);
+        _identities = identities ?? new(clock);
+        if (!ReferenceEquals(_identities.Clock, clock ?? TimeProvider.System)) throw new ArgumentException("Receiver and identity monitor must share a clock.");
     }
     public void SetReady(bool ready)
     {
-        Volatile.Write(ref _ready, 0); Interlocked.Increment(ref _generation); _nonces.Clear();
+        Volatile.Write(ref _ready, 0); ResetReplayProtection();
         if (ready) Volatile.Write(ref _ready, 1);
     }
+    public void ResetReplayProtection() { Interlocked.Increment(ref _generation); _nonces.Clear(); _identities.Reset(); }
+    internal bool GenerationCurrent(long generation) => Volatile.Read(ref _ready) == 1 && Volatile.Read(ref _generation) == generation;
     public V2HttpResponse Handle(string path, ReadOnlySpan<byte> body, string sourceEndpoint, Func<bool> connectionCurrent)
     {
         ArgumentNullException.ThrowIfNull(connectionCurrent);
@@ -68,8 +76,11 @@ public sealed class V2Receiver
                 var message = verified.Value!;
                 if (!Live()) return V2HttpResponse.Error("receiver_not_ready");
                 if (!_nonces.TryConsume(message, captured.Security)) return V2HttpResponse.Error("stale_nonce");
-                var result = _store.ReceiveV2Message(message, captured.Security, Live, sourceEndpoint);
+                var observation = _identities.Observe(message, captured, sourceEndpoint);
+                if (observation.Code != "ok") return RejectObservation(observation, captured.Security, Live);
+                var result = _store.ReceiveV2Message(message, captured.Security, () => Live() && observation.Proof!.Allowed, sourceEndpoint);
                 if (!Live()) return V2HttpResponse.Error("receiver_not_ready");
+                if (result is Stored or Duplicate or ClearedDuplicate or Conflict) Publish(observation.Proof!, generation);
                 return result switch {
                     Stored stored => new(200, _writer.MessageAck("stored", message.MessageId, message.SenderId, message.ContentFingerprint), new(message.SenderId, stored.LocalSeq)),
                     Duplicate or ClearedDuplicate => new(200, _writer.MessageAck("duplicate", message.MessageId, message.SenderId, message.ContentFingerprint)),
@@ -84,11 +95,14 @@ public sealed class V2Receiver
                 var receipt = verified.Value!;
                 if (!Live()) return V2HttpResponse.Error("receiver_not_ready");
                 if (!_nonces.TryConsume(receipt, captured.Security)) return V2HttpResponse.Error("stale_nonce");
-                var result = _store.ApplyV2Receipt(receipt, captured.Security, Live);
+                var observation = _identities.Observe(receipt, captured, sourceEndpoint);
+                if (observation.Code != "ok") return RejectObservation(observation, captured.Security, Live);
+                var result = _store.ApplyV2Receipt(receipt, captured.Security, () => Live() && observation.Proof!.Allowed);
                 if (!Live()) return V2HttpResponse.Error("receiver_not_ready");
-                if (result.Reason == "pending-local-confirmation") return V2HttpResponse.Error("storage_unavailable");
                 if (result.Reason == "stale-security") return V2HttpResponse.Error("receiver_not_ready");
                 if (result.Reason == "untrusted-peer") return V2HttpResponse.Error("unpaired_sender");
+                Publish(observation.Proof!, generation);
+                if (result.Reason == "pending-local-confirmation") return V2HttpResponse.Error("storage_unavailable");
                 string status = result.Changed ? "ok" : result.Reason == "unchanged" ? "duplicate" : "discarded";
                 return new(200, _writer.ReceiptAck(status, receipt.MessageId, receipt.SenderId));
             }
@@ -97,4 +111,19 @@ public sealed class V2Receiver
         catch (Exception e) when (e is ObjectDisposedException or CryptographicException) { return V2HttpResponse.Error("receiver_not_ready"); }
     }
     private bool OwnIdentity(PeerVerificationContext captured) => captured.Security.LocalIdentityId == _writer.PeerId && captured.LocalSpkiBase64 == _writer.PublicSpkiBase64;
+    private V2HttpResponse RejectObservation(V2IdentityMonitor.Decision decision, PeerSecuritySnapshot expected, Func<bool> live)
+    {
+        if (decision.Code == "identity_conflict")
+        {
+            _ = _store.SetPairingStateIfCurrent(expected, PairingState.Suspended, live);
+            Report("identity_conflict"); return V2HttpResponse.Error("unpaired_sender");
+        }
+        return V2HttpResponse.Error(decision.Code == "rate_limited" ? "rate_limited" : "receiver_not_ready");
+    }
+    private void Publish(V2IdentityMonitor.Observation proof, long generation)
+    {
+        if (!GenerationCurrent(generation) || !proof.Latest) return;
+        try { VerifiedActivity?.Invoke(new(this, generation, proof)); } catch { Report("activity_callback_failed"); }
+    }
+    private void Report(string code) { try { Diagnostic?.Invoke(code); } catch { } }
 }

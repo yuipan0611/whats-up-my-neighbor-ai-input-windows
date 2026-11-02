@@ -40,9 +40,9 @@ public sealed partial class ChatStore
                 return (new PresenceWriteResult(false, "stale-target"), false);
             if (current.Pairing != PairingState.Paired) return (new PresenceWriteResult(false, "unknown-or-untrusted-peer"), false);
             if (current.KeySha256 is null || current.KeySha256 != expected.KeySha256) return (new PresenceWriteResult(false, "key-mismatch"), false);
-            var result = UpdateEvidence(ctx, current.PeerId!, job.SourceEndpoint, install: true, TimeSpan.FromSeconds(60));
+            var result = UpdateEvidence(ctx, current.PeerId!, job.SourceEndpoint, install: true, TimeSpan.FromSeconds(60), job.ObservedUtc);
             return (new PresenceWriteResult(result.Written, result.Reason), result.Written);
-        }, commitGuard: stillCurrent, guardRejected: () => new PresenceWriteResult(false, "stale-target"));
+        }, guardRejected: () => new PresenceWriteResult(false, "stale-target"), transactionGuard: _ => stillCurrent());
     }
 
     private static PresenceTarget MapPresenceTarget(SqliteDataReader r)

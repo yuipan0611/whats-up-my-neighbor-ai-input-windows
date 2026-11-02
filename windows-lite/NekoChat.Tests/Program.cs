@@ -21,6 +21,7 @@ if (args.SequenceEqual(new[] { "--v2-tcp-crashes" })) { await NekoChat.Tests.V2C
 if (args.SequenceEqual(new[] { "--shared-port" })) { await NekoChat.Tests.SharedPortChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--legacy-messages" })) { await NekoChat.Tests.LegacyMessageChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--presence-wire" })) { await NekoChat.Tests.PresenceWireChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--passive-identity" })) { await NekoChat.Tests.PassiveIdentityChecks.Run(); return; }
 
 int checks=0;
 void Check(bool result,string description) {checks++;if(!result)throw new Exception(description);}
@@ -157,4 +158,5 @@ checks += await NekoChat.Tests.V2CrashChecks.Run();
 checks += await NekoChat.Tests.SharedPortChecks.Run();
 checks += await NekoChat.Tests.LegacyMessageChecks.Run();
 checks += await NekoChat.Tests.PresenceWireChecks.Run();
+checks += await NekoChat.Tests.PassiveIdentityChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");

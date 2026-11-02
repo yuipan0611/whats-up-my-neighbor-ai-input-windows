@@ -37,11 +37,12 @@ public sealed class PresenceWriteJob
     public long Id { get; }
     public PresenceTarget Target { get; }
     public long Generation { get; }
+    public long SecurityGeneration { get; }
     public string SourceEndpoint { get; }
     public long ObservedTimestamp { get; }
     public DateTime ObservedUtc { get; }
     public PresenceProbe? Probe { get; }
-    internal PresenceWriteJob(object owner, long id, PresenceTarget target, long generation, string source, long observed, DateTime utc, PresenceProbe? probe)
-    { Owner = owner; Id = id; Target = target; Generation = generation; SourceEndpoint = source; ObservedTimestamp = observed; ObservedUtc = utc; Probe = probe; }
+    internal PresenceWriteJob(object owner, long id, PresenceTarget target, long generation, long securityGeneration, string source, long observed, DateTime utc, PresenceProbe? probe)
+    { Owner = owner; Id = id; Target = target; Generation = generation; SecurityGeneration = securityGeneration; SourceEndpoint = source; ObservedTimestamp = observed; ObservedUtc = utc; Probe = probe; }
 }
 public sealed record PresenceDecision(bool Accepted, string Reason, PresenceWriteJob? Write = null);

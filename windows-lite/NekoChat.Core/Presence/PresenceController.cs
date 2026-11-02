@@ -9,7 +9,7 @@ public sealed class PresenceController
     private sealed class Row(PresenceTarget target, long generation, int order)
     {
         internal PresenceTarget Target = target;
-        internal long Generation = generation;
+        internal long Generation = generation, SecurityGeneration = generation;
         internal int Order = order, Failures;
         internal bool Active, Suppressed, AwaitingStorage;
         internal PresenceProbe? Probe;
@@ -57,7 +57,7 @@ public sealed class PresenceController
                 bool changed = !identitySame || old.RosterRevision != target.RosterRevision || old.DeclaredEndpoint != target.DeclaredEndpoint || old.ObservedEndpoint != target.ObservedEndpoint;
                 if (changed)
                 {
-                    Cancel(row, cancel); row.Generation = Next(ref _generation); row.Failures = 0; row.Suppressed = false; row.ScheduleAt = now; row.Delay = TimeSpan.Zero;
+                    Cancel(row, cancel); row.Generation = row.SecurityGeneration = Next(ref _generation); row.Failures = 0; row.Suppressed = false; row.ScheduleAt = now; row.Delay = TimeSpan.Zero;
                     if (!identitySame || old.RosterRevision != target.RosterRevision || old.EffectiveEndpoint != target.EffectiveEndpoint && target.EffectiveEndpoint != row.VerifiedEndpoint)
                     { row.LastVerified = null; row.VerifiedEndpoint = null; }
                     row.LastResponse = row.Conflict = null;
@@ -100,7 +100,7 @@ public sealed class PresenceController
             long now = Now(); var cancel = new List<long>();
             foreach (var row in _rows.Values)
             {
-                Cancel(row, cancel); row.Generation = Next(ref _generation); row.LastVerified = row.LastResponse = row.Conflict = null;
+                Cancel(row, cancel); row.Generation = row.SecurityGeneration = Next(ref _generation); row.LastVerified = row.LastResponse = row.Conflict = null;
                 row.VerifiedEndpoint = null; row.Failures = 0; row.Suppressed = false; row.ScheduleAt = now; row.Delay = TimeSpan.Zero;
             }
             return cancel.AsReadOnly();
@@ -163,7 +163,7 @@ public sealed class PresenceController
     }
 
     /// <summary>After the actual v2 message/receipt verifier accepts identity and pin; valid even while the chat window is hidden.</summary>
-    public PresenceDecision ObservePassive(string rowId, string verifiedPeerId, string keySha256, string sourceEndpoint)
+    public PresenceDecision ObservePassive(string rowId, string verifiedPeerId, string keySha256, string sourceEndpoint, long? observedTimestamp = null, DateTime? observedUtc = null)
     {
         if (!RosterFields.ValidEndpoint(sourceEndpoint)) throw new ArgumentException("Invalid source endpoint.", nameof(sourceEndpoint));
         lock (_gate)
@@ -171,8 +171,10 @@ public sealed class PresenceController
             long now = Now();
             if (!_rows.TryGetValue(rowId, out var row) || row.Target.PeerId != verifiedPeerId || row.Target.Pairing != PairingState.Paired ||
                 !ValidKeyHash(keySha256) || row.Target.KeySha256 != keySha256) return new(false, "untrusted-peer");
+            long observed = observedTimestamp ?? now;
+            if (observed > now || row.LastVerified is { } newer && observed < newer) return new(false, "older-evidence");
             row.Failures = 0; row.Suppressed = false; Schedule(row, now);
-            return new(true, "awaiting-storage", Job(row, sourceEndpoint, now, null));
+            return new(true, "awaiting-storage", Job(row, sourceEndpoint, observed, null, observedUtc));
         }
     }
 
@@ -223,8 +225,10 @@ public sealed class PresenceController
     private bool CurrentJob(PresenceWriteJob job, long now, out Row row)
     {
         row = null!;
-        return !_disabled && ReferenceEquals(job.Owner, this) && _rows.TryGetValue(job.Target.RowId, out row!) && row.Generation == job.Generation &&
+        return !_disabled && ReferenceEquals(job.Owner, this) && _rows.TryGetValue(job.Target.RowId, out row!) &&
+            (job.Probe is null ? row.SecurityGeneration == job.SecurityGeneration : row.Generation == job.Generation) &&
             job.Id > row.LastFinishedJob &&
+            (row.LastVerified is null || job.ObservedTimestamp >= row.LastVerified) &&
             row.Target.PeerId == job.Target.PeerId && row.Target.Pairing == PairingState.Paired && row.Target.KeySha256 == job.Target.KeySha256 &&
             (job.Probe is null || row.Active && row.Probe?.Id == job.Probe.Id && row.PendingJobId == job.Id && Elapsed(job.Probe.StartedTimestamp, now) < Deadline);
     }
@@ -234,7 +238,7 @@ public sealed class PresenceController
         return !_disabled && ReferenceEquals(probe.Owner, this) && _rows.TryGetValue(probe.Target.RowId, out row!) && row.Active &&
             row.Generation == probe.Generation && row.Probe?.Id == probe.Id && !row.AwaitingStorage;
     }
-    private PresenceWriteJob Job(Row row, string source, long now, PresenceProbe? probe) => new(this, Next(ref _operation), row.Target, row.Generation, source, now, _clock.GetUtcNow().UtcDateTime, probe);
+    private PresenceWriteJob Job(Row row, string source, long now, PresenceProbe? probe, DateTime? utc = null) => new(this, Next(ref _operation), row.Target, row.Generation, row.SecurityGeneration, source, now, utc ?? _clock.GetUtcNow().UtcDateTime, probe);
     private bool Active(string id) => _windowVisible && (_current == id || _visible.Contains(id, StringComparer.Ordinal));
     private void Failed(Row row, long now) { row.Failures = Math.Min(3, row.Failures + 1); Schedule(row, now); }
     private void Schedule(Row row, long now)
