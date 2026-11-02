@@ -32,6 +32,8 @@ public interface IChatStore : IDisposable
     CompleteResult CompleteAttempt(string messageId, AttemptOutcome outcome, int? expectedTryCount = null);
     CancelResult CancelAttempt(string messageId, int? expectedTryCount = null);
     ReceiptApplyResult ApplyRemoteReceipt(string verifiedPeerId, string messageId, RemoteReceiptKind kind, string? originalSenderId = null);
+    MessagePage ListMessages(string conversationId, long? beforeLocalSeq = null, int pageSize = 50);
+    ClearResult ClearConversation(string conversationId);
 
     StoreDiagnostics GetDiagnostics();
 }
