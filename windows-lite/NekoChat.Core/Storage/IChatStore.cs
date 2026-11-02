@@ -19,5 +19,10 @@ public interface IChatStore : IDisposable
     /// <summary>Handshake/verified-signature path: at most one write per 30 s per peer, with immediate-write exceptions.</summary>
     PeerSeenResult TouchPeerSeen(string peerId, string sourceEndpoint);
 
+    /// <summary>Caller has verified identity, signature and nonce. Returns Stored only after the transaction commits.</summary>
+    ReceiveResult ReceiveVerifiedMessage(IncomingMessage message);
+    int GetUnreadCount(string conversationId);
+    PresenceWriteResult ApplyPresenceEvidence(string peerId, string sourceEndpoint, bool installEvidenceAppVerified);
+
     StoreDiagnostics GetDiagnostics();
 }

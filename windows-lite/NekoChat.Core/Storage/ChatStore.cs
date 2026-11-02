@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 
 namespace NekoChat.Core.Storage;
 
-public sealed class ChatStore : IChatStore
+public sealed partial class ChatStore : IChatStore
 {
     private const string DbFileName = "nekochat.db";
     private static readonly TimeSpan MessagePathThrottle = TimeSpan.FromSeconds(30);
@@ -414,17 +414,7 @@ public sealed class ChatStore : IChatStore
                 if (pinned == null) ctx.Exec("UPDATE Peer SET publicKey = @pk WHERE id = @id", ("@pk", publicKey), ("@id", peerId));   // first pin
                 else if (!pinned.AsSpan().SequenceEqual(publicKey)) return (new PeerKeyMismatch(peerId), false);
             }
-            var conv = ctx.Query("SELECT id, draftEpoch, draftRevision FROM Conversation WHERE peerId = @id",
-                r => new ConversationRef(r.GetString(0), peerId, r.GetInt64(1), r.GetInt64(2)), ("@id", peerId));
-            ConversationRef reference;
-            if (conv.Count > 0) reference = conv[0];
-            else
-            {
-                string convId = _options.NewId();
-                if (!StoreIds.IsUuid(convId)) throw new InvalidOperationException("NewId produced an invalid conversation UUID");
-                ctx.Exec("INSERT INTO Conversation(id, peerId, createdUtc) VALUES (@id, @peer, @now)", ("@id", convId), ("@peer", peerId), ("@now", ctx.NowUtc));
-                reference = new ConversationRef(convId, peerId, 0, 0);
-            }
+            var reference = ConversationFor(ctx, peerId);
             return (new PeerRegistered(reference, created), true);
         });
     }
@@ -446,32 +436,10 @@ public sealed class ChatStore : IChatStore
     public PeerSeenResult TouchPeerSeen(string peerId, string sourceEndpoint)
     {
         if (!StoreIds.IsValid(peerId)) throw new ArgumentException("invalid peer id", nameof(peerId));
-        if (string.IsNullOrEmpty(sourceEndpoint) || sourceEndpoint.Length > 64 || sourceEndpoint.Any(char.IsControl))
-            throw new ArgumentException("invalid endpoint", nameof(sourceEndpoint));
-        return Write("touch-peer-seen", ctx =>
-        {
-            var rows = ctx.Query("SELECT pairingState, lastSeenEndpoint, lastSeenUtc FROM Peer WHERE id = @id",
-                r => (State: r.GetString(0), Endpoint: r.IsDBNull(1) ? null : r.GetString(1), Seen: r.IsDBNull(2) ? null : r.GetString(2)),
-                ("@id", peerId));
-            if (rows.Count == 0) return (new PeerSeenResult(false, "unknown-or-untrusted-peer", false, null), false);
-            var row = rows[0];
-            if (!PairingStates.TryParse(row.State, out var state))
-            {
-                Interlocked.Increment(ref _unknownPairingStates);
-                _options.DiagnosticSink?.Invoke("unknown-pairing-state treated-as-untrusted");
-                return (new PeerSeenResult(false, "unknown-or-untrusted-peer", false, null), false);
-            }
-            if (state != PairingState.Paired) return (new PeerSeenResult(false, "unknown-or-untrusted-peer", false, null), false);
-
-            DateTime now = _options.UtcNow().ToUniversalTime();
-            bool endpointChanged = row.Endpoint != null && !string.Equals(row.Endpoint, sourceEndpoint, StringComparison.Ordinal);
-            bool write = row.Seen == null || row.Endpoint == null || endpointChanged
-                         || !TryParseIso(row.Seen, out var seen)      // unreadable stored time: treat as stale
-                         || seen > now                                // clock went backwards: do not stay stuck
-                         || now - seen >= MessagePathThrottle;
-            if (!write) return (new PeerSeenResult(false, "throttled", false, null), false);
-            ctx.Exec("UPDATE Peer SET lastSeenEndpoint = @e, lastSeenUtc = @t WHERE id = @id", ("@e", sourceEndpoint), ("@t", Iso(now)), ("@id", peerId));
-            return (new PeerSeenResult(true, "written", endpointChanged, endpointChanged ? row.Endpoint : null), true);
+        ValidateEndpoint(sourceEndpoint);
+        return Write("touch-peer-seen", ctx => {
+            var result = UpdateEvidence(ctx, peerId, sourceEndpoint, install: false, MessagePathThrottle);
+            return (result, result.Written);
         });
     }
 

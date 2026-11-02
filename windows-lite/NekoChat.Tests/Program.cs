@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using NekoChat.Core;
 
+if (NekoChat.Tests.StorageReceiveChecks.RunChild(args)) return;
+
 int checks=0;
 void Check(bool result,string description) {checks++;if(!result)throw new Exception(description);}
 void Reject(Action action,string name) {bool rejected=false;try{action();}catch(Exception ex)when(ex is ArgumentException or InvalidDataException or JsonException or InvalidOperationException or FormatException){rejected=true;}Check(rejected,name);}
@@ -119,4 +121,5 @@ checks += NekoChat.Tests.MessageFormattingChecks.Run();
 checks += NekoChat.Tests.RosterCsvChecks.Run();
 checks += NekoChat.Tests.RosterImportChecks.Run();
 checks += NekoChat.Tests.StorageFoundationChecks.Run();
+checks += await NekoChat.Tests.StorageReceiveChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
