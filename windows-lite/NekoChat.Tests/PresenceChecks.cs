@@ -11,6 +11,47 @@ internal static class PresenceChecks
     private const string Key = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private const string OtherKey = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     private static readonly PresenceWriteResult Written = new(true, "written");
+    public static int RunAbaProbe()
+    {
+        int checks = 0;
+        foreach (string change in new[] { "revoke-restore", "endpoint-restore", "binding-restore", "local-identity-restore" })
+        {
+            using var f = new DbFixture(); using var store = ChatStore.Open(f.Options); var setup = Setup(store, f); var controller = setup.Controller; var target = setup.Target;
+            var initial = controller.CompleteProbe(controller.TakeDueProbes().Start.Single(), new(true, f.PeerId, f.KeyHash)).Write!;
+            var initialResult = store.ApplyRosterPresenceEvidence(initial, () => controller.IsCurrent(initial));
+            if (!controller.CompletePersistence(initial, initialResult)) throw new Exception("ABA fixture did not establish initial verified presence.");
+            controller.UpdateTargets(store.GetPresenceTargets()); f.Clock.Advance(15);
+            var job = controller.CompleteProbe(controller.TakeDueProbes().Start.Single(), new(true, f.PeerId, f.KeyHash)).Write!;
+            string previousSeen = Text(f.Db, "SELECT lastSeenUtc FROM Peer"), previousInstall = Text(f.Db, "SELECT installEvidenceUtc FROM Peer");
+            using var other = ChatStore.Open(f.Options);
+            switch (change)
+            {
+                case "revoke-restore": other.SetPairingState(f.PeerId, PairingState.Revoked); other.SetPairingState(f.PeerId, PairingState.Paired); break;
+                case "endpoint-restore":
+                    other.SaveManualRosterEntry(target.RowId, new("Name", "1", false, "10.0.0.8"), Token(other));
+                    other.SaveManualRosterEntry(target.RowId, new("Name", "1", false, "10.0.0.1"), Token(other)); break;
+                case "binding-restore": other.BindPairedRosterPeer(target.RowId, null, Token(other)); other.BindPairedRosterPeer(target.RowId, f.PeerId, Token(other)); break;
+                case "local-identity-restore":
+                    using (var sql = new SqliteConnection("Data Source=" + f.Db + ";Pooling=False"))
+                    { sql.Open(); using var cmd = sql.CreateCommand(); cmd.CommandText = "UPDATE LocalIdentity SET id='Temporary'; UPDATE LocalIdentity SET id='Local'"; cmd.ExecuteNonQuery(); }
+                    break;
+            }
+            var result = store.ApplyRosterPresenceEvidence(job, () => controller.IsCurrent(job));
+            Console.WriteLine($"Presence ABA {change}: {result.Reason}");
+            checks++;
+            if (result.Written || result.Reason != "stale-target" || controller.CompletePersistence(job, result) || Text(f.Db, "SELECT lastSeenUtc FROM Peer") != previousSeen ||
+                Text(f.Db, "SELECT installEvidenceUtc FROM Peer") != previousInstall)
+                throw new Exception("Presence ABA must reject the old job after " + change + "; observed " + result.Reason);
+            controller.UpdateTargets(store.GetPresenceTargets());
+            if (controller.GetSnapshot(target.RowId).Presence != PresenceStatus.Unknown) throw new Exception("Revision refresh must invalidate old Online after " + change);
+            var fresh = controller.CompleteProbe(controller.TakeDueProbes().Start.Single(), new(true, f.PeerId, f.KeyHash)).Write!;
+            var accepted = store.ApplyRosterPresenceEvidence(fresh, () => controller.IsCurrent(fresh));
+            if (!controller.CompletePersistence(fresh, accepted)) throw new Exception("Fresh revision proof must recover after " + change);
+            DateTime? liveSeen = controller.GetSnapshot(target.RowId).LastSeenUtc; controller.UpdateTargets(store.GetPresenceTargets());
+            if (controller.GetSnapshot(target.RowId).LastSeenUtc != liveSeen) throw new Exception("Throttled DB snapshot cannot rewind live seen time.");
+        }
+        return checks;
+    }
     public static async Task<int> Run()
     {
         int checks = 0;

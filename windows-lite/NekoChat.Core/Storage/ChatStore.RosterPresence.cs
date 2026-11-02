@@ -6,7 +6,7 @@ namespace NekoChat.Core.Storage;
 
 public sealed partial class ChatStore
 {
-    private const string PresenceTargetSql = "SELECT r.id,r.peerId,p.publicKey,p.pairingState,r.endpoint,p.lastSeenEndpoint,l.id,p.installEvidence,p.lastSeenUtc FROM RosterEntry r LEFT JOIN Peer p ON p.id=r.peerId LEFT JOIN LocalIdentity l ON l.singleton=1";
+    private const string PresenceTargetSql = "SELECT r.id,r.peerId,p.publicKey,p.pairingState,r.endpoint,p.lastSeenEndpoint,l.id,p.installEvidence,p.lastSeenUtc,ls.revision,ps.revision,rs.revision FROM RosterEntry r LEFT JOIN Peer p ON p.id=r.peerId LEFT JOIN LocalIdentity l ON l.singleton=1 JOIN LocalSecurityRevision ls ON ls.singleton=1 LEFT JOIN PeerSecurityRevision ps ON ps.peerId=r.peerId JOIN RosterSecurityRevision rs ON rs.rosterId=r.id";
 
     public IReadOnlyList<PresenceTarget> GetPresenceTargets() => Read(c => {
         using var cmd = c.CreateCommand(); cmd.CommandText = PresenceTargetSql + " ORDER BY r.id";
@@ -26,6 +26,7 @@ public sealed partial class ChatStore
             if (rows.Count != 1) return (new PresenceWriteResult(false, "stale-target"), false);
             var current = rows[0]; var expected = job.Target;
             if (current.PeerId != expected.PeerId || current.DeclaredEndpoint != expected.DeclaredEndpoint || current.ObservedEndpoint != expected.ObservedEndpoint ||
+                current.LocalRevision != expected.LocalRevision || current.PeerRevision != expected.PeerRevision || current.RosterRevision != expected.RosterRevision ||
                 current.LocalIdentityId is null || current.LocalIdentityId != expected.LocalIdentityId)
                 return (new PresenceWriteResult(false, "stale-target"), false);
             if (current.Pairing != PairingState.Paired) return (new PresenceWriteResult(false, "unknown-or-untrusted-peer"), false);
@@ -42,6 +43,7 @@ public sealed partial class ChatStore
         DateTime? seen = !r.IsDBNull(8) && TryParseIso(r.GetString(8), out var utc) ? utc : null;
         return new(r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1), fingerprint, state,
             r.IsDBNull(4) ? null : r.GetString(4), r.IsDBNull(5) ? null : r.GetString(5), r.IsDBNull(6) ? null : r.GetString(6),
-            !r.IsDBNull(7) && r.GetString(7) == "appVerified" ? InstalledStatus.ConfirmedInstalled : InstalledStatus.Unknown, seen);
+            !r.IsDBNull(7) && r.GetString(7) == "appVerified" ? InstalledStatus.ConfirmedInstalled : InstalledStatus.Unknown, seen,
+            r.GetInt64(9), r.IsDBNull(10) ? 0 : r.GetInt64(10), r.GetInt64(11));
     }
 }

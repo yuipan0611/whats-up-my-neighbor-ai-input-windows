@@ -82,7 +82,8 @@ internal sealed record Migration(int ToVersion, Action<WriteContext> Apply, bool
         ) STRICT;
         """;
     internal static Migration V4 { get; } = new(4, ctx => ctx.Exec(LegacyRosterSchema));
-    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2, V3, V4 };
+    internal static Migration V5 { get; } = new(5, ctx => ctx.Exec(SecurityRevisionSchema.Sql));
+    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2, V3, V4, V5 };
 
     internal static string ReadSchemaV1()
     {

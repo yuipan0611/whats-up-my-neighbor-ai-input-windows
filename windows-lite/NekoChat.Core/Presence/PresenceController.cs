@@ -52,12 +52,13 @@ public sealed class PresenceController
                     continue;
                 }
                 var old = row.Target;
-                bool identitySame = old.PeerId == target.PeerId && old.KeySha256 == target.KeySha256 && old.Pairing == target.Pairing && old.LocalIdentityId == target.LocalIdentityId;
-                bool changed = !identitySame || old.DeclaredEndpoint != target.DeclaredEndpoint || old.ObservedEndpoint != target.ObservedEndpoint;
+                bool identitySame = old.PeerId == target.PeerId && old.KeySha256 == target.KeySha256 && old.Pairing == target.Pairing && old.LocalIdentityId == target.LocalIdentityId &&
+                    old.LocalRevision == target.LocalRevision && old.PeerRevision == target.PeerRevision;
+                bool changed = !identitySame || old.RosterRevision != target.RosterRevision || old.DeclaredEndpoint != target.DeclaredEndpoint || old.ObservedEndpoint != target.ObservedEndpoint;
                 if (changed)
                 {
                     Cancel(row, cancel); row.Generation = Next(ref _generation); row.Failures = 0; row.Suppressed = false; row.ScheduleAt = now; row.Delay = TimeSpan.Zero;
-                    if (!identitySame || old.EffectiveEndpoint != target.EffectiveEndpoint && target.EffectiveEndpoint != row.VerifiedEndpoint)
+                    if (!identitySame || old.RosterRevision != target.RosterRevision || old.EffectiveEndpoint != target.EffectiveEndpoint && target.EffectiveEndpoint != row.VerifiedEndpoint)
                     { row.LastVerified = null; row.VerifiedEndpoint = null; }
                     row.LastResponse = row.Conflict = null;
                 }
@@ -65,7 +66,7 @@ public sealed class PresenceController
                 else
                 {
                     if (row.Installed != InstalledStatus.ConfirmedInstalled) row.Installed = target.RestoredInstalled;
-                    row.LastSeenUtc = target.LastSeenUtc ?? row.LastSeenUtc;
+                    if (row.LastVerified is null) row.LastSeenUtc = target.LastSeenUtc ?? row.LastSeenUtc;
                 }
                 row.Target = target; row.Order = i; row.Active = Active(target.RowId);
             }
@@ -254,6 +255,7 @@ public sealed class PresenceController
     private static void Validate(PresenceTarget t)
     {
         if (!StoreIds.IsValid(t.RowId) || t.PeerId is not null && !StoreIds.IsValid(t.PeerId) || t.LocalIdentityId is not null && !StoreIds.IsValid(t.LocalIdentityId) ||
+            t.LocalRevision < 0 || t.PeerRevision < 0 || t.RosterRevision < 0 ||
             t.KeySha256 is not null && !ValidKeyHash(t.KeySha256) || t.Pairing.HasValue && !Enum.IsDefined(t.Pairing.Value) || !Enum.IsDefined(t.RestoredInstalled) ||
             t.DeclaredEndpoint is not null && !RosterFields.ValidEndpoint(t.DeclaredEndpoint) || t.PeerId is null && (t.KeySha256 is not null || t.Pairing.HasValue))
             throw new ArgumentException("Invalid presence target.");

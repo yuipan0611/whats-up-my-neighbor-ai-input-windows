@@ -10,6 +10,7 @@ if (NekoChat.Tests.StorageReadChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageLegacyRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageBackupChecks.RunChild(args)) return;
+if (args.SequenceEqual(new[] { "--presence-aba-probe" })) { NekoChat.Tests.PresenceChecks.RunAbaProbe(); return; }
 
 int checks=0;
 void Check(bool result,string description) {checks++;if(!result)throw new Exception(description);}
@@ -136,4 +137,6 @@ checks += await NekoChat.Tests.StorageRosterChecks.Run();
 checks += await NekoChat.Tests.StorageLegacyRosterChecks.Run();
 checks += NekoChat.Tests.StorageBackupChecks.Run();
 checks += await NekoChat.Tests.PresenceChecks.Run();
+checks += NekoChat.Tests.PresenceChecks.RunAbaProbe();
+checks += await NekoChat.Tests.SecurityRevisionChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");

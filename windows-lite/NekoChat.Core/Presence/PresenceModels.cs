@@ -8,7 +8,8 @@ public enum PresenceStatus { Unknown, Online, Offline }
 public enum ProbeFailure { Network, UnverifiedHello, KeyMismatch, CapabilityMismatch }
 public sealed record PresenceTarget(string RowId, string? PeerId, string? KeySha256, PairingState? Pairing,
     string? DeclaredEndpoint, string? ObservedEndpoint, string? LocalIdentityId,
-    InstalledStatus RestoredInstalled = InstalledStatus.Unknown, DateTime? LastSeenUtc = null)
+    InstalledStatus RestoredInstalled = InstalledStatus.Unknown, DateTime? LastSeenUtc = null,
+    long LocalRevision = 0, long PeerRevision = 0, long RosterRevision = 0)
 {
     public string? EffectiveEndpoint => ObservedEndpoint is not null && RosterFields.ValidEndpoint(ObservedEndpoint) ? ObservedEndpoint : DeclaredEndpoint;
 }

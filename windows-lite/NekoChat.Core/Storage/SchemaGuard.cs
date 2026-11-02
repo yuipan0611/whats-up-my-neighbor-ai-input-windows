@@ -9,6 +9,7 @@ internal static class SchemaGuard
     private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV2 = new(() => CreateExpected(2));
     private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV3 = new(() => CreateExpected(3));
     private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV4 = new(() => CreateExpected(4));
+    private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV5 = new(() => CreateExpected(5));
 
     internal static long Inspect(SqliteConnection connection, int latestVersion)
     {
@@ -18,10 +19,10 @@ internal static class SchemaGuard
                 fromVersion: checked((int)version), toVersion: latestVersion);
         var actual = Definitions(connection);
         if (version == 0 && Scalar(connection, "SELECT count(*) FROM sqlite_master") == 0) return 0;
-        var expected = version >= 4 ? ExpectedV4.Value : version == 3 ? ExpectedV3.Value : version == 2 ? ExpectedV2.Value : ExpectedV1.Value;
+        var expected = version >= 5 ? ExpectedV5.Value : version == 4 ? ExpectedV4.Value : version == 3 ? ExpectedV3.Value : version == 2 ? ExpectedV2.Value : ExpectedV1.Value;
         var byName = actual.ToDictionary(d => d.Name, StringComparer.Ordinal);
         if (version < 1 || expected.Any(d => !byName.TryGetValue(d.Name, out var found) || found != d) ||
-            version <= 4 && actual.Count != expected.Count)
+            version <= 5 && actual.Count != expected.Count)
             throw new StoreException(StoreErrorKind.UnrecognizedDatabase, StoreErrors.Describe(StoreErrorKind.UnrecognizedDatabase));
         if (Scalar(connection, "SELECT count(*) FROM SchemaVersion") != version ||
             Scalar(connection, "SELECT coalesce(min(version),0) FROM SchemaVersion") != 1 ||
@@ -29,6 +30,10 @@ internal static class SchemaGuard
             throw new StoreException(StoreErrorKind.Corrupt, "Schema version records are inconsistent.");
         if (version >= 3 && Scalar(connection, "SELECT count(*) FROM ReadReceiptPolicy WHERE singleton=1") != 1)
             throw new StoreException(StoreErrorKind.Corrupt, "Read receipt policy is missing.");
+        if (version >= 5 && (Scalar(connection, "SELECT count(*) FROM LocalSecurityRevision WHERE singleton=1") != 1 ||
+            Scalar(connection, "SELECT count(*) FROM Peer p WHERE NOT EXISTS(SELECT 1 FROM PeerSecurityRevision s WHERE s.peerId=p.id)") != 0 ||
+            Scalar(connection, "SELECT count(*) FROM RosterEntry r WHERE NOT EXISTS(SELECT 1 FROM RosterSecurityRevision s WHERE s.rosterId=r.id)") != 0))
+            throw new StoreException(StoreErrorKind.Corrupt, "Security revision records are missing.");
         return version;
     }
 
@@ -71,6 +76,11 @@ internal static class SchemaGuard
         if (version >= 4)
         {
             command.CommandText = Migration.LegacyRosterSchema;
+            command.ExecuteNonQuery();
+        }
+        if (version >= 5)
+        {
+            command.CommandText = SecurityRevisionSchema.Sql;
             command.ExecuteNonQuery();
         }
         return Definitions(memory).AsReadOnly();

@@ -50,6 +50,8 @@ public interface IChatStore : IDisposable
     BackupMaintenanceResult MaintainBackups();
     IReadOnlyList<NekoChat.Core.Presence.PresenceTarget> GetPresenceTargets();
     PresenceWriteResult ApplyRosterPresenceEvidence(NekoChat.Core.Presence.PresenceWriteJob job, Func<bool> stillCurrent);
+    PeerSecuritySnapshot GetPeerSecuritySnapshot(string peerId);
+    PeerSecurityChange SetPairingStateIfCurrent(PeerSecuritySnapshot expected, PairingState next, Func<bool> stillCurrent);
 
     StoreDiagnostics GetDiagnostics();
 }

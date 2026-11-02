@@ -23,7 +23,7 @@ internal static class StorageTombstoneChecks
             string? forcedId = null; int allocations = 0;
             using (var upgraded = ChatStore.Open(new(root) { NewId = () => { allocations++; return forcedId ?? Guid.NewGuid().ToString("D"); } }))
             {
-                Check(Number(db, "PRAGMA user_version") == 4 && upgraded.GetDraftState(a) is { RawText: "preserve on upgrade", Revision: 4 }, "real v1 upgrade preserves draft guards and body");
+                Check(Number(db, "PRAGMA user_version") == 5 && upgraded.GetDraftState(a) is { RawText: "preserve on upgrade", Revision: 4 }, "real v1 upgrade preserves draft guards and body");
                 string backup = Directory.GetFiles(Path.Combine(root, "backup"), "*.db").Single();
                 Check(Number(backup, "PRAGMA user_version") == 1 && Number(backup, "SELECT count(*) FROM Draft") == 1, "upgrade creates readable original-v1 backup");
                 Check(upgraded.ReceiveVerifiedMessage(new("A", "old", "Local", "original body", SourceEndpoint: "10.0.0.1")) is Stored, "incoming exists before clear");

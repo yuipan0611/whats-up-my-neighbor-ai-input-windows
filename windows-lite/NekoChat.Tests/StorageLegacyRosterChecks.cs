@@ -59,9 +59,9 @@ internal static class StorageLegacyRosterChecks
                 v3.BindPairedRosterPeer(id, "A", Token(v3));
             }
             using var current = ChatStore.Open(f.Options);
-            Check(!current.LegacyRosterImportCompleted() && Number(f.Db, "PRAGMA user_version") == 4, "real v3-to-v4 migration leaves bootstrap pending");
+            Check(!current.LegacyRosterImportCompleted() && Number(f.Db, "PRAGMA user_version") == 5, "real v3-to-current migration leaves bootstrap pending");
             Check(current.GetReadReceiptPolicy() is { Enabled: true, Generation: 1 } && current.ListPendingReadReceipts().Single().MessageId == "history",
-                "v4 migration preserves the existing privacy preference and allowed receipt");
+                "current migration preserves the existing privacy preference and allowed receipt");
             Check(current.ImportLegacyRoster(Valid) is { Added: 1, Skipped: 1 }, "existing endpoint wins without overwrite");
             var old = current.GetRosterSnapshot().Single(r => r.Entry.Endpoint == "10.0.0.1");
             Check(old.Entry is { DisplayName: "Keep manual label", StudentNumber: "01", IsTeacher: true, PeerId: "A" } && old.Source == "manual" && Number(f.Db, "SELECT count(*) FROM Message") == 1,
