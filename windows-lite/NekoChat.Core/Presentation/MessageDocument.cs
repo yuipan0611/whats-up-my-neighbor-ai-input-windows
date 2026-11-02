@@ -3,24 +3,28 @@ using System.Collections.ObjectModel;
 namespace NekoChat.Core.Presentation;
 
 public enum MessageBlockKind { Text, Code }
+public enum CodeCopyNewlines { Preserve, Lf, CrLf }
 
 public readonly record struct MessageTextRange(int Start, int Length);
 
 public sealed class MessageBlock
 {
     internal MessageBlock(MessageBlockKind kind, MessageTextRange rawRange,
-        MessageTextRange contentRange, string? language)
+        MessageTextRange contentRange, string? language, bool isClosed = true)
     {
         Kind = kind;
         RawRange = rawRange;
         ContentRange = contentRange;
         Language = language;
+        IsClosed = isClosed;
     }
 
     public MessageBlockKind Kind { get; }
     public MessageTextRange RawRange { get; }
     public MessageTextRange ContentRange { get; }
     public string? Language { get; }
+    /// <summary>False only for a code fence that reaches the end of the message without a closing delimiter.</summary>
+    public bool IsClosed { get; }
 }
 
 /// <summary>
@@ -51,11 +55,21 @@ public sealed class MessageDocument
         return Source.Substring(range.Start, range.Length);
     }
 
-    public string CopyCode(int blockIndex)
+    public string CopyCode(int blockIndex) => CopyCode(blockIndex, CodeCopyNewlines.Preserve);
+
+    public string CopyCode(int blockIndex, CodeCopyNewlines newlines)
     {
         if (Blocks[blockIndex].Kind != MessageBlockKind.Code)
             throw new InvalidOperationException("The selected block is not code.");
-        return GetContent(blockIndex);
+        string content = GetContent(blockIndex);
+        return newlines switch
+        {
+            CodeCopyNewlines.Preserve => content,
+            CodeCopyNewlines.Lf => content.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n'),
+            CodeCopyNewlines.CrLf => content.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n')
+                .Replace("\n", "\r\n", StringComparison.Ordinal),
+            _ => throw new ArgumentOutOfRangeException(nameof(newlines))
+        };
     }
 
     public static MessageDocument Parse(string source)
@@ -92,9 +106,16 @@ public sealed class MessageDocument
                 search = closing.Next;
             }
 
-            // An unclosed fence is displayed verbatim, including the opening line.
-            // Stop here so many unclosed candidates cannot cause repeated rescans.
-            if (!closed) break;
+            if (!closed)
+            {
+                AddText(blocks, plainStart, position - plainStart);
+                blocks.Add(new MessageBlock(MessageBlockKind.Code,
+                    new(position, source.Length - position),
+                    new(opening.Next, source.Length - opening.Next), language, isClosed: false));
+                plainStart = source.Length;
+                // The unclosed body owns the remaining text, so suffixes are never rescanned.
+                break;
+            }
         }
         AddText(blocks, plainStart, source.Length - plainStart);
         return new MessageDocument(source, blocks);
