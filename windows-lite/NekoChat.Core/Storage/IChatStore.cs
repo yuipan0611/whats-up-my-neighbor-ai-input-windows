@@ -2,6 +2,9 @@ namespace NekoChat.Core.Storage;
 
 public interface IChatStore : IDisposable
 {
+    LocalIdentitySnapshot GetLocalIdentitySnapshot();
+    bool ProvisionLocalIdentityIfCurrent(LocalIdentitySnapshot expected, string id, byte[] publicKey, string credentialRef, Func<bool> stillCurrent);
+    ReplaceIdentityResult ReplaceLocalIdentityIfCurrent(LocalIdentitySnapshot expected, string newId, byte[] newPublicKey, string newCredentialRef, Func<bool> stillCurrent);
     /// <summary>Creates the identity row if absent; if present returns its id untouched (never overwrites). Private keys are never passed in.</summary>
     string EnsureLocalIdentity(string? id = null, byte[]? publicKey = null, string? credentialRef = null);
 

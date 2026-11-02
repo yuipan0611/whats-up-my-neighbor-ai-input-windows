@@ -315,12 +315,16 @@ public sealed partial class ChatStore : IChatStore
     }
 
     public ReplaceIdentityResult ReplaceLocalIdentity(string newId, byte[]? newPublicKey, string? newCredentialRef)
+        => ReplaceLocalIdentityCore(newId, newPublicKey, newCredentialRef, null, null);
+
+    private ReplaceIdentityResult ReplaceLocalIdentityCore(string newId, byte[]? newPublicKey, string? newCredentialRef, LocalIdentitySnapshot? expected, Func<bool>? stillCurrent)
     {
         if (!StoreIds.IsValid(newId)) throw new ArgumentException("invalid identity id", nameof(newId));
         if (newPublicKey is { Length: 0 }) throw new ArgumentException("publicKey must not be empty", nameof(newPublicKey));
         if (newCredentialRef is { Length: 0 }) throw new ArgumentException("credentialRef must not be empty", nameof(newCredentialRef));
         return Write<ReplaceIdentityResult>("replace-identity", ctx =>
         {
+            if (expected is not null && (!stillCurrent!() || !LocalIdentityMatches(ctx, expected))) return (new IdentityChangeDiscarded("stale-identity"), false);
             var current = ctx.Query("SELECT id, publicKey, createdUtc FROM LocalIdentity WHERE singleton = 1",
                 r => (Id: r.GetString(0), Key: r.IsDBNull(1) ? null : (byte[])r.GetValue(1), Created: r.GetString(2)));
             if (current.Count == 0) return (new NoIdentityToReplace(), false);
@@ -336,7 +340,7 @@ public sealed partial class ChatStore : IChatStore
             int superseded = ctx.Exec("UPDATE ManualSendAttempt SET attemptState = 'superseded', updatedUtc = @now WHERE attemptState IN ('sending','unconfirmed','failed')", ("@now", ctx.NowUtc));
             int dropped = ctx.Exec("DELETE FROM ReceiptOutbox");
             return (new IdentityReplaced(old.Id, newId, superseded, dropped), true);
-        });
+        }, commitGuard: stillCurrent, guardRejected: stillCurrent is null ? null : () => new IdentityChangeDiscarded("stale-identity"));
     }
 
     public IdentityCheckResult CheckLocalIdentity(IIdentityKeyProbe probe, Func<byte[], string>? deriveId = null)

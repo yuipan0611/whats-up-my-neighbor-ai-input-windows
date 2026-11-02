@@ -213,7 +213,11 @@ public sealed class V2TcpListener : IAsyncDisposable
         _receiver?.SetReady(false); _lifetime.Cancel(); _listener.Stop(); Volatile.Write(ref _running, 0);
         if (_loop is not null) await _loop.ConfigureAwait(false);
         Task[] tasks; lock (_gate) tasks = _workers.ToArray();
-        await Task.WhenAll(tasks).ConfigureAwait(false); _lifetime.Dispose();
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+        // Worker completion can resume WhenAll before its removal continuation takes the gate.
+        // The accept loop has drained, so no new registrations can race this final accounting.
+        lock (_gate) _workers.Clear();
+        _lifetime.Dispose();
     }
     internal sealed class SourceRateLimit(TimeProvider clock, int limit, int capacity)
     {

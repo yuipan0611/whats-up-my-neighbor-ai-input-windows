@@ -3,4 +3,5 @@
  <ItemGroup><ProjectReference Include="../NekoChat.Core/NekoChat.Core.csproj"/><ProjectReference Include="../NekoChat.Animation/NekoChat.Animation.csproj"/><Content Include="../../Examples/CatAppearance/*.json" Link="Coats/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"/><Content Include="../NekoChat.Windows/Assets/tuxedo.bin.gz" Link="Assets/tuxedo.bin.gz" CopyToOutputDirectory="PreserveNewest"/><Content Include="../NekoChat.Windows/Assets/tuxedo-reference.json" Link="Assets/tuxedo-reference.json" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
   <ItemGroup><Compile Include="../../Shared/UpdateDownloadChecks.cs" Link="UpdateDownloadChecks.cs" /></ItemGroup>
   <ItemGroup><None Update="Fixtures/V2/vectors-v3.json" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><Compile Include="../NekoChat.Windows/Identity/IdentityFileVault.cs" Link="WindowsIdentity/IdentityFileVault.cs" /></ItemGroup>
 </Project>
