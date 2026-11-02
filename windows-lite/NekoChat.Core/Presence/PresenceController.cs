@@ -107,14 +107,15 @@ public sealed class PresenceController
         }
     }
 
-    public PresenceWorkBatch TakeDueProbes()
+    public PresenceWorkBatch TakeDueProbes(int availableSlots = 4)
     {
+        if (availableSlots is < 0 or > 4) throw new ArgumentOutOfRangeException(nameof(availableSlots));
         lock (_gate)
         {
             long now = Now(); var cancel = new List<long>();
             foreach (var row in _rows.Values)
                 if (row.Probe is { } probe && Elapsed(probe.StartedTimestamp, now) >= Deadline) { Cancel(row, cancel); Failed(row, now); }
-            int capacity = 4 - _rows.Values.Count(r => r.Probe is not null); var start = new List<PresenceProbe>();
+            int capacity = Math.Min(availableSlots, 4 - _rows.Values.Count(r => r.Probe is not null)); var start = new List<PresenceProbe>();
             foreach (var (id, row) in _rows.OrderByDescending(p => p.Key == _current).ThenBy(p => p.Value.Order))
             {
                 if (capacity == 0) break;
@@ -176,6 +177,12 @@ public sealed class PresenceController
     }
 
     /// <summary>Use inside the storage transaction after its writer wait and again immediately before commit.</summary>
+    public bool IsCurrent(PresenceProbe probe)
+    {
+        ArgumentNullException.ThrowIfNull(probe);
+        lock (_gate) { long now = Now(); return TryCurrentProbe(probe, out _) && Elapsed(probe.StartedTimestamp, now) < Deadline; }
+    }
+
     public bool IsCurrent(PresenceWriteJob job)
     {
         ArgumentNullException.ThrowIfNull(job);

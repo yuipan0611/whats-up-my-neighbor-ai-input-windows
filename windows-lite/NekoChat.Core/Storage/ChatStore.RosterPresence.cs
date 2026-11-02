@@ -15,6 +15,15 @@ public sealed partial class ChatStore
         return targets.AsReadOnly();
     });
 
+    public PresenceTarget? GetPresenceTarget(string rowId)
+    {
+        if (!StoreIds.IsValid(rowId)) throw new ArgumentException("Invalid roster row.", nameof(rowId));
+        return Read(c => {
+            using var cmd = c.CreateCommand(); cmd.CommandText = PresenceTargetSql + " WHERE r.id=@row"; cmd.Parameters.AddWithValue("@row", rowId);
+            using var r = cmd.ExecuteReader(); return r.Read() ? MapPresenceTarget(r) : null;
+        });
+    }
+
     /// <summary>The actual v2 verifier produced this job. The controller guard is evaluated inside the transaction and immediately before COMMIT.</summary>
     public PresenceWriteResult ApplyRosterPresenceEvidence(PresenceWriteJob job, Func<bool> stillCurrent)
     {

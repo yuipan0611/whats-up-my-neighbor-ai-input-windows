@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using NekoChat.Core.Storage;
+using NekoChat.Core.Presence;
 
 namespace NekoChat.Core.V2;
 
@@ -22,13 +23,43 @@ public sealed class V2LanClient : IDisposable
     private readonly V2Verifier _verifier;
     private readonly V2ClientOptions _options;
     private readonly HttpClient _http;
-    public V2LanClient(IChatStore store, V2PacketWriter writer, V2ClientOptions? options = null)
+    public V2LanClient(IChatStore store, V2PacketWriter writer, V2ClientOptions? options = null) : this(store, writer, options, new SocketsHttpHandler()) { }
+    internal V2LanClient(IChatStore store, V2PacketWriter writer, V2ClientOptions? options, SocketsHttpHandler handler)
     {
         ArgumentNullException.ThrowIfNull(store); ArgumentNullException.ThrowIfNull(writer);
         _store = store; _writer = writer; _verifier = new(writer.MaxTextBytes); _options = options ?? new();
         if (_options.ConnectTimeout <= TimeSpan.Zero || _options.ConnectTimeout > _options.RequestTimeout || _options.RequestTimeout > _options.OperationTimeout ||
             _options.OperationTimeout > TimeSpan.FromMinutes(1)) throw new ArgumentException("Invalid client timeouts.", nameof(options));
-        _http = new(new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = false, ConnectTimeout = _options.ConnectTimeout, MaxResponseHeadersLength = 8 }) { Timeout = Timeout.InfiniteTimeSpan };
+        handler.AllowAutoRedirect = false; handler.UseProxy = false; handler.ConnectTimeout = _options.ConnectTimeout; handler.MaxResponseHeadersLength = 8;
+        _http = new(handler) { Timeout = Timeout.InfiniteTimeSpan };
+    }
+    /// <summary>One fresh signed hello only. No automatic pairing, message transmission or retry.</summary>
+    public async Task<V2Verification<V2HelloInfo>> ProbeAsync(PresenceTarget target, int port, Func<bool> sessionCurrent, CancellationToken cancellation = default)
+    {
+        ArgumentNullException.ThrowIfNull(target); ArgumentNullException.ThrowIfNull(sessionCurrent);
+        if (target.EffectiveEndpoint is not { } ip) return new("missing_endpoint"); ValidateEndpoint(ip, port);
+        try
+        {
+            bool Current() => sessionCurrent() && target.SameSecurityRoute(_store.GetPresenceTarget(target.RowId));
+            if (!Current()) return new("stale_target");
+            var captured = _store.GetPeerVerificationContext(target.PeerId ?? _writer.PeerId);
+            if (target.LocalIdentityId != _writer.PeerId || captured.Security.LocalIdentityId != _writer.PeerId || captured.LocalSpkiBase64 != _writer.PublicSpkiBase64 || captured.Security.LocalRevision != target.LocalRevision)
+                return new("receiver_not_ready");
+            if (target.PeerId is not null && (captured.Security.Pairing != target.Pairing || captured.Security.KeySha256 != target.KeySha256 || (captured.Security.PeerRevision ?? 0) != target.PeerRevision)) return new("stale_target");
+            if (target.Pairing == PairingState.Paired && captured.PeerSpkiBase64 is null) return new("hello_key_mismatch");
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation); timeout.CancelAfter(TimeSpan.FromSeconds(2));
+            string nonce = V2PacketWriter.NewClientNonce();
+            var response = await ExchangeAsync(ip, port, "/nekochat/v2/hello", _writer.HelloRequest(nonce), timeout.Token).ConfigureAwait(false);
+            if (!Current()) return new("stale_target");
+            if (response.Error is not null) return new(response.Error);
+            var hello = _verifier.VerifyHello(response.Body, new(nonce, new(target.Pairing is { } state ? PairingStates.ToWire(state) : null, target.PeerId is null ? null : captured.PeerSpkiBase64), new[] { "msg.sign" }));
+            if (hello.Success && target.Pairing == PairingState.Paired && hello.Value!.ReceiverId != target.PeerId) return new("hello_key_mismatch");
+            return Current() ? hello : new("stale_target");
+        }
+        catch (OperationCanceledException) { return new(cancellation.IsCancellationRequested ? "cancelled" : "network_unconfirmed"); }
+        catch (Exception e) when (e is HttpRequestException or IOException) { return new("network_unconfirmed"); }
+        catch (StoreException) { return new("storage_unavailable"); }
+        catch (ObjectDisposedException) { return new("receiver_not_ready"); }
     }
     public async Task<V2SendResult> SendPreparedAsync(PreparedSend prepared, string targetIp, int port, Func<bool> sessionCurrent, CancellationToken cancellation = default)
     {

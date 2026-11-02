@@ -295,7 +295,7 @@ internal static class V2TcpChecks
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
         public override long GetTimestamp() => Ticks;
     }
-    private sealed class ScriptedServer : IAsyncDisposable
+    internal sealed class ScriptedServer : IAsyncDisposable
     {
         private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
         private readonly CancellationTokenSource _stop = new();
@@ -318,7 +318,11 @@ internal static class V2TcpChecks
                     int length = int.Parse(lines.Single(l => l.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)).Split(':')[1]);
                     if (length is < 1 or > 400000) throw new Exception("fixture request limit");
                     byte[] body = new byte[length]; await stream.ReadExactlyAsync(body, _stop.Token); var reply = await handler(path, body);
-                    if (reply is not null) await V2TcpListener.RespondAsync(stream, reply, _stop.Token);
+                    if (reply is not null)
+                    {
+                        try { await V2TcpListener.RespondAsync(stream, reply, _stop.Token); }
+                        catch (Exception e) when (e is IOException or SocketException) { /* Delayed reply may race the tested client's cancellation. */ }
+                    }
                 }
             }
             catch (Exception e) when (_stop.IsCancellationRequested && e is OperationCanceledException or SocketException or ObjectDisposedException) { }

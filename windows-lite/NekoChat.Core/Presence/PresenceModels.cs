@@ -12,6 +12,9 @@ public sealed record PresenceTarget(string RowId, string? PeerId, string? KeySha
     long LocalRevision = 0, long PeerRevision = 0, long RosterRevision = 0)
 {
     public string? EffectiveEndpoint => ObservedEndpoint is not null && RosterFields.ValidEndpoint(ObservedEndpoint) ? ObservedEndpoint : DeclaredEndpoint;
+    public bool SameSecurityRoute(PresenceTarget? other) => other is not null && RowId == other.RowId && PeerId == other.PeerId && KeySha256 == other.KeySha256 && Pairing == other.Pairing &&
+        DeclaredEndpoint == other.DeclaredEndpoint && ObservedEndpoint == other.ObservedEndpoint && LocalIdentityId == other.LocalIdentityId &&
+        LocalRevision == other.LocalRevision && PeerRevision == other.PeerRevision && RosterRevision == other.RosterRevision;
 }
 public sealed record PresenceSnapshot(InstalledStatus Installed, PresenceStatus Presence, bool EndpointResponds,
     bool AddressConflict, DateTime? LastSeenUtc, long Generation, int Failures, bool ProbeSuppressed);

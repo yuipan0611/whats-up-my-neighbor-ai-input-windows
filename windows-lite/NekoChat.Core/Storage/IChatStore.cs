@@ -49,6 +49,7 @@ public interface IChatStore : IDisposable
     IReadOnlyList<StoreBackupInfo> ListBackups();
     BackupMaintenanceResult MaintainBackups();
     IReadOnlyList<NekoChat.Core.Presence.PresenceTarget> GetPresenceTargets();
+    NekoChat.Core.Presence.PresenceTarget? GetPresenceTarget(string rowId);
     PresenceWriteResult ApplyRosterPresenceEvidence(NekoChat.Core.Presence.PresenceWriteJob job, Func<bool> stillCurrent);
     PeerSecuritySnapshot GetPeerSecuritySnapshot(string peerId);
     PeerVerificationContext GetPeerVerificationContext(string peerId);
