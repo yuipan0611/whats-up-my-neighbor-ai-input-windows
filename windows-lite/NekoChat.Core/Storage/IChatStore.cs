@@ -44,6 +44,8 @@ public interface IChatStore : IDisposable
     RosterMutationResult DeleteRosterEntry(string entryId, string expectedSnapshotToken);
     RosterMutationResult BindPairedRosterPeer(string entryId, string? peerId, string expectedSnapshotToken);
     RosterApplyResult ApplyRosterPreview(NekoChat.Core.Roster.RosterImportPreview preview);
+    bool LegacyRosterImportCompleted();
+    LegacyRosterImportResult ImportLegacyRoster(IReadOnlyList<LegacyRosterContact> contacts);
 
     StoreDiagnostics GetDiagnostics();
 }

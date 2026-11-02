@@ -75,7 +75,14 @@ internal sealed record Migration(int ToVersion, Action<WriteContext> Apply, bool
         DELETE FROM ReceiptOutbox;
         """;
     internal static Migration V3 { get; } = new(3, ctx => ctx.Exec(ReadPolicySchema));
-    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2, V3 };
+    internal const string LegacyRosterSchema = """
+        CREATE TABLE LegacyRosterImportState(
+          singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+          completedUtc TEXT NOT NULL
+        ) STRICT;
+        """;
+    internal static Migration V4 { get; } = new(4, ctx => ctx.Exec(LegacyRosterSchema));
+    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2, V3, V4 };
 
     internal static string ReadSchemaV1()
     {
