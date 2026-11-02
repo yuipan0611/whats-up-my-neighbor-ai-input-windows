@@ -36,11 +36,11 @@ internal static class StorageFoundationChecks
             using (var store = ChatStore.Open(new(area.Data)))
             {
                 string path = store.DatabasePath;
-                Check(Number(path, "PRAGMA user_version") == 1, "new database uses schema v1");
-                Check(Number(path, "SELECT count(*) FROM SchemaVersion") == 1, "one migration recorded");
+                Check(Number(path, "PRAGMA user_version") == 2, "new database uses schema v2");
+                Check(Number(path, "SELECT count(*) FROM SchemaVersion") == 2, "both migrations recorded");
                 Check(Text(path, "PRAGMA journal_mode") == "wal", "WAL persisted");
-                Check(Number(path, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*'") == 10, "all ten STRICT tables exist");
-                Check(Number(path, "SELECT sum(strict) FROM pragma_table_list WHERE name NOT GLOB 'sqlite_*'") == 10, "all application tables STRICT");
+                Check(Number(path, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*'") == 11, "all eleven STRICT tables exist");
+                Check(Number(path, "SELECT sum(strict) FROM pragma_table_list WHERE name NOT GLOB 'sqlite_*'") == 11, "all application tables STRICT");
                 Check(Number(path, "SELECT count(*) FROM Peer") == 0, "old settings never auto-pair");
                 using (var reader = store.OpenReadConnectionForTest())
                 {
@@ -198,13 +198,13 @@ internal static class StorageFoundationChecks
 
         using (var area = new Area())
         {
-            using (var store = ChatStore.Open(new(area.Data))) { store.EnsureLocalIdentity("old"); store.RegisterPeer("P", PairingState.Paired); }
+            using (var store = ChatStore.Open(new(area.Data) { Migrations = new[] { Migration.V1 } })) { store.EnsureLocalIdentity("old"); store.RegisterPeer("P", PairingState.Paired); }
             string path = Path.Combine(area.Data, "nekochat.db");
             string before = Hash(path);
             DateTime now = new(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
             string backupDirectory = Path.Combine(area.Data, "backup"); Directory.CreateDirectory(backupDirectory);
             string collision = Path.Combine(backupDirectory, "nekochat-v1-20260102T030405Z.db"); File.WriteAllText(collision, "preserve-existing-backup");
-            var migrations = Migration.Default.Concat(new[] { new Migration(2, ctx => { ctx.Exec("CREATE TABLE Partial(x INTEGER) STRICT"); throw new InvalidOperationException("synthetic failure"); }) }).ToArray();
+            var migrations = new[] { Migration.V1, new Migration(2, ctx => { ctx.Exec("CREATE TABLE Partial(x INTEGER) STRICT"); throw new InvalidOperationException("synthetic failure"); }) };
             Error(() => ChatStore.Open(new(area.Data) { UtcNow = () => now, Migrations = migrations }).Dispose(), StoreErrorKind.MigrationFailed, "failed migration reported");
             Check(Number(path, "PRAGMA user_version") == 1 && Number(path, "SELECT count(*) FROM sqlite_master WHERE name='Partial'") == 0 &&
                 Text(path, "SELECT id FROM LocalIdentity") == "old", "migration DDL and data rolled back");
@@ -299,7 +299,7 @@ internal static class StorageFoundationChecks
                 command.ExecuteNonQuery();
             }
             using var store = ChatStore.Open(new(area.Data));
-            Check(Number(path, "PRAGMA user_version") == 1, "recognized schema accepts Windows CRLF source line endings");
+            Check(Number(path, "PRAGMA user_version") == 2, "recognized Windows CRLF v1 schema upgrades to v2");
         }
         using (var area = new Area())
         {

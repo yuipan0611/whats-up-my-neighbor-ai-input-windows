@@ -55,7 +55,17 @@ internal sealed record Migration(int ToVersion, Action<WriteContext> Apply, bool
         ctx.Exec(ReadSchemaV1(), ("@now", ctx.NowUtc), ("@appVersion", ctx.AppVersion));
     });
 
-    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1 };
+    // Q-D12-TOMB: an additive migration keeps the frozen v1 schema byte-for-byte intact.
+    internal const string TombstoneSchema = """
+        CREATE TABLE ClearedMessage(
+          senderId TEXT NOT NULL CHECK (length(senderId) BETWEEN 1 AND 64),
+          messageId TEXT NOT NULL CHECK (length(messageId) BETWEEN 1 AND 64),
+          clearedUtc TEXT NOT NULL,
+          PRIMARY KEY(senderId,messageId)
+        ) STRICT;
+        """;
+    internal static Migration V2 { get; } = new(2, ctx => ctx.Exec(TombstoneSchema));
+    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2 };
 
     internal static string ReadSchemaV1()
     {

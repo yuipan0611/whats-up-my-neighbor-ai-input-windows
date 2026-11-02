@@ -186,7 +186,7 @@ public sealed partial class ChatStore
         {
             string candidate = _options.NewId();
             if (!StoreIds.IsUuid(candidate)) throw new InvalidOperationException("NewId produced an invalid message UUID.");
-            long taken = Convert.ToInt64(ctx.Scalar("SELECT (SELECT count(*) FROM ManualSendAttempt WHERE messageId=@id)+(SELECT count(*) FROM Message WHERE senderId=@sender AND messageId=@id)",
+            long taken = Convert.ToInt64(ctx.Scalar("SELECT (SELECT count(*) FROM ManualSendAttempt WHERE messageId=@id)+(SELECT count(*) FROM Message WHERE senderId=@sender AND messageId=@id)+(SELECT count(*) FROM ClearedMessage WHERE senderId=@sender AND messageId=@id)",
                 ("@id", candidate), ("@sender", sender)), CultureInfo.InvariantCulture);
             if (taken == 0) { id = candidate; break; }
         }

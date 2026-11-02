@@ -38,6 +38,10 @@ public sealed partial class ChatStore
                 if (epochValue is null) return (null, false);
                 long epoch = Convert.ToInt64(epochValue, CultureInfo.InvariantCulture);
                 if (epoch == long.MaxValue) throw new InvalidOperationException("Draft epoch exhausted.");
+                ctx.Exec("INSERT OR IGNORE INTO ClearedMessage(senderId,messageId,clearedUtc) SELECT senderId,messageId,@now FROM Message WHERE conversationId=@id",
+                    ("@now", ctx.NowUtc), ("@id", conversationId));
+                ctx.Exec("INSERT OR IGNORE INTO ClearedMessage(senderId,messageId,clearedUtc) SELECT senderId,messageId,@now FROM ManualSendAttempt WHERE conversationId=@id",
+                    ("@now", ctx.NowUtc), ("@id", conversationId));
                 int receipts = ctx.Exec("DELETE FROM ReceiptOutbox WHERE conversationId=@id", ("@id", conversationId));
                 int attempts = ctx.Exec("DELETE FROM ManualSendAttempt WHERE conversationId=@id", ("@id", conversationId));
                 int drafts = ctx.Exec("DELETE FROM Draft WHERE conversationId=@id", ("@id", conversationId));

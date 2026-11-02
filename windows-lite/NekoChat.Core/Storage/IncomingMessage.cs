@@ -9,6 +9,8 @@ public sealed record IncomingMessage(string VerifiedSenderPeerId, string Message
 public abstract record ReceiveResult;
 public sealed record Stored(string MessageId, long LocalSeq, int UnreadCountForConversation) : ReceiveResult;
 public sealed record Duplicate(string MessageId, long LocalSeq) : ReceiveResult;
+/// <summary>Previously cleared key. No history, unread, notification or presence evidence is recreated.</summary>
+public sealed record ClearedDuplicate(string MessageId) : ReceiveResult;
 public sealed record Conflict(string MessageId) : ReceiveResult;
 public sealed record WrongRecipient : ReceiveResult;
 public sealed record UntrustedPeer : ReceiveResult;

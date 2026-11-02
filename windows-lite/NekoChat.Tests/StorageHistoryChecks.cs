@@ -89,8 +89,10 @@ internal static class StorageHistoryChecks
                 store.BeginManualRetry(seed.Attempt, marker, a, 1, 10) is NothingToRetry && store.ListMessages(a).Items.Count == 0, "late ACK/read/retry never resurrect cleared rows");
             Check(!Contains(f.Db, marker) && !Contains(f.Db + "-wal", marker), "secure-delete and successful truncate remove unique text from current db and wal");
             Check(store.SaveDraft(a, "new edit", 1, 10).Saved, "fresh edit after clear uses returned epoch");
-            var resent = (Stored)store.ReceiveVerifiedMessage(new("A", "incoming", "Local", marker));
-            Check(resent.LocalSeq > seed.MaxSeq && store.GetUnreadCount(a) == 1, "explicit peer resend after local clear is accepted with a fresh non-reused local sequence");
+            Check(store.ReceiveVerifiedMessage(new("A", "incoming", "Local", marker)) is ClearedDuplicate && store.GetUnreadCount(a) == 0,
+                "explicit peer resend cannot resurrect a cleared key");
+            var resent = (Stored)store.ReceiveVerifiedMessage(new("A", "new-after-clear", "Local", "new message"));
+            Check(resent.LocalSeq > seed.MaxSeq && store.GetUnreadCount(a) == 1, "new key after clear gets a fresh non-reused local sequence");
             Check(store.ClearConversation(a).NewDraftEpoch == 2 && store.ClearConversation(a).NewDraftEpoch == 3, "repeated human clear advances epoch even when empty");
         }
         using (var f = new Fixture())
@@ -100,7 +102,7 @@ internal static class StorageHistoryChecks
             bool failed = false; try { store.ClearConversation(a); } catch (IOException) { failed = true; }
             faults.Before = null;
             Check(failed && Count(f.Db, "Message", a) == 3 && Count(f.Db, "Draft", a) == 1 && Count(f.Db, "ManualSendAttempt", a) == 2 &&
-                Count(f.Db, "ReceiptOutbox", a) == 1 && store.GetDraftState(a)!.Epoch == 0, "clear failure rolls back all content and guards");
+                Count(f.Db, "ReceiptOutbox", a) == 1 && Number(f.Db, "SELECT count(*) FROM ClearedMessage") == 0 && store.GetDraftState(a)!.Epoch == 0, "clear failure rolls back all content, tombstones and guards");
             Execute(f.Db, $"UPDATE Conversation SET draftEpoch={long.MaxValue} WHERE id='{a}'");
             Reject(() => store.ClearConversation(a), "clear cannot wrap epoch");
             Check(Count(f.Db, "Message", a) == 3, "epoch exhaustion preserves all content");
@@ -134,6 +136,9 @@ internal static class StorageHistoryChecks
             Check(Count(f.Db, "Message", a) == (after ? 0 : 3) && Count(f.Db, "ManualSendAttempt", a) == (after ? 0 : 2) &&
                 Count(f.Db, "ReceiptOutbox", a) == (after ? 0 : 1) && recovered.GetDraftState(a) is { Revision: 9 } state && state.Epoch == (after ? 1 : 0) &&
                 (state.RawText is null) == after, "kill leaves all four tables and epoch either entirely cleared or entirely preserved");
+            Check(Number(f.Db, "SELECT count(*) FROM ClearedMessage") == (after ? 4 : 0) &&
+                (recovered.ReceiveVerifiedMessage(new("A", "incoming", "Local", "kill marker")) is ClearedDuplicate) == after,
+                "clear tombstones share crash atomicity and survive reopen");
         }
         Check(children == 2, "two bounded clear children");
         Console.WriteLine($"Storage history: {checks} paging, clear, rollback and checkpoint checks passed; 2 killed children."); return checks;

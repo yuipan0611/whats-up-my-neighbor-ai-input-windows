@@ -35,6 +35,9 @@ public sealed partial class ChatStore
             return (new WrongRecipient(), false);
         string? state = ctx.Scalar("SELECT pairingState FROM Peer WHERE id=@id", ("@id", message.VerifiedSenderPeerId)) as string;
         if (state != "paired") return (new UntrustedPeer(), false);
+        if (Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM ClearedMessage WHERE senderId=@sender AND messageId=@id",
+            ("@sender", message.VerifiedSenderPeerId), ("@id", message.MessageId)), CultureInfo.InvariantCulture) != 0)
+            return (new ClearedDuplicate(message.MessageId), false);
         var prior = ctx.Query("SELECT localSeq,direction,recipientId,rawText,kind,reaction,fingerprintAlg,contentFingerprint FROM Message WHERE senderId=@sender AND messageId=@id",
             r => (Seq: r.GetInt64(0), Direction: r.GetString(1), Recipient: r.GetString(2), Text: r.GetString(3), Kind: r.GetString(4),
                 Reaction: r.IsDBNull(5) ? null : r.GetString(5), Algorithm: r.GetString(6), Fingerprint: (byte[])r.GetValue(7)),

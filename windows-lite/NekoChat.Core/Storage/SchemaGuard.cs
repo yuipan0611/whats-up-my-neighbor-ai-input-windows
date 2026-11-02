@@ -5,7 +5,8 @@ namespace NekoChat.Core.Storage;
 internal static class SchemaGuard
 {
     private sealed record Definition(string Type, string Name, string Table, string Sql);
-    private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV1 = new(CreateExpected);
+    private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV1 = new(() => CreateExpected(1));
+    private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV2 = new(() => CreateExpected(2));
 
     internal static long Inspect(SqliteConnection connection, int latestVersion)
     {
@@ -15,10 +16,10 @@ internal static class SchemaGuard
                 fromVersion: checked((int)version), toVersion: latestVersion);
         var actual = Definitions(connection);
         if (version == 0 && Scalar(connection, "SELECT count(*) FROM sqlite_master") == 0) return 0;
-        var expected = ExpectedV1.Value;
+        var expected = version >= 2 ? ExpectedV2.Value : ExpectedV1.Value;
         var byName = actual.ToDictionary(d => d.Name, StringComparer.Ordinal);
         if (version < 1 || expected.Any(d => !byName.TryGetValue(d.Name, out var found) || found != d) ||
-            version == 1 && actual.Count != expected.Count)
+            version <= 2 && actual.Count != expected.Count)
             throw new StoreException(StoreErrorKind.UnrecognizedDatabase, StoreErrors.Describe(StoreErrorKind.UnrecognizedDatabase));
         if (Scalar(connection, "SELECT count(*) FROM SchemaVersion") != version ||
             Scalar(connection, "SELECT coalesce(min(version),0) FROM SchemaVersion") != 1 ||
@@ -44,7 +45,7 @@ internal static class SchemaGuard
         return result;
     }
 
-    private static IReadOnlyList<Definition> CreateExpected()
+    private static IReadOnlyList<Definition> CreateExpected(int version)
     {
         // Ask the same SQLite engine to normalize the frozen schema; no disk file is opened or modified.
         using var memory = new SqliteConnection("Data Source=:memory:;Pooling=False");
@@ -53,6 +54,11 @@ internal static class SchemaGuard
         command.Parameters.AddWithValue("@now", "2000-01-01T00:00:00.000Z");
         command.Parameters.AddWithValue("@appVersion", "schema-reference");
         command.ExecuteNonQuery();
+        if (version >= 2)
+        {
+            command.CommandText = Migration.TombstoneSchema;
+            command.ExecuteNonQuery();
+        }
         return Definitions(memory).AsReadOnly();
     }
 }
