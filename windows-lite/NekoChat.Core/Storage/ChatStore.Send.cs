@@ -213,12 +213,12 @@ public sealed partial class ChatStore
         for (int i = 0; i < 3; i++)
         {
             string candidate = _options.NewId();
-            if (!StoreIds.IsUuid(candidate)) throw new InvalidOperationException("NewId produced an invalid message UUID.");
+            if (!StoreIds.IsUuid(candidate)) return (new InvalidSend("id-generator-invalid"), false);   // rollback: the draft binding above is not kept
             long taken = Convert.ToInt64(ctx.Scalar("SELECT (SELECT count(*) FROM ManualSendAttempt WHERE messageId=@id)+(SELECT count(*) FROM Message WHERE senderId=@sender AND messageId=@id)+(SELECT count(*) FROM ClearedMessage WHERE senderId=@sender AND messageId=@id)",
                 ("@id", candidate), ("@sender", sender)), CultureInfo.InvariantCulture);
             if (taken == 0) { id = candidate; break; }
         }
-        if (id is null) throw new InvalidOperationException("Message id allocation failed.");
+        if (id is null) return (new InvalidSend("id-allocation-failed"), false);   // bounded retries exhausted; whole transaction rolled back, no attempt overwritten
         ctx.Exec("INSERT INTO ManualSendAttempt(messageId,conversationId,senderId,recipientId,rawSnapshot,kind,reaction,fingerprintAlg,contentFingerprint,draftEpoch,draftRevision,attemptState,createdUtc,updatedUtc) VALUES(@id,@conv,@sender,@recipient,@text,@kind,@reaction,@algorithm,@fingerprint,@epoch,@revision,'sending',@now,@now)",
             ("@id", id), ("@conv", conversation), ("@sender", sender), ("@recipient", binding.Peer), ("@text", text), ("@kind", kind), ("@reaction", reaction),
             ("@algorithm", MessageFingerprint.Algorithm), ("@fingerprint", MessageFingerprint.Compute(binding.Peer, text, reaction)), ("@epoch", epoch), ("@revision", revision), ("@now", ctx.NowUtc));

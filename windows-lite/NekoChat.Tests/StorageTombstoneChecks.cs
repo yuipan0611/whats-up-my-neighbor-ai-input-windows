@@ -44,7 +44,7 @@ internal static class StorageTombstoneChecks
                 var attempt = (AttemptStarted)upgraded.BeginManualSend(a, "pending to clear", state.Epoch, state.Revision + 1);
                 upgraded.ClearConversation(a); state = upgraded.GetDraftState(a)!;
                 forcedId = attempt.MessageId; int beforeAllocations = allocations; bool exhausted = false;
-                try { upgraded.BeginManualSend(a, "new draft", state.Epoch, state.Revision + 1); } catch (InvalidOperationException) { exhausted = true; }
+                exhausted = upgraded.BeginManualSend(a, "new draft", state.Epoch, state.Revision + 1) is InvalidSend { Reason: "id-allocation-failed" };   // typed result (review item E), still fully rolled back
                 Check(exhausted && allocations - beforeAllocations == 3 && Number(db, "SELECT count(*) FROM ManualSendAttempt") == 0 &&
                     upgraded.GetDraftState(a) is { RawText: null } unchanged && unchanged.Revision == state.Revision,
                     "allocator cannot reuse a cleared pending-attempt id and rolls back proposed draft after bounded retries");
