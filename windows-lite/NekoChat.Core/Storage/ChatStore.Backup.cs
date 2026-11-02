@@ -28,7 +28,7 @@ public sealed partial class ChatStore
                 string candidate = Path.Combine(directory, "nekochat-" + purpose + "-" + stamp + (i == 0 ? "" : "-" + (i + 1).ToString(CultureInfo.InvariantCulture)) + ".db");
                 if (new[] { candidate + "-wal", candidate + "-shm", candidate + "-journal" }.Any(p => File.Exists(p) || Directory.Exists(p))) continue;
                 try { using (new FileStream(candidate, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { } reserved = candidate; break; }
-                catch (IOException) when (File.Exists(candidate)) { }
+                catch (IOException) when (File.Exists(candidate)) { continue; }   // name taken: never overwrite, try the next suffix
             }
             if (reserved is null) throw new StoreException(StoreErrorKind.CannotOpen, "No free backup file name.");
             using (var destination = new SqliteConnection(new SqliteConnectionStringBuilder {
@@ -48,7 +48,8 @@ public sealed partial class ChatStore
         catch (Exception e)
         {
             if (reserved is not null && !complete)
-                try { File.Delete(reserved); } catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException) { }
+                try { File.Delete(reserved); }
+                catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException) { _options.DiagnosticSink?.Invoke("backup-cleanup failed=1"); }
             if (e is IOException or UnauthorizedAccessException)
                 throw new StoreException(StoreErrorKind.CannotOpen, StoreErrors.Describe(StoreErrorKind.CannotOpen), e);
             throw;
