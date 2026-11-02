@@ -30,7 +30,8 @@ public sealed class PresenceService : IAsyncDisposable
     private readonly object _control = new(), _operations = new();
     private readonly IChatStore _store;
     private readonly V2LanClient _client;
-    private readonly PresenceController _controller;
+    private PresenceController _controller;
+    private readonly Func<double>? _random;
     private readonly TimeProvider _clock;
     private readonly int _port;
     private readonly CancellationTokenSource _lifetime = new();
@@ -46,6 +47,19 @@ public sealed class PresenceService : IAsyncDisposable
     private bool _shown, _started, _initialized, _stopping;
     private int _healthy = 1;
     private int _storageOperations;
+    // Supervision (v2 fix): a transient failure restarts the worker with backoff; only repeated failures make presence unavailable until TryRestart().
+    private const int MaxConsecutiveFailures = 5;
+    private int _failures, _faulted, _targetReads;
+    // Roster targets are re-read from SQLite on events (Refresh, activity, resume, conflict) and at most every TargetRefreshInterval, not on every 250 ms tick.
+    private long _targetsVersion, _targetsApplied = -1, _targetsReadAt;
+    private IReadOnlyList<PresenceTarget> _targetList = [];
+    internal TimeSpan TargetRefreshInterval { get; init; } = TimeSpan.FromSeconds(5);
+    /// <summary>Base restart delay; the n-th consecutive failure waits base * 2^(n-1), at most 30 times the base.</summary>
+    internal TimeSpan RestartBackoff { get; init; } = TimeSpan.FromSeconds(1);
+    /// <summary>Number of SQLite roster-target reads performed by this service (diagnostics and tests).</summary>
+    public int TargetReads => Volatile.Read(ref _targetReads);
+    /// <summary>False after repeated worker failures; <see cref="TryRestart"/> can recover it.</summary>
+    public bool Healthy => Volatile.Read(ref _healthy) == 1;
     private Task _loop = Task.CompletedTask, _timer = Task.CompletedTask;
     private Task? _disposal;
     public event Action? StateChanged;
@@ -56,13 +70,13 @@ public sealed class PresenceService : IAsyncDisposable
     public PresenceService(IChatStore store, V2LanClient client, TimeProvider? clock = null, Func<double>? random = null, int port = DirectLanMessaging.DefaultPort)
     {
         ArgumentNullException.ThrowIfNull(store); ArgumentNullException.ThrowIfNull(client); if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
-        _store = store; _client = client; _clock = clock ?? TimeProvider.System; _controller = new(_clock, random); _port = port;
+        _store = store; _client = client; _clock = clock ?? TimeProvider.System; _random = random; _controller = new(_clock, random); _port = port;
     }
     public void Start()
     {
         lock (_control)
         {
-            ObjectDisposedException.ThrowIf(_stopping, this); if (_started) return; _started = true;
+            ObjectDisposedException.ThrowIf(_stopping, this); if (_started) return; _started = true; MarkTargetsDirty();
             _loop = Task.Run(Loop); _timer = Task.Run(Timer);
         }
         Wake();
@@ -86,9 +100,10 @@ public sealed class PresenceService : IAsyncDisposable
             if (!_pendingActivity.TryGetValue(peer, out var old) && _pendingActivity.Count >= 1024) overflow = true;
             else if (old is null || activity.ObservedTimestamp >= old.ObservedTimestamp) _pendingActivity[peer] = activity;
         }
+        MarkTargetsDirty();
         if (overflow) Report("presence_activity_overflow"); else Wake();
     }
-    private void ReceiverDiagnostic(string code) { if (code == "identity_conflict") Wake(); Report(code); }
+    private void ReceiverDiagnostic(string code) { if (code == "identity_conflict") { MarkTargetsDirty(); Wake(); } Report(code); }
     public void SetView(bool windowVisible, IEnumerable<string> visibleRows, string? currentRow)
     {
         ArgumentNullException.ThrowIfNull(visibleRows); string[] rows = visibleRows.Distinct(StringComparer.Ordinal).ToArray(); IReadOnlyList<long> cancel = [];
@@ -109,53 +124,111 @@ public sealed class PresenceService : IAsyncDisposable
             if (_stopping || Volatile.Read(ref _healthy) == 0) return; cancel = _controller.ResetAfterResume(); _pendingActivity.Clear();
             lock (_operations) old = _running.Values.ToArray();
         }
-        _receiver?.ResetReplayProtection(); Cancel(cancel); foreach (var work in old) work.Cancel(); Publish(); Wake();
+        MarkTargetsDirty(); _receiver?.ResetReplayProtection(); Cancel(cancel); foreach (var work in old) work.Cancel(); Publish(); Wake();
     }
     public PresenceSnapshot? GetSnapshot(string rowId)
     { lock (_control) return _initialized && !_stopping && Volatile.Read(ref _healthy) == 1 && _targets.ContainsKey(rowId) ? _controller.GetSnapshot(rowId) : null; }
     /// <summary>Wake after a committed roster/trust change. Never reads SQLite on the UI caller.</summary>
-    public void Refresh() => Wake();
+    public void Refresh() { MarkTargetsDirty(); Wake(); }
+    private void MarkTargetsDirty() => Interlocked.Increment(ref _targetsVersion);
     private void Wake() => _pulse.Writer.TryWrite(true);
+    /// <summary>Manual recovery after the service gave up (for example after resume or a user retry). Starts fresh worker state; no effect while stopping.</summary>
+    public bool TryRestart()
+    {
+        lock (_control)
+        {
+            if (_stopping || !_started) return false;
+            if (Volatile.Read(ref _healthy) == 1 && !_loop.IsCompleted) return true;
+            Volatile.Write(ref _failures, 0); Volatile.Write(ref _faulted, 0);
+            _controller = new(_clock, _random); _initialized = false; _targets = new(StringComparer.Ordinal); _published = new(StringComparer.Ordinal); _pendingActivity.Clear(); MarkTargetsDirty();
+            Volatile.Write(ref _healthy, 1);
+            if (_loop.IsCompleted) _loop = Task.Run(Loop);
+            if (_timer.IsCompleted) _timer = Task.Run(Timer);
+        }
+        Wake(); return true;
+    }
     private async Task Timer()
     {
-        try
+        for (int failures = 0; ; )
         {
-            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250), _clock);
-            while (await timer.WaitForNextTickAsync(_lifetime.Token).ConfigureAwait(false))
+            try
             {
-                if (Volatile.Read(ref _healthy) == 0) break;
-                bool refresh; lock (_control) refresh = _shown || !_initialized;
-                if (refresh || ActiveOperations != 0 || PendingActivities != 0) Wake();
+                using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250), _clock);
+                while (await timer.WaitForNextTickAsync(_lifetime.Token).ConfigureAwait(false))
+                {
+                    if (Volatile.Read(ref _healthy) == 0) return;
+                    bool refresh; lock (_control) refresh = _shown || !_initialized;
+                    if (refresh || ActiveOperations != 0 || PendingActivities != 0) Wake();
+                    failures = 0;
+                }
+                return;
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
+            catch
+            {
+                Report("presence_timer_restarting");
+                if (++failures > MaxConsecutiveFailures) { Volatile.Write(ref _healthy, 0); CancelAll(); Report("presence_unavailable"); Notify(); return; }
+                try { await Task.Delay(TimeSpan.FromTicks(Math.Min(30, 1 << (failures - 1)) * RestartBackoff.Ticks), _clock, _lifetime.Token).ConfigureAwait(false); } catch (OperationCanceledException) { return; }
             }
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch { Volatile.Write(ref _healthy, 0); CancelAll(); Report("presence_unavailable"); Notify(); }
     }
     private async Task Loop()
     {
-        try
+        while (true)
         {
+            try { await LoopCore().ConfigureAwait(false); return; }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
+            catch { if (!await RecoverAsync().ConfigureAwait(false)) return; }
+        }
+    }
+    /// <summary>One failure: cancel work, rebuild controller state from SQLite, back off 1,2,4,8,16 s. After more than <see cref="MaxConsecutiveFailures"/> consecutive failures presence becomes unavailable.</summary>
+    private async Task<bool> RecoverAsync()
+    {
+        int attempt = Interlocked.Increment(ref _failures); CancelAll();
+        if (attempt > MaxConsecutiveFailures) { Volatile.Write(ref _healthy, 0); Report("presence_unavailable"); Notify(); return false; }
+        lock (_control)
+        {
+            if (_stopping) return false;
+            _controller = new(_clock, _random); _initialized = false; _targets = new(StringComparer.Ordinal); _published = new(StringComparer.Ordinal); _pendingActivity.Clear(); MarkTargetsDirty();
+        }
+        Report("presence_restarting"); Notify();
+        try { await Task.Delay(TimeSpan.FromTicks(Math.Min(30, 1 << (attempt - 1)) * RestartBackoff.Ticks), _clock, _lifetime.Token).ConfigureAwait(false); } catch (OperationCanceledException) { return false; }
+        return true;
+    }
+    private async Task LoopCore()
+    {
             await foreach (bool _ in _pulse.Reader.ReadAllAsync(_lifetime.Token).ConfigureAwait(false))
             {
+                if (Interlocked.Exchange(ref _faulted, 0) == 1) throw new InvalidOperationException("Presence publish failed.");
                 V2VerifiedActivity[] activities;
                 lock (_control)
                 {
                     int free; lock (_operations) free = Math.Max(0, 4 - _running.Count);
                     activities = _pendingActivity.Values.Take(free).ToArray(); foreach (var activity in activities) _pendingActivity.Remove(activity.Security.PeerId);
                 }
-                IReadOnlyList<PresenceTarget> targets;
-                try { targets = _store.GetPresenceTargets(); }
-                catch (StoreException)
+                IReadOnlyList<PresenceTarget> targets; bool reload; long version = Volatile.Read(ref _targetsVersion);
+                lock (_control) reload = !_initialized || _targetsApplied != version || _clock.GetElapsedTime(_targetsReadAt) >= TargetRefreshInterval;
+                if (reload)
                 {
-                    lock (_control) foreach (var activity in activities)
-                        if (activity.Current && _pendingActivity.Count < 1024 && !_pendingActivity.ContainsKey(activity.Security.PeerId)) _pendingActivity[activity.Security.PeerId] = activity;
-                    Report("storage_unavailable"); continue;
+                    try { targets = _store.GetPresenceTargets(); Interlocked.Increment(ref _targetReads); }
+                    catch (StoreException)
+                    {
+                        lock (_control) foreach (var activity in activities)
+                            if (activity.Current && _pendingActivity.Count < 1024 && !_pendingActivity.ContainsKey(activity.Security.PeerId)) _pendingActivity[activity.Security.PeerId] = activity;
+                        Report("storage_unavailable"); continue;
+                    }
                 }
+                else lock (_control) targets = _targetList;
                 IReadOnlyList<long> cancel; PresenceWorkBatch batch;
                 lock (_control)
                 {
                     if (_stopping) break;
-                    cancel = _controller.UpdateTargets(targets); _targets = targets.ToDictionary(t => t.RowId, StringComparer.Ordinal);
+                    if (reload)
+                    {
+                        cancel = _controller.UpdateTargets(targets); _targets = targets.ToDictionary(t => t.RowId, StringComparer.Ordinal);
+                        _targetList = targets; _targetsApplied = version; _targetsReadAt = _clock.GetTimestamp();
+                    }
+                    else cancel = [];
                     if (!_initialized) { _initialized = true; cancel = cancel.Concat(_controller.SetView(_shown, _visible, _current)).ToArray(); }
                     int free; lock (_operations) free = Math.Max(0, 4 - _running.Count);
                     batch = _controller.TakeDueProbes(Math.Max(0, free - activities.Length));
@@ -174,10 +247,8 @@ public sealed class PresenceService : IAsyncDisposable
                     lock (_operations) { _running.Add(key, running); running.Work = Task.Run(() => Run(running)); }
                 }
                 Publish();
+                Volatile.Write(ref _failures, 0);
             }
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch { Volatile.Write(ref _healthy, 0); CancelAll(); Report("presence_unavailable"); Notify(); }
     }
     private async Task Run(Running running)
     {
@@ -200,7 +271,7 @@ public sealed class PresenceService : IAsyncDisposable
                     try
                     {
                         var result = _store.ApplyRosterPresenceEvidence(job, () => Live() && activity.Current && _controller.IsCurrent(job));
-                        _controller.CompletePersistence(job, result); refresh |= result.Reason == "stale-target";
+                        _controller.CompletePersistence(job, result); refresh |= result.Reason == "stale-target"; MarkTargetsDirty();
                     }
                     finally { Interlocked.Decrement(ref _storageOperations); }
                 }
@@ -222,7 +293,7 @@ public sealed class PresenceService : IAsyncDisposable
                     try
                     {
                         var result = _store.ApplyRosterPresenceEvidence(job, () => Live() && _controller.IsCurrent(job));
-                        _controller.CompletePersistence(job, result);
+                        _controller.CompletePersistence(job, result); MarkTargetsDirty();   // the write changed lastSeen/evidence that the cached targets carry
                     }
                     finally { Interlocked.Decrement(ref _storageOperations); }
                 }
@@ -263,8 +334,8 @@ public sealed class PresenceService : IAsyncDisposable
                 changed = current.Count != _published.Count || current.Any(p => !_published.TryGetValue(p.Key, out var old) || old != p.Value); _published = current;
             }
         }
-        catch { Volatile.Write(ref _healthy, 0); failed = true; }
-        if (failed) { CancelAll(); Report("presence_unavailable"); } if (changed || failed) Notify();
+        catch { Interlocked.Exchange(ref _faulted, 1); failed = true; }
+        if (failed) { Report("presence_publish_failed"); Wake(); } if (changed) Notify();
     }
     private void Notify() { try { StateChanged?.Invoke(); } catch { Report("notification_failed"); } }
     private void Report(string code) { try { Diagnostic?.Invoke(code); } catch { } }

@@ -205,6 +205,45 @@ internal static class PassiveIdentityChecks
             Check(first.Success && first.Value?.EvidenceLevel == "E2" && second.Code == "identity_conflict" && f.Store.GetPeerSecuritySnapshot(f.A.PeerId).Pairing == PairingState.Suspended,
                 "actual signed hello client shares clone detection for two logical LAN endpoints");
         }
+        // Supervision: a transient worker failure restarts presence; repeated failure gives up until TryRestart().
+        await using (var f = new Fixture())
+        {
+            string row = f.AddRow(); int bad = 2; var seen = new ConcurrentQueue<string>();
+            await using var svc = new PresenceService(f.Store, f.Client, f.Clock, () => Volatile.Read(ref bad) > 0 ? double.NaN : 0) { RestartBackoff = TimeSpan.FromMilliseconds(20) };
+            string other = f.AddRow("10.0.0.2"); svc.Diagnostic += seen.Enqueue; svc.SetView(true, [row, other], row); svc.Start();   // jitter is sampled for the non-current visible row
+            await Until(() => seen.Count(x => x == "presence_restarting") >= 1);
+            Volatile.Write(ref bad, 0);
+            await Until(() => svc.GetSnapshot(row) is not null && svc.Healthy);
+            Check(svc.Healthy && seen.Count(x => x == "presence_restarting") is >= 1 and <= 3 && !seen.Contains("presence_unavailable"), "transient worker failures restart presence with backoff instead of disabling it");
+        }
+        await using (var f = new Fixture())
+        {
+            string row = f.AddRow(); int bad = 1; var seen = new ConcurrentQueue<string>();
+            await using var svc = new PresenceService(f.Store, f.Client, f.Clock, () => Volatile.Read(ref bad) > 0 ? double.NaN : 0) { RestartBackoff = TimeSpan.FromMilliseconds(5) };
+            string other = f.AddRow("10.0.0.2"); svc.Diagnostic += seen.Enqueue; svc.SetView(true, [row, other], row); svc.Start();   // jitter is sampled for the non-current visible row
+            await Until(() => !svc.Healthy);
+            Check(seen.Contains("presence_unavailable") && seen.Count(x => x == "presence_restarting") == 5 && svc.GetSnapshot(row) is null, "five consecutive failures make presence unavailable and expose no stale state");
+            Volatile.Write(ref bad, 0);
+            Check(svc.TryRestart() && svc.Healthy, "manual restart is accepted after giving up");
+            await Until(() => svc.GetSnapshot(row) is not null);
+            Check(svc.GetSnapshot(row) is not null && svc.Healthy, "presence works again after TryRestart");
+        }
+        // Roster targets are read on events and at most every refresh interval, not on every 250 ms tick.
+        await using (var f = new Fixture())
+        {
+            string row = f.AddRow();
+            await using var svc = new PresenceService(f.Store, f.Client, f.Clock, () => 0);
+            svc.SetView(true, [row], row); svc.Start();
+            await Until(() => svc.TargetReads >= 1 && svc.GetSnapshot(row) is not null);
+            int baseline = svc.TargetReads; await Task.Delay(1400);
+            Check(svc.TargetReads == baseline, "no SQLite roster reads while neither events nor the refresh interval occur (about 5 timer ticks passed)");
+            f.Clock.Advance(5.0);
+            await Until(() => svc.TargetReads == baseline + 1);
+            int afterInterval = svc.TargetReads; await Task.Delay(600);
+            Check(svc.TargetReads == afterInterval, "the interval read happens once, not on every tick");
+            svc.Refresh(); await Until(() => svc.TargetReads == afterInterval + 1);
+            Check(svc.TargetReads == afterInterval + 1, "Refresh() triggers exactly one event-driven read");
+        }
         Console.WriteLine($"Passive activity and duplicate identity: {checks} cryptographic, SQLite, lifecycle and concurrency checks."); return checks;
     }
     private static string Code(V2HttpResponse response) { using var p = JsonDocument.Parse(response.Body); return p.RootElement.GetProperty("code").GetString()!; }
