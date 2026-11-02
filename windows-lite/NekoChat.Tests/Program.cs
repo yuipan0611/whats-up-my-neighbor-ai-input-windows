@@ -116,4 +116,5 @@ Reject(() => DirectLanMessaging.SendDirectAsync("127.0.0.1", "   ").GetAwaiter()
 checks += await DirectMessagingChecks.Run();
 checks += await ReactionChecks.Run();
 checks += NekoChat.Tests.MessageFormattingChecks.Run();
+checks += NekoChat.Tests.RosterCsvChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
