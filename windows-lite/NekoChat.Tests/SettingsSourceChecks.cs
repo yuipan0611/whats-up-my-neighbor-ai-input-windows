@@ -60,6 +60,38 @@ internal static class SettingsSourceChecks
             using (var store = ChatStore.Open(new(Path.Combine(root, "empty-db"))))
                 Check(empty.Status == SettingsSourceStatus.Loaded && empty.ImportLegacyRoster(store) is { Added: 0 } && store.LegacyRosterImportCompleted(), "valid explicitly empty list is distinct from corrupt source");
             Check(new Settings { PersistencePath = Path.Combine(root, "new-parent", "settings.json"), Coat = "black", TeacherIp = "10.0.0.9" }.Save(), "valid save can create its missing parent directory");
+            // Failed saves are visible: fixed reason codes, an event, and a persistent note on read-only instances.
+            var problems = new List<string>(); Action<string> hear = problems.Add; Settings.SaveProblem += hear;
+            try
+            {
+                File.WriteAllText(path, "{"); var broken = Settings.LoadWithStatus(path);
+                Check(broken.Value.StatusNote is { Length: > 0 } && new Settings().StatusNote is null, "read-only fallback exposes a persistent status note; a normal instance has none");
+                Check(!broken.Value.Save() && problems.SequenceEqual(new[] { "read-only-fallback" }) && Settings.LastSaveProblem == "read-only-fallback", "read-only save failure raises the event with a fixed reason");
+                Check(!new Settings { PersistencePath = path, LastRecipientIp = new string('x', 1048577) }.Save() && Settings.LastSaveProblem == "too-large", "oversized save reports too-large");
+                Check(!new Settings { PersistencePath = unavailable }.Save() && Settings.LastSaveProblem == "io", "IO failure reports io");
+                File.WriteAllText(path, "{\"Contacts\":[]}");
+                Check(new Settings { PersistencePath = path }.Save() && Settings.LastSaveProblem is null && problems.Count == 3, "a successful save clears the problem and raises nothing");
+                Settings.SaveProblem += _ => throw new InvalidOperationException("handler bug");
+                Check(!broken.Value.Save(), "a throwing handler cannot turn a failed save into a crash");
+            }
+            finally { Settings.SaveProblem -= hear; }
+            // Unexpected exception types while loading never crash startup and never touch the file.
+            foreach (var weird in new[] { "{\"Contacts\":[],\"Coat\":{\"a\":1}}", "{\"Contacts\":\"x\"}", "{\"AutoStartOnLogin\":\"maybe\"}", "\u0000\u0000", "{\"Contacts\":[1,2]}" })
+            {
+                File.WriteAllText(path, weird); byte[] before = File.ReadAllBytes(path); SettingsLoadResult result = default!; bool threw = false; try { result = Settings.LoadWithStatus(path); } catch (Exception) { threw = true; }
+                Check(!threw && result.Status == SettingsSourceStatus.Invalid && result.Value.ReadOnlyFallback && File.ReadAllBytes(path).AsSpan().SequenceEqual(before), "unexpected content falls back read-only instead of throwing: " + weird.Replace("\0", "\\0"));
+            }
+            // Stale temp files left by killed saves are removed at load; fresh, foreign and linked files are not.
+            string tmpRoot = Path.Combine(root, "tmp-clean"); Directory.CreateDirectory(tmpRoot); string settingsFile = Path.Combine(tmpRoot, "settings.json"); File.WriteAllText(settingsFile, "{\"Contacts\":[]}");
+            string Tmp(string hex) => settingsFile + "." + hex + ".tmp";
+            string stale = Tmp(new string('a', 32)), fresh = Tmp(new string('b', 32)), foreign = Tmp(new string('c', 31) + "g"), shortName = Tmp(new string('d', 31)), other = Path.Combine(tmpRoot, "other.json." + new string('e', 32) + ".tmp");
+            foreach (string f2 in new[] { stale, fresh, foreign, shortName, other }) File.WriteAllText(f2, "x");
+            File.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddMinutes(-5)); File.SetLastWriteTimeUtc(foreign, DateTime.UtcNow.AddMinutes(-5)); File.SetLastWriteTimeUtc(shortName, DateTime.UtcNow.AddMinutes(-5)); File.SetLastWriteTimeUtc(other, DateTime.UtcNow.AddMinutes(-5));
+            string linkTarget = Path.Combine(tmpRoot, "target.bin"); File.WriteAllText(linkTarget, "keep"); string linkTmp = Tmp(new string('f', 32)); File.CreateSymbolicLink(linkTmp, linkTarget);
+            var cleaned = Settings.LoadWithStatus(settingsFile);
+            Check(cleaned.Status == SettingsSourceStatus.Loaded && !File.Exists(stale) && File.Exists(fresh) && File.Exists(foreign) && File.Exists(shortName) && File.Exists(other) && File.Exists(linkTarget) && File.Exists(File.ResolveLinkTarget(linkTmp, false)!.FullName),
+                "load removes only old well-formed settings temp files, never fresh, malformed-name, other-file or linked ones");
+            Check(Settings.CleanStaleTemporaryFiles(settingsFile, TimeSpan.Zero) >= 1 && !File.Exists(fresh) && File.Exists(linkTarget) && File.ReadAllText(settingsFile) == "{\"Contacts\":[]}", "age threshold is a parameter; the real settings file and link targets are never touched");
         }
         finally { Directory.Delete(root, true); }
         Console.WriteLine($"Settings source: {checks} actual file, legacy encoding, no-overwrite and SQLite import-marker checks."); return checks;

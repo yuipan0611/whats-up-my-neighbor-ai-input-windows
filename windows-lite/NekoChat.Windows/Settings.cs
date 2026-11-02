@@ -51,6 +51,7 @@ internal record Settings
     internal static SettingsLoadResult LoadWithStatus(string? filePath = null)
     {
         string path = Path.GetFullPath(filePath ?? FilePath);
+        CleanStaleTemporaryFiles(path);
         SettingsLoadResult Failed(SettingsSourceStatus status) => new(new Settings { AutoStartOnLogin = false, PersistencePath = path, ReadOnlyFallback = true }, status);
         try
         {
@@ -71,26 +72,70 @@ internal record Settings
         catch (DirectoryNotFoundException) { return new(new Settings { PersistencePath = path }, SettingsSourceStatus.Missing); }
         catch (JsonException) { return Failed(SettingsSourceStatus.Invalid); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return Failed(SettingsSourceStatus.Unavailable); }
+        // Anything else (serializer or decoder surprises such as NotSupported/InvalidOperation/Argument/Format) means the content cannot be used.
+        // It must never crash startup; keep the original file untouched and fall back read-only like any other invalid source.
+        catch (Exception ex) when (ex is not (OutOfMemoryException or StackOverflowException or AccessViolationException)) { return Failed(SettingsSourceStatus.Invalid); }
+    }
+
+    /// <summary>Fixed, content-free reason codes: "read-only-fallback", "too-large", "io", "invalid". Null after a successful save.</summary>
+    internal static string? LastSaveProblem { get { lock (ProblemGate) return _lastSaveProblem; } }
+    private static readonly object ProblemGate = new();
+    private static string? _lastSaveProblem;
+    /// <summary>Raised on every failed <see cref="Save"/> so the UI can show a persistent "settings are not being saved" notice. Handlers must not throw.</summary>
+    internal static event Action<string>? SaveProblem;
+    /// <summary>Non-null while this instance can never be saved (unreadable or invalid source). A window can show it permanently, not just once at startup.</summary>
+    internal string? StatusNote => ReadOnlyFallback ? "設定檔無法讀取，原檔已保留；目前的變更不會儲存。" : null;
+    private static bool SaveFailed(string reason)
+    {
+        lock (ProblemGate) _lastSaveProblem = reason;
+        try { SaveProblem?.Invoke(reason); } catch { }
+        return false;
+    }
+
+    /// <summary>Deletes leftover "settings.json.&lt;32 hex&gt;.tmp" files from saves that were killed mid-write. Only regular files, only that exact name shape, only if older than a minute (a concurrent instance's live temp file is younger). Best effort.</summary>
+    internal static int CleanStaleTemporaryFiles(string settingsPath, TimeSpan? olderThan = null)
+    {
+        int removed = 0;
+        try
+        {
+            string full = Path.GetFullPath(settingsPath), directory = Path.GetDirectoryName(full) ?? "", prefix = Path.GetFileName(full) + ".";
+            if (directory.Length == 0 || !Directory.Exists(directory)) return 0;
+            var limit = DateTime.UtcNow - (olderThan ?? TimeSpan.FromMinutes(1));
+            foreach (string file in Directory.EnumerateFiles(directory, prefix + "*.tmp"))
+            {
+                string name = Path.GetFileName(file);
+                if (name.Length != prefix.Length + 32 + 4 || !name.AsSpan(prefix.Length, 32).ToString().All(c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'))) continue;
+                try
+                {
+                    var attributes = File.GetAttributes(file);
+                    if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || File.GetLastWriteTimeUtc(file) > limit) continue;
+                    File.Delete(file); removed++;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { }
+        return removed;
     }
 
     internal bool Save()
     {
-        if (ReadOnlyFallback) return false;
+        if (ReadOnlyFallback) return SaveFailed("read-only-fallback");
         string path = PersistencePath ?? FilePath, temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp"; bool owned = false;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var options = new JsonSerializerOptions { WriteIndented = true };
             byte[] data = JsonSerializer.SerializeToUtf8Bytes(this, options);
-            if (data.Length > 1048576) return false;
+            if (data.Length > 1048576) return SaveFailed("too-large");
             using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             { owned = true; output.Write(data); output.Flush(flushToDisk: true); }
-            File.Move(temporary, path, true); return true;
+            File.Move(temporary, path, true);
+            lock (ProblemGate) _lastSaveProblem = null;
+            return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return false;
-        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return SaveFailed("io"); }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or ArgumentException or InvalidOperationException) { return SaveFailed("invalid"); }
         finally { try { if (owned) File.Delete(temporary); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } }
     }
 
