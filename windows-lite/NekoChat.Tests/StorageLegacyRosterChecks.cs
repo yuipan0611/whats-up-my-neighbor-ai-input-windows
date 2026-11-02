@@ -37,7 +37,7 @@ internal static class StorageLegacyRosterChecks
                 LegacyRosterContact[] input = [.. Valid, new("Duplicate A", "10.0.0.2"), new("Duplicate B", "10.0.0.2"), new("Loop", "127.0.0.1"), new("\u0001invalid", "10.0.0.4"), new("Self", "10.0.0.7"), null!];
                 Check(store.ImportLegacyRoster(input) is { AlreadyCompleted: false, Added: 2, Skipped: 6 } && store.LegacyRosterImportCompleted(), "valid labels imported once; duplicates/invalid/self skipped without picking a winner");
                 var rows = store.GetRosterSnapshot();
-                Check(rows.Count == 2 && rows.All(r => r.Source == "legacy" && r.Entry.PeerId is null && !r.Entry.IsTeacher && r.Entry.StudentNumber is null && r.ImportBatchId is null), "legacy IP/name and teacher-IP candidate grant no binding, role or school number");
+                Check(rows.Count == 2 && rows.All(r => r.Source == "legacySettings" && r.Entry.PeerId is null && !r.Entry.IsTeacher && r.Entry.StudentNumber is null && r.ImportBatchId is null), "legacy IP/name and teacher-IP candidate grant no binding, role or school number");
                 Check(rows.Any(r => r.Entry.DisplayName == "One" && r.Entry.Endpoint == "10.0.0.1") && Number(f.Db, "SELECT count(*) FROM Peer") == 0 && Number(f.Db, "SELECT count(*) FROM Conversation") == 0,
                     "normalized labels only, no identity or conversation created");
                 store.DeleteRosterEntry(rows[0].Entry.Id, Token(store));

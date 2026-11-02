@@ -27,7 +27,7 @@ public sealed partial class ChatStore
             {
                 if (!RosterFields.ValidName(row.Name) || row.Endpoint is null || !AllowedRosterEndpoint(row.Endpoint) || duplicates.Contains(row.Endpoint) || !used.Add(row.Endpoint))
                 { skipped++; continue; }
-                ctx.Exec("INSERT INTO RosterEntry(id,displayName,endpoint,source) VALUES(@id,@name,@endpoint,'legacy')",
+                ctx.Exec("INSERT INTO RosterEntry(id,displayName,endpoint,source) VALUES(@id,@name,@endpoint,'legacySettings')",
                     ("@id", NewRosterId(ctx)), ("@name", row.Name), ("@endpoint", row.Endpoint));
                 added++;
             }
