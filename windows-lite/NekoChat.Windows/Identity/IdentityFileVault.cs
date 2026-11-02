@@ -24,13 +24,13 @@ internal sealed class IdentityFileVault(string directory, IIdentityProtector pro
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256); byte[] spki = key.ExportSubjectPublicKeyInfo();
         string reference = Prefix + Guid.NewGuid().ToString("D"), final = CredentialPath(reference);
         string temporary = final + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        byte[]? raw = null, encrypted = null;
+        byte[]? raw = null, encrypted = null; bool owned = false;
         try
         {
             raw = key.ExportPkcs8PrivateKey(); encrypted = protector.Protect(raw, Entropy(reference));
             if (encrypted.Length is < 1 or > 16384) throw new CryptographicException("Invalid protected identity size.");
             using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
-            { file.Write(Magic); file.Write(encrypted); file.Flush(flushToDisk: true); }
+            { owned = true; file.Write(Magic); file.Write(encrypted); file.Flush(flushToDisk: true); }
             CheckPath(_directory); File.Move(temporary, final, overwrite: false);
             return new(V2Crypto.PeerId(spki), Convert.ToBase64String(spki), reference);
         }
@@ -39,7 +39,7 @@ internal sealed class IdentityFileVault(string directory, IIdentityProtector pro
             if (raw is not null) CryptographicOperations.ZeroMemory(raw);
             if (encrypted is not null) CryptographicOperations.ZeroMemory(encrypted);
             // Only this invocation's unpublished temporary file; never remove a current or orphaned credential.
-            try { File.Delete(temporary); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            try { if (owned) File.Delete(temporary); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
     }
     public ECDsa OpenSigningKey(string credentialRef)

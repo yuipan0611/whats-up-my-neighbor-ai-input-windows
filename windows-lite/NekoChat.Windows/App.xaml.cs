@@ -65,7 +65,10 @@ public partial class App : Application
                     return;
                 }
             }
-            settings = e.Args.Length == 0 ? Settings.Load() : new Settings { AutoStartOnLogin = false };
+            var settingsSource = e.Args.Length == 0 ? Settings.LoadWithStatus() : null;
+            string? smokeDirectory = messagingSmoke?.Directory ?? (e.Args.Length == 2 && (keyboardSmoke || gestureSmoke || receiverSmoke || instanceSmoke ||
+                e.Args[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test") ? e.Args[1] : null);
+            settings = settingsSource?.Value ?? (smokeDirectory is not null ? Settings.ForSmoke(smokeDirectory) : new Settings { AutoStartOnLogin = false, ReadOnlyFallback = true });
             if (messagingSmoke is not null) settings = settings with { TeacherIp = "127.0.0.1" };
             directSendPort = messagingSmoke?.PeerPort ?? DirectLanMessaging.DefaultPort;
 
@@ -143,6 +146,7 @@ public partial class App : Application
             });
             directListener.Start();
             chat.SetReceiverState(directListener.Running, directListener.Port, directListener.Error);
+            if (settingsSource is { CanImportLegacyRoster: false }) chat.SetStatus("設定檔讀取失敗，原檔已保留；目前設定不會覆寫原檔，未從這份設定匯入名單。");
 
             if (Appearance.Presets.Contains(settings.Coat))
             {

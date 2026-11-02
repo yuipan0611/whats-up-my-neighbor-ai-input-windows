@@ -166,10 +166,10 @@ public partial class ChatWindow : Window
             return;
         }
 
-        UpdateSettings(settings.WithContact(ip, name));
+        bool saved = UpdateSettings(settings.WithContact(ip, name));
         PopulateContactsCombo();
         UpdateComboSelection(ip);
-        SetStatus($"已記住：{name} ({ip})");
+        if (saved) SetStatus($"已記住：{name} ({ip})");
     }
 
     private void DraftPreviewKeyDown(object sender, KeyEventArgs e)
@@ -205,23 +205,25 @@ public partial class ChatWindow : Window
 
     private void AutoStartChecked(object sender, RoutedEventArgs e)
     {
-        UpdateSettings(settings with { AutoStartOnLogin = true });
+        bool saved = UpdateSettings(settings with { AutoStartOnLogin = true });
         AutoStartChanged?.Invoke(true);
-        SetStatus("已開啟開機啟動。");
+        if (saved) SetStatus("已開啟開機啟動。");
     }
 
     private void AutoStartUnchecked(object sender, RoutedEventArgs e)
     {
-        UpdateSettings(settings with { AutoStartOnLogin = false });
+        bool saved = UpdateSettings(settings with { AutoStartOnLogin = false });
         AutoStartChanged?.Invoke(false);
-        SetStatus("已關閉開機啟動。");
+        if (saved) SetStatus("已關閉開機啟動。");
     }
 
-    private void UpdateSettings(Settings updated)
+    private bool UpdateSettings(Settings updated)
     {
         settings = updated;
-        settings.Save();
+        bool saved = settings.Save();
         SettingsChanged?.Invoke(settings);
+        if (!saved) SetStatus("設定檔未儲存；請先處理設定檔的讀寫問題，原檔已保留。");
+        return saved;
     }
 
     internal void RememberCoat(string id) => UpdateSettings(settings with { Coat = id });
@@ -237,9 +239,9 @@ public partial class ChatWindow : Window
     {
         string ip = TeacherIpBox.Text.Trim();
         if (!LanInvitation.PrivateIPv4(ip)) { SetStatus("請輸入老師完整的內網 IP。"); return; }
-        UpdateSettings(settings with { TeacherIp = ip });
+        bool saved = UpdateSettings(settings with { TeacherIp = ip });
         RefreshReactionTargets();
-        SetStatus($"老師主機已設為 {ip}。");
+        if (saved) SetStatus($"老師主機已設為 {ip}。");
     }
 
     private void ReactionSendClick(object sender, RoutedEventArgs e)

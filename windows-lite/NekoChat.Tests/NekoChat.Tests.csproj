@@ -4,4 +4,5 @@
   <ItemGroup><Compile Include="../../Shared/UpdateDownloadChecks.cs" Link="UpdateDownloadChecks.cs" /></ItemGroup>
   <ItemGroup><None Update="Fixtures/V2/vectors-v3.json" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
   <ItemGroup><Compile Include="../NekoChat.Windows/Identity/IdentityFileVault.cs" Link="WindowsIdentity/IdentityFileVault.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../NekoChat.Windows/Settings.cs" Link="WindowsSettings/Settings.cs" /></ItemGroup>
 </Project>

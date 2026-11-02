@@ -18,13 +18,13 @@ internal static class SmokeTest
         try
         {
             // 1. Settings & Contacts Roundtrip
-            var settings = new Settings { TeacherIp = "192.168.24.9", ReactionDisplayDevice = "unplugged-screen", Coat = "calico", WanderEnabled = false }
+            var settings = (Settings.ForSmoke(directory) with { TeacherIp = "192.168.24.9", ReactionDisplayDevice = "unplugged-screen", Coat = "calico", WanderEnabled = false })
                 .WithContact("127.0.0.1", "測試同學")
                 .WithContact("192.168.1.50", "隔壁座位");
             if (settings.ResolveDisplayName("127.0.0.1") != "測試同學 (127.0.0.1)")
                 throw new Exception("Contact resolution failed");
-            settings.Save();
-            var reloaded = Settings.Load();
+            if (!settings.Save()) throw new Exception("Isolated settings save failed");
+            var reloaded = Settings.LoadWithStatus(settings.PersistencePath).Value;
             if (reloaded.WanderEnabled || !new Settings().WanderEnabled)
                 throw new Exception("Wandering default or setting persistence failed");
             if (reloaded.Contacts.Count < 2)

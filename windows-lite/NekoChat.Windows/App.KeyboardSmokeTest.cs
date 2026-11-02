@@ -10,7 +10,7 @@ public partial class App
     private async Task RunKeyboardSmokeTestAsync(string directory)
     {
         Directory.CreateDirectory(directory);
-        var probe = new ChatWindow(new Settings { AutoStartOnLogin = false });
+        var probe = new ChatWindow(Settings.ForSmoke(directory));
         int sends = 0, returnPresses = 0;
         probe.Draft.AddHandler(Keyboard.PreviewKeyDownEvent,
             new KeyEventHandler((_, e) => { if (e.Key == Key.Enter) returnPresses++; }), true);
