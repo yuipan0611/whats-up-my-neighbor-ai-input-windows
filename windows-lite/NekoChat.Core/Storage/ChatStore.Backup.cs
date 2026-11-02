@@ -21,6 +21,7 @@ public sealed partial class ChatStore
             string directory = Path.Combine(_options.DataDirectory, "backup"); Directory.CreateDirectory(directory);
             RequireBackupDirectory(directory);
             using var lease = AcquireBackupLease();
+            _options.Faults?.BeforeBackup(purpose);
             DateTime now = _options.UtcNow().ToUniversalTime();
             string stamp = now.ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture);
             for (int i = 0; i < 100; i++)

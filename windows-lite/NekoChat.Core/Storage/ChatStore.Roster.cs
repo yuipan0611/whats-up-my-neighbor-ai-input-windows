@@ -76,20 +76,32 @@ public sealed partial class ChatStore
         if (preview.Items.Count > RosterCsv.MaxRows) throw new ArgumentOutOfRangeException(nameof(preview));
         int skipped = preview.Items.Count(i => i.Action is RosterImportAction.Error or RosterImportAction.Ambiguous);
         int unchanged = preview.Items.Count(i => i.Action == RosterImportAction.Unchanged);
+        RosterApplyResult Failure(string reason, string token) => new(reason == "no-changes", reason, 0, 0, unchanged, skipped, token);
+        bool RowsStillValid() => preview.Changes.All(item => item.Row is { } row && RosterFields.ValidName(row.Name) && RosterFields.ValidStudent(row.StudentNumber) &&
+            (row.Endpoint is null || AllowedRosterEndpoint(row.Endpoint)));
+
+        // 1. Pre-flight on a short read connection: no write lock is held while the (possibly slow) backup runs,
+        //    so incoming messages are never blocked by a roster import. Nothing is backed up for a stale or empty preview.
+        var preflight = Read(c => {
+            using var cmd = c.CreateCommand(); cmd.CommandText = "SELECT " + RosterColumns + " FROM RosterEntry ORDER BY id";
+            using var r = cmd.ExecuteReader(); var rows = new List<RosterSnapshotRow>();
+            while (r.Read()) rows.Add(MapRoster(r));
+            return rows;
+        });
+        string preToken = RosterImportPreview.ComputeSnapshotToken(preflight);
+        if (!preview.MatchesSnapshot(preflight)) return Failure("roster_changed", preToken);
+        if (preview.Changes.Count == 0) return Failure("no-changes", preToken);
+        if (!RowsStillValid()) return Failure("endpoint-or-row-no-longer-valid", preToken);
+        // 2. Backup (independent read-only connection), then 3. take the write lock and re-verify the snapshot.
+        BackupBeforeRosterImport();
         return Write("apply-roster", ctx => {
             var snapshot = ReadRoster(ctx); string token = RosterImportPreview.ComputeSnapshotToken(snapshot);
             RosterApplyResult Result(bool applied, string reason, int added = 0, int updated = 0, string? next = null) =>
                 new(applied, reason, added, updated, unchanged, skipped, next ?? token);
+            // The roster may have changed between the pre-flight and the lock: the backup is kept, nothing is applied.
             if (!preview.MatchesSnapshot(snapshot)) return (Result(false, "roster_changed"), false);
             if (preview.Changes.Count == 0) return (Result(true, "no-changes"), false);
-            foreach (var item in preview.Changes)
-            {
-                var row = item.Row!;
-                if (!RosterFields.ValidName(row.Name) || !RosterFields.ValidStudent(row.StudentNumber) || row.Endpoint is not null && !AllowedRosterEndpoint(row.Endpoint))
-                    return (Result(false, "endpoint-or-row-no-longer-valid"), false);
-            }
-            // Use an independent reader: backing up the connection holding the write transaction can wait on itself.
-            BackupBeforeRosterImport();
+            if (!RowsStillValid()) return (Result(false, "endpoint-or-row-no-longer-valid"), false);
             string batch = NewUuid();
             foreach (var item in preview.Changes.Where(i => i.Action == RosterImportAction.Update))
             {

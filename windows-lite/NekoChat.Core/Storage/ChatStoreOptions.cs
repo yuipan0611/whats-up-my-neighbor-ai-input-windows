@@ -25,4 +25,6 @@ internal interface IStoreFaults
     void AfterCommit(string op);
     /// <summary>Fault injection after a real short-lived SQL read, before its value is returned. Default no-op; never configured by the app.</summary>
     void AfterRead(string op) { }
+    /// <summary>Called just before a database backup copies data (no write transaction may be open at that point).</summary>
+    void BeforeBackup(string purpose) { }
 }
