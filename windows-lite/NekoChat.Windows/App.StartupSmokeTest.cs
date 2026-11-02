@@ -23,7 +23,7 @@ public partial class App
             catch { if (!child.HasExited) child.Kill(true); throw; }
             Require(child.ExitCode == 0 && File.ReadAllText(Path.Combine(directory, "duplicate-result.txt")).StartsWith("PASS:"),
                 "Duplicate launch was not blocked");
-            Require(directListener!.Running && chat.IsVisible && pet.IsVisible && chat.SendButton.IsEnabled,
+            Require(directListener!.Running && chat.IsVisible && pet.IsVisible && chat.CanSendReaction && !chat.SendButton.IsEnabled,
                 "Duplicate launch disrupted the first app");
             File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: real second app process blocked before settings/listener/UI; original receiver, chat and cat remain active.");
             Environment.Exit(0);

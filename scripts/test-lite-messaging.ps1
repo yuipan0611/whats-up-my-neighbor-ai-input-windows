@@ -55,7 +55,7 @@ try {
     $processes += Start-Process -FilePath $appPath -ArgumentList @('--messaging-smoke-test', "`"$proof`"", 'alice', $alicePort, $bobPort) -PassThru
     $processes += Start-Process -FilePath $appPath -ArgumentList @('--messaging-smoke-test', "`"$proof`"", 'bob', $bobPort, $alicePort) -PassThru
     foreach ($process in $processes) {
-        if (!$process.WaitForExit(60000)) { throw 'Messaging smoke timed out.' }
+        if (!$process.WaitForExit(150000)) { throw 'Messaging smoke timed out.' }
     }
     foreach ($role in @('alice', 'bob')) {
         $result = Join-Path $proof "$role-result.txt"

@@ -15,6 +15,29 @@ public partial class App
     {
         pet.ReactionDisplayDevice = "disconnected-test-screen";
         string Ready(string value) => Path.Combine(options.Directory, value + ".ready");
+        // First prove the unmodified privacy default on a real legacy classroom reaction.
+        if (options.Role == "alice")
+        {
+            await UntilAsync(() => File.Exists(Ready("privacy-default")), cancellation);
+            await SendReactionAsync(ClassroomReactions.Find("too-fast")!, cancellation);
+            await UntilAsync(() => File.Exists(Ready("privacy-verified")), cancellation);
+        }
+        else
+        {
+            File.WriteAllText(Ready("privacy-default"), "ready");
+            await UntilAsync(() => pet.Bubble.Visibility == Visibility.Visible && pet.BubbleText.Text.Contains("新訊息"), cancellation);
+            Require(!pet.ReactionActive && !pet.BubbleText.Text.Contains("太快") && !pet.BubbleText.Text.Contains("127.0.0.1"), "Default legacy reaction leaked body or endpoint");
+            pet.Bubble.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await UntilAsync(() => chat.SmokeSelectedEntry?.LegacyScope?.UnknownSourceIp == "127.0.0.1" && chat.History.Rows.Any(r => r.Legacy), cancellation);
+            Require(chat.SmokeSelectedEntry is { PeerId: null } && chat.History.Rows.All(r => r.Legacy), "Legacy notification merged into the signed peer history");
+            File.WriteAllText(Ready("privacy-verified"), "ready");
+        }
+        // Deliberately opt in through the actual settings control before asset/timing checks.
+        chat.ReactionPreviewToggle.IsChecked = true;
+        chat.ReactionPreviewToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Require(settings.ShowReactionPreviews, "Explicit reaction-preview preference did not persist");
+        File.WriteAllText(Ready(options.Role + "-opt-in"), "ready");
+        await UntilAsync(() => File.Exists(Ready((options.Role == "alice" ? "bob" : "alice") + "-opt-in")), cancellation);
         if (options.Role == "alice")
         {
             foreach (var reaction in ClassroomReactions.All)
@@ -25,11 +48,10 @@ public partial class App
                 await UntilAsync(() => File.Exists(Ready("restored-" + reaction.Id)), cancellation);
             }
             await UntilAsync(() => File.Exists(Ready("receive-keyword")), cancellation);
-            chat.RecipientIp.Text = "127.0.0.1";
-            chat.Draft.Text = "太快了！！";
-            chat.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await UntilAsync(() => chat.SendButton.IsEnabled, cancellation);
-            Require(chat.Draft.Text.Length == 0, "Keyword send did not follow ordinary draft behavior");
+            string draft = chat.Draft.Text;
+            // Explicit old-client compatibility fixture; the product never falls back to unsigned ordinary private sends.
+            await DirectLanMessaging.SendDirectAsync("127.0.0.1", "太快了！！", options.PeerPort);
+            Require(chat.Draft.Text == draft, "Legacy compatibility fixture changed the actual composer");
             await UntilAsync(() => File.Exists(Ready("restored-keyword")), cancellation);
             File.WriteAllText(Ready("receive-reverse"), "ready");
             await VerifyReactionAsync(ClassroomReactions.Find("stop-scrolling")!, "alice-reverse", cancellation, clickReply: true);
@@ -52,7 +74,7 @@ public partial class App
         }
         File.WriteAllText(Path.Combine(options.Directory, options.Role + "-reactions-result.txt"),
             "PASS: actual five WPF reaction buttons; teacher shortcuts ignore selected classmate; fifth sticker works both ways; " +
-            "draft preserved for shortcuts; exact-text trigger; real TCP receipt/history; transparent 312x288 central display; " +
+            "default notification hides reaction content/IP; explicit preview opt-in; draft preserved for shortcuts; old-client exact-text compatibility fixture; real legacy TCP courtesy ACK/separate unverified history; transparent 312x288 central display; " +
             "two-second deadline; duplicate count; no source IP in popup; original HWND/position/size/art restored; click replies to source.");
 
         async Task VerifyReactionAsync(ClassroomReaction reaction, string captureName, CancellationToken token, bool clickReply = false)
@@ -68,7 +90,8 @@ public partial class App
             Require(!pet.ReactionCaption.Text.Contains("127.0.0.1") &&
                 !AutomationProperties.GetName(pet.ReactionView).Contains("127.0.0.1") && pet.ReactionView.ToolTip is null,
                 "Source IP leaked outside the chat");
-            Require(chat.History.Text.Contains("127.0.0.1："), "Chat lost source IP");
+            var histories = await chatRuntime!.Worker.Run(s => s.ListLegacyHistories());
+            Require(histories.Any(h => h.Scope.UnknownSourceIp == "127.0.0.1" && h.LastText == (captureName == "bob-keyword" ? "太快了！！" : reaction.Text)), "Actual legacy receive was not durably stored under its unverified source");
             if (captureName == "bob-too-fast")
                 await UntilAsync(() => pet.ReactionCaption.Text.Contains("×2"), token);
             string capturePath = Path.Combine(options.Directory, captureName + "-reaction.png");
@@ -90,9 +113,9 @@ public partial class App
             }
             if (clickReply)
             {
-                chat.RecipientIp.Text = "192.168.1.254";
                 pet.ReactionView.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                Require(chat.RecipientIp.Text == "127.0.0.1", "Reaction reply lost true source IP");
+                await UntilAsync(() => chat.SmokeSelectedEntry?.LegacyScope?.UnknownSourceIp == "127.0.0.1" && chat.History.Rows.Any(r => r.Legacy && r.RawText == reaction.Text), token);
+                Require(chat.SmokeSelectedEntry is { PeerId: null } && chat.History.Rows.All(r => r.Legacy), "Reaction reply selected a signed peer by matching IP");
             }
             else
             {
@@ -111,14 +134,15 @@ public partial class App
 
     private async Task SendReactionAsync(ClassroomReaction reaction, CancellationToken cancellation)
     {
+        await chat.SmokeOpenEntryAsync(e => e.PeerId == messagingPeerId);
         chat.Draft.Text = "這份草稿要保留";
         chat.RecipientIp.Text = reaction.TeacherOnly ? "192.168.1.254" : "127.0.0.1";
         var button = reaction.TeacherOnly
             ? chat.TeacherReactions.Children.OfType<Button>().Single(b => (string)b.Tag == reaction.Id)
             : chat.ScrollReaction;
         button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        await UntilAsync(() => chat.SendButton.IsEnabled, cancellation);
-        Require(chat.Status.Text.Contains("已送達") && chat.History.Text.Contains("我 → 127.0.0.1：" + reaction.Text), "Reaction did not reach intended recipient");
+        await UntilAsync(() => chat.SmokeSendIdle, cancellation);
+        Require(chat.CanSendReaction && chat.Status.Text.Contains("課堂反應已送出") && !chat.History.Rows.Any(r => r.Outgoing && r.RawText == reaction.Text), "Reaction courtesy ACK failed or invented an outgoing signed message");
         Require(chat.Draft.Text == "這份草稿要保留", "Reaction shortcut changed the draft");
     }
 }

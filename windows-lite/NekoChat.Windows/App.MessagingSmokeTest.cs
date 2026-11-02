@@ -24,67 +24,77 @@ public partial class App
 {
     private async Task RunMessagingSmokeTestAsync(MessagingSmokeOptions options)
     {
-        Directory.CreateDirectory(options.Directory);
         string prefix = Path.Combine(options.Directory, options.Role);
         string other = options.Role == "alice" ? "bob" : "alice";
-        string first = "訊息驗收 A → B：下課見 🐈\n第二行中文與 emoji";
-        string reply = "訊息驗收 B → A：收到，等你一起走 🐾";
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        const string first = "訊息驗收 A → B：下課見 🐈\n```csharp\nConsole.WriteLine(\"原文\");\n```";
+        const string reply = "訊息驗收 B → A：收到，等你一起走 🐾";
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
         try
         {
-            Require(directListener?.Running == true, "App listener failed to start");
-            Require(chat.IsVisible && pet.IsVisible, "Actual app windows are not visible");
+            Require(chatRuntime?.CanSend == true && directListener?.Running == true, "Signed app runtime failed to start");
+            Require(chat.IsVisible && pet.IsVisible && messagingPeerId is not null, "Actual fixture windows or pinned identity missing");
+            Require(!settings.ShowReactionPreviews && chat.ReadReceiptToggle.IsChecked == false, "Privacy defaults changed");
+            await chat.SmokeOpenEntryAsync(e => e.PeerId == messagingPeerId);
+            string conversation = chat.SmokeSelectedEntry!.ConversationId!;
             File.WriteAllText(prefix + ".ready", "ready");
             await UntilAsync(() => File.Exists(Path.Combine(options.Directory, other + ".ready")), timeout.Token);
 
             if (options.Role == "alice")
             {
-                SendFromEnter(first);
-                await UntilAsync(() => chat.SendButton.IsEnabled, timeout.Token);
-                VerifySent(first);
-                await UntilAsync(() => chat.History.Text.Contains("127.0.0.1：" + reply), timeout.Token);
-                VerifyIncoming(reply);
+                Send(first, enter: true);
+                await VerifySentAsync(first);
+                await VerifyIncomingAsync(reply);
             }
             else
             {
-                await UntilAsync(() => chat.History.Text.Contains("127.0.0.1：" + first), timeout.Token);
-                VerifyIncoming(first);
-                SendFromButton(reply);
-                await UntilAsync(() => chat.SendButton.IsEnabled, timeout.Token);
-                VerifySent(reply);
+                await VerifyIncomingAsync(first);
+                Send(reply, enter: false);
+                await VerifySentAsync(reply);
             }
-
+            var persisted = await chatRuntime!.Worker.Run(s => s.ListMessages(conversation).Items);
+            Require(persisted.Count == 2 && persisted.All(m => m.RawText == first || m.RawText == reply) &&
+                persisted.Single(m => m.Direction == "outgoing").RemoteStoredAt is not null &&
+                persisted.Single(m => m.Direction == "outgoing").RemoteReadAt is null, "Signed storage ACK or default-off remote read state incorrect");
             Capture(chat, prefix + "-chat.png");
             File.WriteAllText(prefix + ".received", "received");
             await UntilAsync(() => File.Exists(Path.Combine(options.Directory, other + ".received")), timeout.Token);
             await RunReactionMessagingChecksAsync(options, timeout.Token);
+            // Both receivers stay alive until every bidirectional check has finished.
+            File.WriteAllText(prefix + ".network-complete", "ready");
+            await UntilAsync(() => File.Exists(Path.Combine(options.Directory, other + ".network-complete")), timeout.Token);
+            await chat.SmokeOpenEntryAsync(e => e.PeerId == messagingPeerId);
 
-            // Use an unbound peer port while keeping this app's receiver healthy.
-            using (var reservation = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0))
-            {
-                reservation.Start();
-                directSendPort = ((System.Net.IPEndPoint)reservation.LocalEndpoint).Port;
-                reservation.Stop();
-            }
-            const string failed = "未送達的訊息必須保留在草稿";
-            SendFromButton(failed);
-            await UntilAsync(() => chat.SendButton.IsEnabled, timeout.Token);
-            Require(chat.Draft.Text == failed, "Failed send cleared the draft");
-            Require(!chat.History.Text.Contains(failed), "Failed send appeared as delivered history");
-            Require(chat.Status.Text.Contains("草稿保留") && !chat.Status.Text.Contains("已送達"),
-                "Failed send did not show an error");
+            // Keep a port reserved without serving HTTP: the genuine client must time out, never hit an unrelated process.
+            using var unresponsive = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+            unresponsive.Start(); chat.SmokeUsePeerPort(((System.Net.IPEndPoint)unresponsive.LocalEndpoint).Port);
+            const string failed = "未確認送達的訊息必須保留在草稿";
+            Send(failed, enter: false);
+            await UntilAsync(() => chat.SmokeSendIdle, timeout.Token);
+            Require(chat.Draft.Text == failed && chat.SendButton.IsEnabled, "Failed send lost draft or retry affordance");
+            Require(!chat.History.Rows.Any(r => r.RawText == failed), "Unconfirmed attempt appeared as delivered history");
+            Require(chat.Status.Text.Contains("未確認送達") && !chat.Status.Text.Contains("已驗證"), "Failed send claimed a storage ACK");
             chat.UpdateLayout();
             var status = chat.Status;
-            var fullText = new FormattedText(status.Text, System.Globalization.CultureInfo.CurrentCulture,
+            var measured = new FormattedText(status.Text, System.Globalization.CultureInfo.CurrentCulture,
                 status.FlowDirection, new Typeface(status.FontFamily, status.FontStyle, status.FontWeight, status.FontStretch),
-                status.FontSize, status.Foreground, VisualTreeHelper.GetDpi(status).PixelsPerDip)
-                { MaxTextWidth = status.ActualWidth };
-            Require(status.ActualHeight + 1 >= fullText.Height, "Failure explanation is clipped by the window layout");
+                status.FontSize, status.Foreground, VisualTreeHelper.GetDpi(status).PixelsPerDip) { MaxTextWidth = status.ActualWidth };
+            Require(status.ActualHeight + 1 >= measured.Height, "Failure explanation is clipped");
             Capture(chat, prefix + "-failure.png");
+
+            await chat.PrepareForShutdownAsync();
+            string dataDirectory = chatRuntime.DataDirectory;
+            await chatRuntime.DisposeAsync(); chatRuntime = null; directListener = null;
+            using (var reopened = NekoChat.Core.Storage.ChatStore.Open(new(dataDirectory)))
+            {
+                Require(reopened.GetDraftState(conversation)?.RawText == failed, "Orderly close did not persist the failed draft");
+                Require(reopened.ListMessages(conversation).Items.Count == 2, "Reopen lost or invented signed messages");
+                Require(reopened.GetInboxSnapshot().Entries.Single(e => e.PeerId == messagingPeerId).Attempt is { TryCount: 1 }, "Unconfirmed send retried automatically or lost its attempt");
+                Require(!reopened.GetReadReceiptPolicy().Enabled, "Read-receipt privacy default changed on reopen");
+            }
             File.WriteAllText(prefix + "-result.txt",
-                "PASS: two independent app processes; real WPF Enter handler and send button; bidirectional TCP messages; Unicode/multiline text; " +
-                "received history; visible cat bubble; bubble reply target; successful receipt and draft clearing; " +
-                "unreachable peer error, retained draft and restored send button. Same-host loopback only; classroom LAN remains unverified.");
+                "PASS: two independent real WPF processes; explicit synthetic identity pins and engineering L=16384; Enter/button → SQLite attempt → signed loopback HTTP/TCP → persisted incoming message → verified storage ACK → durable draft clear; " +
+                "Unicode/code raw text, default name/new-message notification without body/IP, opaque peer reply context, remote-read default off, separate unverified legacy history; timeout retains draft and one manual attempt; orderly close/reopen. " +
+                "Same-host loopback only; no classroom LAN, real pairing consent or product L decision is established.");
             Environment.Exit(0);
         }
         catch (Exception ex)
@@ -93,33 +103,29 @@ public partial class App
             Environment.Exit(1);
         }
 
-        void SendFromEnter(string text)
+        void Send(string text, bool enter)
         {
-            chat.RecipientIp.Text = "127.0.0.1";
             chat.Draft.Text = text;
-            chat.Draft.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(chat),
-                Environment.TickCount, Key.Enter) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            Require(chat.SendButton.IsEnabled, "Actual composer was not ready");
+            if (enter)
+                chat.Draft.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(chat),
+                    Environment.TickCount, Key.Enter) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            else chat.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         }
-        void SendFromButton(string text)
+        async Task VerifySentAsync(string text)
         {
-            chat.RecipientIp.Text = "127.0.0.1";
-            chat.Draft.Text = text;
-            chat.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await UntilAsync(() => chat.SmokeSendIdle && chat.History.Rows.Any(r => r.Outgoing && !r.Legacy && r.RawText == text && r.Delivery == "對方已儲存"), timeout.Token);
+            Require(chat.Draft.Text.Length == 0 && !chat.SendButton.IsEnabled, "Verified ACK did not clear draft or empty composer remained sendable");
         }
-        void VerifySent(string text)
+        async Task VerifyIncomingAsync(string text)
         {
-            Require(chat.History.Text.Contains("我 → 127.0.0.1：" + text), "Sender history missing real delivery");
-            Require(chat.Draft.Text.Length == 0 && chat.Status.Text.Contains("已送達"), "Receipt did not update the sender UI");
-        }
-        void VerifyIncoming(string text)
-        {
-            Require(pet.Bubble.Visibility == Visibility.Visible && pet.BubbleText.Text.Contains(text),
-                "Network message did not appear in the cat bubble");
-            Require(!pet.BubbleText.Text.Contains("127.0.0.1"), "Source IP leaked into the pet bubble");
+            await UntilAsync(() => chat.History.Rows.Any(r => !r.Outgoing && !r.Legacy && r.RawText == text) && pet.Bubble.Visibility == Visibility.Visible, timeout.Token);
+            Require(pet.BubbleText.Text.Contains("新訊息") && !pet.BubbleText.Text.Contains(text) &&
+                !pet.BubbleText.Text.Contains("127.0.0.1") && !pet.ReactionActive, "Default notification leaked content or endpoint");
             Capture(pet, prefix + "-bubble.png");
-            chat.RecipientIp.Text = "192.168.1.254";
             pet.Bubble.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Require(chat.IsVisible && chat.RecipientIp.Text == "127.0.0.1", "Bubble click did not select the real sender");
+            await UntilAsync(() => chat.SmokeSelectedEntry?.PeerId == messagingPeerId && chat.History.Text.Contains(text), timeout.Token);
+            Require(chat.SmokeSelectedEntry.LegacyScope is null, "Signed reply selected an unverified legacy conversation");
         }
     }
 

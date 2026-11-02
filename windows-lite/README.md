@@ -70,7 +70,8 @@
 `NekoChat Windows Lite` CI 必須執行訊息測試後，才能回報聊天功能通過：
 
 - 核心測試使用真實 TCP：雙向中文、emoji、多行文字、來源 IP、送達回覆、連接埠被占用、對方離線，以及 HTTP 成功但沒有送達確認的情況。
-- Windows 測試對完整套件、免安裝 EXE、安裝器實際解壓後的 App，各啟動兩個獨立程序，觸發實際「傳送」按鈕。驗證對方聊天紀錄、可見的貓咪氣泡、點氣泡帶入回覆對象、回傳訊息、送達後清空草稿，以及失敗時保留草稿並顯示錯誤。
+- Windows 測試對完整套件、免安裝 EXE、安裝器實際解壓後的 App，各啟動兩個獨立程序，以隔離測試金鑰明確互相 pin，觸發實際 Enter 與「傳送」按鈕，走 SQLite attempt、簽章 TCP 與儲存 ACK。檢查正文原文、預設提醒僅顯示姓名與「新訊息」、以身分回覆、ACK 後草稿清空；逾時保留草稿與單次嘗試，再關閉重開資料庫驗證。固定 16384 bytes 僅為此隔離 fixture 的工程設定，不決定產品身分方案或訊息上限。
+- 反應測試先驗證隱私預設，再從實際設定勾選允許反應圖片後，檢查五款素材、恢復位置與舊版來源的獨立未驗證紀錄。普通私訊不會退回無簽章傳送。
 - 每一種包裝也使用 Windows 原生滑鼠輸入，驗證單擊貓咪不開視窗、雙擊只開一次，以及第二次按住拖曳後放開不誤開視窗。
 - 兩端報告與聊天／氣泡／錯誤畫面保存於 `nekochat-windows-smoke-captures` artifact；原先的 `--smoke-test` 只涵蓋 UI 與素材，不能當成訊息已送達的證據。
 
@@ -80,4 +81,9 @@
 ./scripts/test-lite-messaging.ps1 -App ./build/windows-lite-package/NekoChat.Windows.exe -OutputDirectory ./build/windows-lite-smoke/manual-messaging
 ```
 
-測試使用同台 Windows 的兩個程序和不同本機測試埠；正常聊天仍使用 TCP 8768。這項結果不代表教室 AP／VLAN／防火牆已通過。發布前仍需兩台實體 Windows 電腦互傳、點氣泡回覆，並確認對方離線時不顯示成功。測試命令會操作測試帳號的設定，不要用日常帳號執行。
+測試使用同台 Windows 的兩個程序和不同本機測試埠；正常聊天仍使用 TCP 8768。這項結果不代表教室 AP／VLAN／防火牆已通過。發布前仍需兩台實體 Windows 電腦互傳、點氣泡回覆，並確認對方離線時不顯示成功。測試使用輸出目錄內獨立的 SQLite、設定與 DPAPI 測試金鑰，不讀寫日常設定或身分。請仍使用拋棄式 Windows 測試帳號驗證原生視窗與 DPAPI。
+
+
+## 離線備份還原
+
+App 提供 `--restore-backup <獨立備份.db> <全新目錄>`，只在新目錄產生經驗證、升級與重開的副本。既有資料與原備份均不覆寫。操作方式與安全切換步驟見 [BACKUP-RESTORE.md](BACKUP-RESTORE.md)。Mac 核心測試已實際涵蓋複製／驗證／發布前後的程序終止；Windows CLI、檔案權限與人工切換尚待原生驗收。

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using NekoChat.Core;
 
+if (NekoChat.Tests.BackupRestoreChecks.RunChild(args)) return;
 if (await NekoChat.Tests.V2CrashChecks.RunChild(args)) return;
 if (await NekoChat.Tests.LegacyMessageChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageReceiveChecks.RunChild(args)) return;
@@ -25,6 +26,7 @@ if (args.SequenceEqual(new[] { "--passive-identity" })) { await NekoChat.Tests.P
 if (args.SequenceEqual(new[] { "--identity-vault" })) { await NekoChat.Tests.IdentityVaultChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--settings-source" })) { NekoChat.Tests.SettingsSourceChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--inbox-workspace" })) { await NekoChat.Tests.InboxWorkspaceChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--backup-restore" })) { await NekoChat.Tests.BackupRestoreChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--receipt-worker" })) { await NekoChat.Tests.ReceiptServiceChecks.Run(); return; }
 
 int checks=0;
@@ -151,6 +153,7 @@ checks += await NekoChat.Tests.StorageReadChecks.Run();
 checks += await NekoChat.Tests.StorageRosterChecks.Run();
 checks += await NekoChat.Tests.StorageLegacyRosterChecks.Run();
 checks += NekoChat.Tests.StorageBackupChecks.Run();
+checks += await NekoChat.Tests.BackupRestoreChecks.Run();
 checks += await NekoChat.Tests.PresenceChecks.Run();
 checks += NekoChat.Tests.PresenceChecks.RunAbaProbe();
 checks += await NekoChat.Tests.SecurityRevisionChecks.Run();

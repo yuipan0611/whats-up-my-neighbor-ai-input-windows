@@ -22,10 +22,17 @@ public partial class App : Application
     private SettingsLoadResult? startupSource;
     private bool isolatedData, startingData, closingApp;
     private int startupPort = DirectLanMessaging.DefaultPort;
+    private ChatWireConfiguration? startupWireConfiguration;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        if (e.Args.Length > 0 && e.Args[0] == "--restore-backup")
+        {
+            Environment.Exit(OfflineRestoreCommand.Run(e.Args));
+            return;
+        }
 
         if (e.Args.Length == 2 && e.Args[0] == "--identity-vault-smoke-test")
         {
@@ -150,6 +157,8 @@ public partial class App : Application
 
             pet.Show();
             chat.Show();
+            if (messagingSmoke is not null)
+                startupWireConfiguration = await PrepareMessagingFixtureAsync(messagingSmoke);
             await StartDataAsync();
             SystemEvents.PowerModeChanged += AppPowerModeChanged;
 
@@ -190,7 +199,12 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            MessageBox.Show("NekoChat 無法啟動：" + ex.Message, "NekoChat");
+            if (e.Args.Length == 5 && e.Args[0] == "--messaging-smoke-test")
+            {
+                Directory.CreateDirectory(e.Args[1]);
+                File.WriteAllText(Path.Combine(e.Args[1], e.Args[2] + "-result.txt"), "FAIL: fixture startup: " + ex.GetType().Name);
+            }
+            else MessageBox.Show("NekoChat 無法啟動：" + ex.Message, "NekoChat");
             Shutdown(1);
         }
     }
@@ -323,7 +337,7 @@ public partial class App : Application
         startingData = true; ChatRuntime? candidate = null;
         try
         {
-            candidate = await ChatRuntime.OpenAsync(startupSource, isolatedData, startupPort);
+            candidate = await ChatRuntime.OpenAsync(startupSource, isolatedData, startupPort, startupWireConfiguration);
             if (closingApp) return;
             await chat.AttachRuntimeAsync(candidate, directSendPort);
             candidate.DataChanged += () => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.DataChanged(); }));

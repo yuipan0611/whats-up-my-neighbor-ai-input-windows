@@ -58,8 +58,10 @@ internal sealed class ChatRuntime : IAsyncDisposable
         Worker = new(store, lifetime: _lifetime.Token);
         _maintenance = Task.Run(MaintainBackups);
     }
+    internal static string RootDirectory(Settings source, bool isolated) => isolated
+        ? Path.Combine(Path.GetDirectoryName(source.PersistencePath!)!, Path.GetFileNameWithoutExtension(source.PersistencePath) + "-data") : Settings.DirectoryPath;
     internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null) => Task.Run(() => {
-        string root = isolated ? Path.Combine(Path.GetDirectoryName(source.Value.PersistencePath!)!, Path.GetFileNameWithoutExtension(source.Value.PersistencePath) + "-data") : Settings.DirectoryPath;
+        string root = RootDirectory(source.Value, isolated);
         string data = Path.Combine(root, "data"); ChatStore? store = null;
         try
         {
