@@ -7,6 +7,7 @@ internal static class SchemaGuard
     private sealed record Definition(string Type, string Name, string Table, string Sql);
     private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV1 = new(() => CreateExpected(1));
     private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV2 = new(() => CreateExpected(2));
+    private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV3 = new(() => CreateExpected(3));
 
     internal static long Inspect(SqliteConnection connection, int latestVersion)
     {
@@ -16,15 +17,17 @@ internal static class SchemaGuard
                 fromVersion: checked((int)version), toVersion: latestVersion);
         var actual = Definitions(connection);
         if (version == 0 && Scalar(connection, "SELECT count(*) FROM sqlite_master") == 0) return 0;
-        var expected = version >= 2 ? ExpectedV2.Value : ExpectedV1.Value;
+        var expected = version >= 3 ? ExpectedV3.Value : version == 2 ? ExpectedV2.Value : ExpectedV1.Value;
         var byName = actual.ToDictionary(d => d.Name, StringComparer.Ordinal);
         if (version < 1 || expected.Any(d => !byName.TryGetValue(d.Name, out var found) || found != d) ||
-            version <= 2 && actual.Count != expected.Count)
+            version <= 3 && actual.Count != expected.Count)
             throw new StoreException(StoreErrorKind.UnrecognizedDatabase, StoreErrors.Describe(StoreErrorKind.UnrecognizedDatabase));
         if (Scalar(connection, "SELECT count(*) FROM SchemaVersion") != version ||
             Scalar(connection, "SELECT coalesce(min(version),0) FROM SchemaVersion") != 1 ||
             Scalar(connection, "SELECT coalesce(max(version),0) FROM SchemaVersion") != version)
             throw new StoreException(StoreErrorKind.Corrupt, "Schema version records are inconsistent.");
+        if (version >= 3 && Scalar(connection, "SELECT count(*) FROM ReadReceiptPolicy WHERE singleton=1") != 1)
+            throw new StoreException(StoreErrorKind.Corrupt, "Read receipt policy is missing.");
         return version;
     }
 
@@ -57,6 +60,11 @@ internal static class SchemaGuard
         if (version >= 2)
         {
             command.CommandText = Migration.TombstoneSchema;
+            command.ExecuteNonQuery();
+        }
+        if (version >= 3)
+        {
+            command.CommandText = Migration.ReadPolicySchema;
             command.ExecuteNonQuery();
         }
         return Definitions(memory).AsReadOnly();

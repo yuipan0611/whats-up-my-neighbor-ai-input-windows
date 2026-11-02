@@ -162,7 +162,13 @@ public sealed partial class ChatStore
             if (!IsPaired(ctx, verifiedPeerId)) return (new ReceiptApplyResult(false, "untrusted-peer"), false);
             var rows = ctx.Query("SELECT localSeq,remoteStoredAt,remoteReadAt FROM Message WHERE direction='outgoing' AND recipientId=@peer AND messageId=@id AND (@sender IS NULL OR senderId=@sender)",
                 r => (Seq: r.GetInt64(0), Stored: !r.IsDBNull(1), Read: !r.IsDBNull(2)), ("@peer", verifiedPeerId), ("@id", messageId), ("@sender", originalSenderId));
-            if (rows.Count != 1) return (new ReceiptApplyResult(false, rows.Count == 0 ? "not-found" : "ambiguous-message"), false);
+            if (rows.Count == 0)
+            {
+                long pending = Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM ManualSendAttempt a JOIN LocalIdentity l ON l.singleton=1 AND l.id=a.senderId WHERE a.recipientId=@peer AND a.messageId=@id AND (@sender IS NULL OR a.senderId=@sender) AND a.attemptState NOT IN ('confirmed','superseded')",
+                    ("@peer", verifiedPeerId), ("@id", messageId), ("@sender", originalSenderId)), CultureInfo.InvariantCulture);
+                return (new ReceiptApplyResult(false, pending > 0 ? "pending-local-confirmation" : "not-found"), false);
+            }
+            if (rows.Count != 1) return (new ReceiptApplyResult(false, "ambiguous-message"), false);
             var row = rows[0];
             if (row.Stored && (kind == RemoteReceiptKind.Stored || row.Read)) return (new ReceiptApplyResult(false, "unchanged", row.Seq), false);
             ctx.Exec("UPDATE Message SET remoteStoredAt=coalesce(remoteStoredAt,@now),remoteReadAt=CASE WHEN @read=1 THEN coalesce(remoteReadAt,@now) ELSE remoteReadAt END WHERE localSeq=@seq",

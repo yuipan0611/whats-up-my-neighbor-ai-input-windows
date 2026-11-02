@@ -34,6 +34,11 @@ public interface IChatStore : IDisposable
     ReceiptApplyResult ApplyRemoteReceipt(string verifiedPeerId, string messageId, RemoteReceiptKind kind, string? originalSenderId = null);
     MessagePage ListMessages(string conversationId, long? beforeLocalSeq = null, int pageSize = 50);
     ClearResult ClearConversation(string conversationId);
+    ReadReceiptPolicy GetReadReceiptPolicy();
+    ReadPolicyChange SetReadReceiptPolicy(bool enabled);
+    VisibleReadResult MarkVisibleRead(string conversationId, IReadOnlyList<long> visibleLocalSeqs, VisibleReadContext context, Func<bool>? visibilityStillCurrent = null);
+    IReadOnlyList<PendingReadReceipt> ListPendingReadReceipts(int limit = 50);
+    bool CompleteReadReceipt(PendingReadReceipt receipt);
 
     StoreDiagnostics GetDiagnostics();
 }

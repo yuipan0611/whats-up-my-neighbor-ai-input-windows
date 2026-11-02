@@ -65,7 +65,17 @@ internal sealed record Migration(int ToVersion, Action<WriteContext> Apply, bool
         ) STRICT;
         """;
     internal static Migration V2 { get; } = new(2, ctx => ctx.Exec(TombstoneSchema));
-    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2 };
+    internal const string ReadPolicySchema = """
+        CREATE TABLE ReadReceiptPolicy(
+          singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+          enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0,1)),
+          generation INTEGER NOT NULL DEFAULT 0 CHECK (generation>=0)
+        ) STRICT;
+        INSERT INTO ReadReceiptPolicy(singleton) VALUES(1);
+        DELETE FROM ReceiptOutbox;
+        """;
+    internal static Migration V3 { get; } = new(3, ctx => ctx.Exec(ReadPolicySchema));
+    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2, V3 };
 
     internal static string ReadSchemaV1()
     {

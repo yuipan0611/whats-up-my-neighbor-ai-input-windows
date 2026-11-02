@@ -23,7 +23,7 @@ internal static class StorageTombstoneChecks
             string? forcedId = null; int allocations = 0;
             using (var upgraded = ChatStore.Open(new(root) { NewId = () => { allocations++; return forcedId ?? Guid.NewGuid().ToString("D"); } }))
             {
-                Check(Number(db, "PRAGMA user_version") == 2 && upgraded.GetDraftState(a) is { RawText: "preserve on upgrade", Revision: 4 }, "real v1 upgrade preserves draft guards and body");
+                Check(Number(db, "PRAGMA user_version") == 3 && upgraded.GetDraftState(a) is { RawText: "preserve on upgrade", Revision: 4 }, "real v1 upgrade preserves draft guards and body");
                 string backup = Directory.GetFiles(Path.Combine(root, "backup"), "*.db").Single();
                 Check(Number(backup, "PRAGMA user_version") == 1 && Number(backup, "SELECT count(*) FROM Draft") == 1, "upgrade creates readable original-v1 backup");
                 Check(upgraded.ReceiveVerifiedMessage(new("A", "old", "Local", "original body", SourceEndpoint: "10.0.0.1")) is Stored, "incoming exists before clear");
@@ -57,7 +57,7 @@ internal static class StorageTombstoneChecks
             string before = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(db))); StoreException? failure = null;
             try { using var forged = ChatStore.Open(new(root)); } catch (StoreException e) { failure = e; }
             Check(failure?.Kind == StoreErrorKind.UnrecognizedDatabase && Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(db))) == before,
-                "forged v2 rejected read-only without recovery or pragma writes");
+                "forged current schema rejected read-only without recovery or pragma writes");
         }
         finally { Directory.Delete(root, true); }
         Console.WriteLine($"Storage tombstone: {checks} migration, privacy and resend checks passed."); return checks;
