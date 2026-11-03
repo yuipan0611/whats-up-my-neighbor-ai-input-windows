@@ -12,7 +12,7 @@ public sealed partial class ChatStore
     public ReadPolicyChange SetReadReceiptPolicy(bool enabled) => Write("read-policy", ctx => {
         var old = ReadPolicy(ctx);
         if (old.Enabled != enabled && enabled && old.Generation == long.MaxValue) throw new InvalidOperationException("Read policy generation exhausted.");
-        int dropped = enabled ? 0 : ctx.Exec("DELETE FROM ReceiptOutbox");
+        int dropped = enabled ? 0 : ctx.Exec("DELETE FROM ReceiptOutbox") + (_migrations.Count >= 7 ? ctx.Exec("DELETE FROM ClassroomReceiptOutbox") : 0);
         long next = old.Enabled == enabled || old.Generation == long.MaxValue ? old.Generation : old.Generation + 1;
         if (old.Enabled != enabled) ctx.Exec("UPDATE ReadReceiptPolicy SET enabled=@enabled,generation=@generation WHERE singleton=1",
             ("@enabled", enabled ? 1 : 0), ("@generation", next));

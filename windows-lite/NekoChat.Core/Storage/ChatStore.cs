@@ -41,6 +41,7 @@ public sealed partial class ChatStore : IChatStore
         if (IsNetworkDataPath(options.DataDirectory))
             throw new StoreException(StoreErrorKind.DataLocationUnsupported, StoreErrors.Describe(StoreErrorKind.DataLocationUnsupported));
         if (options.CommandTimeoutSeconds < 1) throw new ArgumentOutOfRangeException(nameof(options));
+        (options.OffRoster ?? throw new ArgumentException("OffRoster limits are required.", nameof(options))).Validate();
         var store = new ChatStore(options);
         try
         {
@@ -111,7 +112,8 @@ public sealed partial class ChatStore : IChatStore
 
             // 4. recovery: no network, no sending. sending → unconfirmed.
             _recoveredAttempts = Write("recover", ctx =>
-                (ctx.Exec("UPDATE ManualSendAttempt SET attemptState='unconfirmed', updatedUtc=@now WHERE attemptState='sending'", ("@now", ctx.NowUtc)), true));
+                (ctx.Exec("UPDATE ManualSendAttempt SET attemptState='unconfirmed', updatedUtc=@now WHERE attemptState='sending'", ("@now", ctx.NowUtc)) +
+                 (_migrations.Count >= 7 ? ctx.Exec("UPDATE ClassroomAttempt SET attemptState='unconfirmed', updatedUtc=@now WHERE attemptState='sending'", ("@now", ctx.NowUtc)) : 0), true));
             CheckWalSize("open");
             _ = MaintainBackups();
             return 0;

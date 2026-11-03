@@ -36,11 +36,11 @@ internal static class StorageFoundationChecks
             using (var store = ChatStore.Open(new(area.Data)))
             {
                 string path = store.DatabasePath;
-                Check(Number(path, "PRAGMA user_version") == 6, "new database uses schema v6");
-                Check(Number(path, "SELECT count(*) FROM SchemaVersion") == 6, "six migrations recorded");
+                Check(Number(path, "PRAGMA user_version") == 7, "new database uses schema v7");
+                Check(Number(path, "SELECT count(*) FROM SchemaVersion") == 7, "seven migrations recorded");
                 Check(Text(path, "PRAGMA journal_mode") == "wal", "WAL persisted");
-                Check(Number(path, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*'") == 18, "all eighteen STRICT tables exist");
-                Check(Number(path, "SELECT sum(strict) FROM pragma_table_list WHERE name NOT GLOB 'sqlite_*'") == 18, "all application tables STRICT");
+                Check(Number(path, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*'") == 24, "all eighteen STRICT tables exist");
+                Check(Number(path, "SELECT sum(strict) FROM pragma_table_list WHERE name NOT GLOB 'sqlite_*'") == 24, "all application tables STRICT");
                 Check(Number(path, "SELECT count(*) FROM Peer") == 0, "old settings never auto-pair");
                 using (var reader = store.OpenReadConnectionForTest())
                 {
@@ -299,7 +299,7 @@ internal static class StorageFoundationChecks
                 command.ExecuteNonQuery();
             }
             using var store = ChatStore.Open(new(area.Data));
-            Check(Number(path, "PRAGMA user_version") == 6, "recognized Windows CRLF v1 schema upgrades to v6");
+            Check(Number(path, "PRAGMA user_version") == 7, "recognized Windows CRLF v1 schema upgrades to v7");
         }
         using (var area = new Area())
         {

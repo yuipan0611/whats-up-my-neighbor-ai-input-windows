@@ -17,6 +17,8 @@ public sealed record ChatStoreOptions(string DataDirectory)
     public Action<string>? DiagnosticSink { get; init; }
     /// <summary>Current local interface addresses and directed broadcasts, supplied by the Windows adapter.</summary>
     public Func<IReadOnlyCollection<string>> RosterExcludedEndpoints { get; init; } = () => Array.Empty<string>();
+    /// <summary>CM-11 bounds for classroom sources that are not on the roster.</summary>
+    public ClassroomOffRosterLimits OffRoster { get; init; } = new();
     internal IStoreFaults? Faults { get; init; }
     internal int? MaxPageCount { get; init; }
     internal IReadOnlyList<Migration>? Migrations { get; init; }

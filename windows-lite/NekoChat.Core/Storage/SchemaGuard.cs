@@ -11,6 +11,7 @@ internal static class SchemaGuard
     private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV4 = new(() => CreateExpected(4));
     private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV5 = new(() => CreateExpected(5));
     private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV6 = new(() => CreateExpected(6));
+    private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV7 = new(() => CreateExpected(7));
 
     internal static long Inspect(SqliteConnection connection, int latestVersion)
     {
@@ -20,10 +21,10 @@ internal static class SchemaGuard
                 fromVersion: checked((int)version), toVersion: latestVersion);
         var actual = Definitions(connection);
         if (version == 0 && Scalar(connection, "SELECT count(*) FROM sqlite_master") == 0) return 0;
-        var expected = version >= 6 ? ExpectedV6.Value : version == 5 ? ExpectedV5.Value : version == 4 ? ExpectedV4.Value : version == 3 ? ExpectedV3.Value : version == 2 ? ExpectedV2.Value : ExpectedV1.Value;
+        var expected = version >= 7 ? ExpectedV7.Value : version == 6 ? ExpectedV6.Value : version == 5 ? ExpectedV5.Value : version == 4 ? ExpectedV4.Value : version == 3 ? ExpectedV3.Value : version == 2 ? ExpectedV2.Value : ExpectedV1.Value;
         var byName = actual.ToDictionary(d => d.Name, StringComparer.Ordinal);
         if (version < 1 || expected.Any(d => !byName.TryGetValue(d.Name, out var found) || found != d) ||
-            version <= 6 && actual.Count != expected.Count)
+            version <= 7 && actual.Count != expected.Count)
             throw new StoreException(StoreErrorKind.UnrecognizedDatabase, StoreErrors.Describe(StoreErrorKind.UnrecognizedDatabase));
         if (Scalar(connection, "SELECT count(*) FROM SchemaVersion") != version ||
             Scalar(connection, "SELECT coalesce(min(version),0) FROM SchemaVersion") != 1 ||
@@ -87,6 +88,7 @@ internal static class SchemaGuard
             command.ExecuteNonQuery();
         }
         if (version >= 6) { command.CommandText = LegacyMessageSchema.Sql; command.ExecuteNonQuery(); }
+        if (version >= 7) { command.CommandText = ClassroomSchema.Sql; command.ExecuteNonQuery(); }
         return Definitions(memory).AsReadOnly();
     }
 }

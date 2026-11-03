@@ -181,6 +181,7 @@ checks += await NekoChat.Tests.StorageReadChecks.Run();
 checks += await NekoChat.Tests.StorageRosterChecks.Run();
 checks += await NekoChat.Tests.StorageLegacyRosterChecks.Run();
 checks += await NekoChat.Tests.ClassroomRosterChecks.Run();
+checks += NekoChat.Tests.ClassroomStoreChecks.Run();
 checks += NekoChat.Tests.StorageBackupChecks.Run();
 checks += await NekoChat.Tests.BackupRestoreChecks.Run();
 checks += await NekoChat.Tests.LegacyMessageChecks.Run();

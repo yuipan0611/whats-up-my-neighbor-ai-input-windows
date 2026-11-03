@@ -45,7 +45,7 @@ public sealed partial class ChatStore
             if (mergeConsent is not null)
             {
                 if (endpoint is null || mergeConsent.Endpoint != endpoint) return (Refuse("legacy_merge_mismatch"), false);
-                if (CountUnknownLegacy(ctx, endpoint) != mergeConsent.ExpectedMessages) return (Refuse("legacy_merge_changed"), false);
+                if (CountUnknownSource(ctx, endpoint) != mergeConsent.ExpectedMessages) return (Refuse("legacy_merge_changed"), false);
             }
             string id = entryId ?? NewRosterId(ctx);
             if (entryId is null)
@@ -54,7 +54,7 @@ public sealed partial class ChatStore
             else
                 ctx.Exec("UPDATE RosterEntry SET displayName=@name,studentNumber=@number,isTeacher=@teacher,endpoint=@endpoint,source='manual',importBatchId=NULL WHERE id=@id",
                     ("@id", id), ("@name", name), ("@number", number), ("@teacher", edit.IsTeacher ? 1 : 0), ("@endpoint", endpoint));
-            int merged = mergeConsent is { ExpectedMessages: > 0 } ? MergeUnknownLegacy(ctx, id, mergeConsent.Endpoint) : 0;
+            int merged = mergeConsent is { ExpectedMessages: > 0 } ? MergeUnknownSource(ctx, id, mergeConsent.Endpoint) : 0;
             return (new RosterSaveResult(new(true, entryId is null ? "added" : "updated", id, RosterImportPreview.ComputeSnapshotToken(ReadRoster(ctx))), merged), true);
         });
     }
@@ -84,7 +84,13 @@ public sealed partial class ChatStore
     }
 
     /// <summary>Only after the user has reviewed and confirmed this immutable preview.</summary>
-    public RosterApplyResult ApplyRosterPreview(RosterImportPreview preview)
+    public RosterApplyResult ApplyRosterPreview(RosterImportPreview preview) => ApplyRosterPreview(preview, null);
+
+    /// <summary>
+    /// CM-02b: <paramref name="confirmedMerges"/> are the notices the user saw ("此 IP 的 N 則名單外訊息會併入○○") and accepted.
+    /// They merge in the same transaction as the import; if any count changed since the notice, nothing is applied.
+    /// </summary>
+    public RosterApplyResult ApplyRosterPreview(RosterImportPreview preview, IReadOnlyList<RosterImportMergeNotice>? confirmedMerges)
     {
         ArgumentNullException.ThrowIfNull(preview);
         if (preview.Items.Count > RosterCsv.MaxRows) throw new ArgumentOutOfRangeException(nameof(preview));
@@ -108,6 +114,7 @@ public sealed partial class ChatStore
         if (!preview.CanApply) return Failure("ip_conflict", preToken);
         if (preview.Changes.Count == 0) return Failure("no-changes", preToken);
         if (!RowsStillValid()) return Failure("endpoint-or-row-no-longer-valid", preToken);
+        if (confirmedMerges is { Count: > 0 } && Read(c => MergeNoticeProblem(preview, preflight, confirmedMerges, ip => CountUnknownSource(c, ip))) is { } early) return Failure(early, preToken);
         // 2. Backup (independent read-only connection), then 3. take the write lock and re-verify the snapshot.
         BackupBeforeRosterImport();
         return Write("apply-roster", ctx => {
@@ -120,7 +127,8 @@ public sealed partial class ChatStore
             if (!preview.CanApply) return (Result(false, "ip_conflict"), false);
             if (preview.Changes.Count == 0) return (Result(true, "no-changes"), false);
             if (!RowsStillValid()) return (Result(false, "endpoint-or-row-no-longer-valid"), false);
-            string batch = NewUuid();
+            if (confirmedMerges is { Count: > 0 } && MergeNoticeProblem(preview, snapshot, confirmedMerges, ip => CountUnknownSource(ctx, ip)) is { } problem) return (Result(false, problem), false);
+            string batch = NewUuid(); var newIds = new Dictionary<int, string>();
             foreach (var item in preview.Changes.Where(i => i.Action == RosterImportAction.Update))
             {
                 var old = snapshot.Single(s => s.Entry.Id == item.TargetId);
@@ -133,8 +141,9 @@ public sealed partial class ChatStore
                 var row = item.Row!;
                 if (item.Action == RosterImportAction.Add)
                 {
+                    string newId = newIds[item.Line] = NewRosterId(ctx);
                     ctx.Exec("INSERT INTO RosterEntry(id,displayName,studentNumber,isTeacher,endpoint,source,importBatchId) VALUES(@id,@name,@number,@teacher,@endpoint,'csv',@batch)",
-                        ("@id", NewRosterId(ctx)), ("@name", row.Name), ("@number", row.StudentNumber), ("@teacher", row.IsTeacher ? 1 : 0), ("@endpoint", row.Endpoint), ("@batch", batch));
+                        ("@id", newId), ("@name", row.Name), ("@number", row.StudentNumber), ("@teacher", row.IsTeacher ? 1 : 0), ("@endpoint", row.Endpoint), ("@batch", batch));
                     added++;
                 }
                 else
@@ -146,7 +155,13 @@ public sealed partial class ChatStore
                     updated++;
                 }
             }
-            return (Result(true, "applied", added, updated, RosterImportPreview.ComputeSnapshotToken(ReadRoster(ctx))), true);
+            int merged = 0;
+            foreach (var notice in confirmedMerges ?? [])
+            {
+                var item = preview.Changes.Single(i => i.Line == notice.Line);
+                merged += MergeUnknownSource(ctx, item.Action == RosterImportAction.Add ? newIds[item.Line] : item.TargetId!, notice.Endpoint);
+            }
+            return (Result(true, "applied", added, updated, RosterImportPreview.ComputeSnapshotToken(ReadRoster(ctx))) with { MergedMessages = merged }, true);
         });
     }
 
