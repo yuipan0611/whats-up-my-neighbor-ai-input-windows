@@ -76,6 +76,7 @@ public interface IChatStore : IDisposable
     ReceiptApplyResult ApplyV2Receipt(NekoChat.Core.V2.V2VerifiedReceipt receipt, PeerSecuritySnapshot expected, Func<bool> stillCurrent);
     CompleteResult CompleteV2Send(NekoChat.Core.V2.V2VerifiedAck ack, PeerSecuritySnapshot expected, Func<bool> stillCurrent);
     bool CompleteV2ReadReceipt(PendingReadReceipt receipt, NekoChat.Core.V2.V2VerifiedAck ack, PeerSecuritySnapshot expected, Func<bool> stillCurrent);
+    /// <param name="stillCurrent">Runs inside the write transaction under the store's writer lock: keep it fast, side-effect free and non-reentrant (never call this store from it). See <c>ChatStore.Write</c>.</param>
     PeerSecurityChange SetPairingStateIfCurrent(PeerSecuritySnapshot expected, PairingState next, Func<bool> stillCurrent);
 
     StoreDiagnostics GetDiagnostics();
