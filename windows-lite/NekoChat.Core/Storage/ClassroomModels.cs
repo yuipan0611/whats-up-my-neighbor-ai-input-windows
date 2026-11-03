@@ -22,7 +22,7 @@ public sealed record ClassroomOffRosterLimits(int MaxSources = 200, int MaxMessa
 }
 
 /// <summary>CM-12: a draft may be stored up to 1 MiB of UTF-8 so an over-limit text survives closing the window; the send limit is checked only when sending.</summary>
-public static class ClassroomLimits { public const int MaxDraftBytes = 1_048_576; }
+public static class ClassroomLimits { public const int MaxDraftBytes = ChatStoreOptions.DefaultMaxDraftUtf8Bytes; }
 
 public sealed record ClassroomStoredMessage(long LocalSeq, ClassroomPrincipalKey Principal, string Direction, string MessageId, string RawText, string Kind,
     string? Reaction, string? SourceIp, string CreatedUtc, string? LocalReadAt, string? RemoteStoredAt, string? RemoteReadAt, string? LegacyDeliveredAt = null)

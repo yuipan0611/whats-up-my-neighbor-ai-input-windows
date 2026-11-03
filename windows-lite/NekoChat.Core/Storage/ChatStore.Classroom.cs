@@ -125,11 +125,11 @@ public sealed partial class ChatStore
         });
     }
 
-    /// <summary>CM-12: a draft is kept up to 1 MiB of UTF-8, never truncated; the send limit applies only when sending.</summary>
+    /// <summary>CM-12: a draft is kept up to <see cref="ChatStoreOptions.MaxDraftUtf8Bytes"/> of UTF-8, never truncated; the send limit applies only when sending.</summary>
     public DraftSaveResult SaveClassroomDraft(ClassroomPrincipalKey principal, string rawText, long draftEpoch, long draftRevision)
     {
         RequirePrincipal(principal); ValidateRevision(draftEpoch, draftRevision); ValidateDraftText(rawText);
-        if (Encoding.UTF8.GetByteCount(rawText) > ClassroomLimits.MaxDraftBytes) { var current = GetClassroomDraftState(principal); return new DraftSaveResult(false, "draft-too-large", current.Epoch, current.Revision); }
+        if (Encoding.UTF8.GetByteCount(rawText) > _options.MaxDraftUtf8Bytes) { var current = GetClassroomDraftState(principal); return new DraftSaveResult(false, "draft-too-large", current.Epoch, current.Revision); }
         return Write("classroom-save-draft", ctx => {
             if (!EnsureClassroomConversation(ctx, principal)) return (new DraftSaveResult(false, "not-found", 0, 0), false);
             var binding = ReadClassroomBinding(ctx, principal.Value)!;
