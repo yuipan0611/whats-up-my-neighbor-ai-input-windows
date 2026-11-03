@@ -25,6 +25,7 @@ if (args.SequenceEqual(new[] { "--shared-port" })) { await NekoChat.Tests.Shared
 if (args.SequenceEqual(new[] { "--legacy-messages" })) { await NekoChat.Tests.LegacyMessageChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--presence-wire" })) { await NekoChat.Tests.PresenceWireChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--passive-identity" })) { await NekoChat.Tests.PassiveIdentityChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--pairing-roster" })) { await NekoChat.Tests.PairingRosterChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--pairing-mitm" })) { await NekoChat.Tests.PairingCrossChecks.RunMitm(); return; }
 if (args.SequenceEqual(new[] { "--pairing-crashes" })) { await NekoChat.Tests.PairingCrashChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--pairing-cross" })) { await NekoChat.Tests.PairingCrossChecks.Run(); return; }
@@ -186,6 +187,7 @@ checks += await NekoChat.Tests.PairingTcpChecks.Run();
 checks += await NekoChat.Tests.PairingCrossChecks.Run();
 checks += await NekoChat.Tests.PairingCrashChecks.Run();
 checks += await NekoChat.Tests.PairingCrossChecks.RunMitm();
+checks += await NekoChat.Tests.PairingRosterChecks.Run();
 checks += NekoChat.Tests.SettingsSourceChecks.Run();
 checks += await NekoChat.Tests.InboxWorkspaceChecks.Run();
 checks += await NekoChat.Tests.ReceiptServiceChecks.Run();

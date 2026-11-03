@@ -7,6 +7,10 @@ public sealed partial class ChatStore
 {
     /// <summary>One transaction validates the pre-request revision/state and creates or pins a candidate. This is NOT human consent.</summary>
     public PairingCandidateResult BeginPairingCandidateIfCurrent(PeerSecuritySnapshot expected, byte[] canonicalPublicKey, Func<bool> stillCurrent)
+        => BeginPairingCandidateCore(expected, canonicalPublicKey, stillCurrent, null);
+    public PairingCandidateResult BeginRosterPairingCandidateIfCurrent(PeerSecuritySnapshot expected, byte[] canonicalPublicKey, PairingRosterTarget target, Func<bool> stillCurrent)
+    { ArgumentNullException.ThrowIfNull(target); return BeginPairingCandidateCore(expected, canonicalPublicKey, stillCurrent, target); }
+    private PairingCandidateResult BeginPairingCandidateCore(PeerSecuritySnapshot expected, byte[] canonicalPublicKey, Func<bool> stillCurrent, PairingRosterTarget? target)
     {
         ArgumentNullException.ThrowIfNull(expected); ArgumentNullException.ThrowIfNull(canonicalPublicKey); ArgumentNullException.ThrowIfNull(stillCurrent);
         if (canonicalPublicKey.Length != 91) throw new ArgumentException("Invalid pairing candidate key.");
@@ -36,6 +40,7 @@ public sealed partial class ChatStore
             // Even an existing unchanged paired candidate must pass the final in-transaction session guard.
             return (new PairingCandidateResult(true, "candidate-ready", Current(context)), true);
         }, commitGuard: stillCurrent,
-            guardRejected: () => new PairingCandidateResult(false, "stale-security", GetPeerSecuritySnapshot(expected.PeerId)));
+            guardRejected: () => new PairingCandidateResult(false, "stale-security", GetPeerSecuritySnapshot(expected.PeerId)),
+            transactionGuard: target is null ? null : ctx => stillCurrent() && PairingRosterMatches(ctx, target) && (target.BoundPeerId is null || target.BoundPeerId == expected.PeerId));
     }
 }

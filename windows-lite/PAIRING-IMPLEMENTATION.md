@@ -80,9 +80,25 @@ route generation、caller cancellation、120秒lifetime及外部fast scope predi
 
 本批原始baseline failures、process exit／命令／source及log hash見 `build/wire-evidence/pairing-crash-mitm-delivery.json`。首次proxy fixture沒有把被kill的socket EOF轉成沒有ACK，dispose時掩蓋了原本assert；已修為真斷線且無response，不是假200，該log保留但不當作產品因果證據。真正三個產品baseline分別精確在close uncertainty／preparing-intent display／failed-intent display assert失敗，修正後通過。
 
+## 選定名單的配對與綁定交易（已實作）
+
+`CapturePairingRosterTarget(rowId)` 以單一SELECT擷取選定列全部顯示／來源欄位、binding／endpoint durable revision、local identity/revision，建立opaque immutable、限本store runtime的target。它不是consent或權限。列的姓名／學號／老師標籤保留原值供本機票券與UI顯示，`ToString`不帶個資，不能把target／整份view序列化進wire或diagnostics。文字欄位以當前完整值比對；未新增文字變更歷史。binding／endpoint及delete-recreate ABA由既有RosterSecurityRevision拒絕，local／peer ABA沿用既有版本守衛；無schema變更。
+
+`BeginRosterPairingCandidateIfCurrent` 在原candidate交易首尾核對同一target，不建立名單列、不改peerId。`CompleteRosterPairingIfCurrent` 是trusted local consent flow的最後一步：同一immediate transaction核對原peer/local、原選定列及其版本，才將Peer改paired並綁定該RosterEntry。最後guard使用**由原snapshot加上本次唯一授權變動推導**的peer／row新revision及新binding，不把寫完後重新讀到的row當作新基準。取消、IO、版本耗盡、意外DB mutation都不能留下半個trust／binding；already paired/bound可guarded unchanged成功。兩個DB仍各自提交，不保證跨機原子。
+
+`PairingIdentity`／I／R／client／coordinator一直攜帶同一immutable target；one-use consent及view保留當時選取的列，即使cross-role switch也不刷新成最新名單。fast lifecycle predicate仍無SQL，durable檢查在store transaction或background readiness／expiry完成。原unscoped APIs保持契約，正常App未配置P1。新增 `BeginRosterAsync`／`OpenRosterWindowAsync` 是明確「配對並綁定這一列」入口，host仍要把這個含義與原姓名／學號顯示給使用者後才能使用確認票券。
+
+已有不同Peer的列不自動換綁；要先明確解除綁定並重新選取。宣告IP存在時，outgoing target／incoming source必須符合captured IP。無IP列可用明確輸入的private target或listen/SAS流程綁定，但本交易不偷偷補寫IP／lastSeen／安裝證據；後續路由須由原本明確名單編輯或新簽章活動建立。CSV／探測／名單老師標籤永不供應配對同意或老師權限。
+
+57項選定列checks包含真正SQLite與TCP：candidate不綁定、最後peer+row同commit、idempotent不增加revision，姓名／學號／teacher／IP改動、route／binding ABA、delete-recreate／local／peer ABA與revocation，foreign runtime／同DB重開target拒用、unrelated rows可變但不受綁定、不同既有Peer拒換綁、取消與COMMIT前後IO、revision耗盡、兩SQLite handle恰1成功。live DB trigger作受控fault注入，驗候選回滾pin/conversation/意外row變更、最後post-state不能採用意外新姓名或額外peer revision；不是在宣稱本機攻陷防護，也沒有允許新trigger進schema。
+
+真TCP包含兩側選定列的SAS票券、同時發起轉角色仍帶各自原列、post-SAS改列／route ABA不能綁定、成功後真正signed message/storage ACK、IP不符拒絕。wire JSON解碼後檢查兩端本機姓名均未出現，處理escaped JSON，未以UTF8原字串搜尋充當完整個資驗證。三個negative controls分別拿掉final row guard、改成採用post-write最新row、拿掉candidate row guard，各exit134且精確在相對應assert失敗；finally還原source後納入完整回歸。
+
+崩潰suite由原92增為195：共8次真kill／8次正常restart，其中新增4個scoped I/R BeforeCommit／AfterCommit case直接在產品重開前讀Peer與RosterEntry，證明pending+unbound或paired+bound始終同一COMMIT。重啟不補成缺失的一半，明確fresh repair後兩邊selected row都綁定正確簽章對象。fixture私鑰仍僅stdin與RAM，姓名不用於wire。完整hash／命令／controls見 `build/wire-evidence/pairing-roster-delivery.json`。
+
 ## 後續完成條件
 
-仍須完成host／設定與實際窗口接線、resume／rebind等事件的意圖撤銷。配對COMMIT前後真process-kill／重啟、雙向並行確認與不同SAS的換鑰MITM實例已有產品證據，但不能代替最終host／UI整合。若host把session綁到一筆名單，還須把captured roster revision納入最後交易的scope守衛與綁定，不能只依靠UI事件或把Row重新讀成最新值；目前actors只承諾local／peer revision原子守衛與明確傳入的volatile scope predicate。
+仍須完成host／設定與實際窗口接線、resume／rebind等事件的意圖撤銷。配對COMMIT前後真process-kill／重啟、雙向並行確認與不同SAS的換鑰MITM實例已有產品證據，但不能代替最終host／UI整合。選定名單的durable revision、最後同交易綁定及跨角色傳遞現已完成，host仍須實際使用scoped入口、呈現當時姓名／學號與綁定意義，並接上生命周期事件；不能用Core/TCP證據冒充host／UI已完成。
 
 只有剩餘條件全部有證據，才能稱為條件式P1完成；正常產品啟用仍須使用者的身分方案與訊息上限決定。最終三包裝／DELIVERY待所有來源固定後重建；目前舊包裝不代表這批來源。Windows CNG／DPAPI／WPF／可用性與雙實機教室另列未執行。教材依使用者指示暫緩。
 

@@ -60,6 +60,10 @@ public interface IChatStore : IDisposable
     PeerSecuritySnapshot GetPeerSecuritySnapshot(string peerId);
     /// <summary>Capture a candidate and its pin atomically; never grants trust. Expected snapshot and session guard are mandatory.</summary>
     PairingCandidateResult BeginPairingCandidateIfCurrent(PeerSecuritySnapshot expected, byte[] canonicalPublicKey, Func<bool> stillCurrent);
+    PairingRosterTarget? CapturePairingRosterTarget(string rowId);
+    bool IsPairingRosterTargetCurrent(PairingRosterTarget target);
+    PairingCandidateResult BeginRosterPairingCandidateIfCurrent(PeerSecuritySnapshot expected, byte[] canonicalPublicKey, PairingRosterTarget target, Func<bool> stillCurrent);
+    RosterPairingResult CompleteRosterPairingIfCurrent(PeerSecuritySnapshot expected, PairingRosterTarget target, Func<bool> stillCurrent);
     PeerVerificationContext GetPeerVerificationContext(string peerId);
     LegacyReceiveContext GetLegacyReceiveContext(string sourceIp);
     LegacyReceiveResult ReceiveLegacyMessage(DirectMessage message, LegacyReceiveContext expected, Func<bool> stillCurrent);

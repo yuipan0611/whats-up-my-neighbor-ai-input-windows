@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using NekoChat.Core.V2;
+using NekoChat.Core.Storage;
 
 namespace NekoChat.Core.Pairing;
 
@@ -33,7 +34,9 @@ public sealed class PairingLanClient : IAsyncDisposable
         handler.AllowAutoRedirect = false; handler.UseProxy = false; handler.ConnectTimeout = options.ConnectTimeout; handler.MaxResponseHeadersLength = 8;
         _http = new(handler) { Timeout = Timeout.InfiniteTimeSpan };
     }
-    public async Task<PairingStep> BeginAsync(string ip, int port, string? expectedPeerId, Func<bool> scopeCurrent, CancellationToken cancellation = default)
+    public Task<PairingStep> BeginAsync(string ip, int port, string? expectedPeerId, Func<bool> scopeCurrent, CancellationToken cancellation = default) => BeginCore(ip, port, expectedPeerId, scopeCurrent, cancellation, null);
+    internal Task<PairingStep> BeginRosterAsync(string ip, int port, PairingRosterTarget rosterTarget, Func<bool> scopeCurrent, CancellationToken cancellation) => BeginCore(ip, port, rosterTarget.BoundPeerId, scopeCurrent, cancellation, rosterTarget);
+    private async Task<PairingStep> BeginCore(string ip, int port, string? expectedPeerId, Func<bool> scopeCurrent, CancellationToken cancellation, PairingRosterTarget? rosterTarget)
     {
         ValidateEndpoint(ip, port); ArgumentNullException.ThrowIfNull(scopeCurrent);
         if (expectedPeerId is not null && !V2Format.IsPeerId(expectedPeerId)) throw new ArgumentException("Invalid expected peer.");
@@ -62,7 +65,7 @@ public sealed class PairingLanClient : IAsyncDisposable
                         Volatile.Write(ref owned.CancelWork, _actor.AbortAsync(PairingFailure.ScopeChanged));
             });
             if (!Current(route)) return await Fail(route, PairingFailure.ScopeChanged).ConfigureAwait(false);
-            var request = await _actor.BeginAsync(expectedPeerId, () => Current(owned)).ConfigureAwait(false);
+            var request = await _actor.BeginAsync(expectedPeerId, () => Current(owned), rosterTarget).ConfigureAwait(false);
             if (!Current(route) || request.Packet is null) return await Fail(route, PairingFailure.ScopeChanged).ConfigureAwait(false);
             var commitment = await Exchange(route, request.Packet).ConfigureAwait(false);
             if (commitment.Error is not null) return await Fail(route, Failure(commitment.Error)).ConfigureAwait(false);

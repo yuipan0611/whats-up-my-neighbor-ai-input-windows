@@ -22,6 +22,7 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
     private long _historySequence;
     private string? _expected;
     private Func<bool> _windowScope = () => true;
+    private PairingRosterTarget? _rosterTarget;
     private Task? _closing, _disposal;
     public PairingView View => Volatile.Read(ref _view);
     public int RetainedSessions => Volatile.Read(ref _retained);
@@ -30,7 +31,8 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
     internal PairingResponder(PairingIdentity identity, TimeProvider clock, bool startTimer)
     { _identity = identity ?? throw new ArgumentNullException(nameof(identity)); _clock = clock ?? throw new ArgumentNullException(nameof(clock)); _timer = startTimer ? Task.Run(Timer) : Task.CompletedTask; }
     public Task<bool> OpenWindowAsync(string? expectedPeerId = null) => OpenWindowAsync(expectedPeerId, _clock.GetTimestamp(), () => true);
-    internal async Task<bool> OpenWindowAsync(string? expectedPeerId, long openedAt, Func<bool> scopeCurrent)
+    internal Task<bool> OpenWindowAsync(string? expectedPeerId, long openedAt, Func<bool> scopeCurrent) => OpenWindowAsync(expectedPeerId, openedAt, scopeCurrent, null);
+    internal async Task<bool> OpenWindowAsync(string? expectedPeerId, long openedAt, Func<bool> scopeCurrent, PairingRosterTarget? rosterTarget)
     {
         ArgumentNullException.ThrowIfNull(scopeCurrent);
         if (expectedPeerId is not null && !V2Format.IsPeerId(expectedPeerId)) throw new ArgumentException("Invalid expected peer.");
@@ -44,14 +46,14 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
             {
                 return await Task.Run(() => {
                     End("superseded", invalidate: false);
-                    if (!_identity.IsCurrent()) return false;
+                    if (!_identity.IsCurrent() || !_identity.RosterCurrent(rosterTarget)) return false;
                     // The metadata read may have waited behind SQL. Publish readiness atomically with the latest UI/lifecycle intent, after that wait.
                     lock (_lifecycle)
                     {
                         if (Volatile.Read(ref _desiredOpen) == 0 || intent != Volatile.Read(ref _intentSequence) || Volatile.Read(ref _stopped) != 0 || !scopeCurrent()) return false;
-                        _windowStart = openedAt; _reveals = 0; _expected = expectedPeerId; _windowScope = scopeCurrent;
+                        _windowStart = openedAt; _reveals = 0; _expected = expectedPeerId; _windowScope = scopeCurrent; _rosterTarget = rosterTarget;
                         if (_clock.GetElapsedTime(openedAt) >= PairingTiming.Window) { Publish(new(PairingStage.Ended, "timeout")); return false; }
-                        Volatile.Write(ref _accepting, 1); Publish(new(PairingStage.Listening, Remaining: PairingTiming.Window - _clock.GetElapsedTime(openedAt))); return true;
+                        Volatile.Write(ref _accepting, 1); Publish(new(PairingStage.Listening, Remaining: PairingTiming.Window - _clock.GetElapsedTime(openedAt), RosterTarget: rosterTarget)); return true;
                     }
                 }).ConfigureAwait(false);
             }
@@ -114,7 +116,7 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
             V2Format.TryDecodeNonce22(session.Id, out var sid); V2Format.TryDecodeNonce22(session.Na, out var na); V2Format.TryDecodeNonce22(session.Nb, out var nb);
             session.Transcript = PairingCrypto.Transcript(sid, session.PublicKey, _identity.PublicKey, na, nb);
             session.Reveal = PairingWire.Reveal(session.Id, _identity.PublicSpkiBase64, session.Nb);
-            session.Consent = new(this, session.Epoch, session.Id, session.Expected.PeerId, PairingCrypto.Sas(session.Transcript));
+            session.Consent = new(this, session.Epoch, session.Id, session.Expected.PeerId, PairingCrypto.Sas(session.Transcript), session.RosterTarget);
             PublishSession(session); return PairingResponses.Ok(session.Reveal);
         }
         if (packet.Kind != PairingKind.Confirmation || session.Transcript is null) return PairingResponses.Error("pair_state");
@@ -137,6 +139,7 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
             return PairingResponses.Error("pair_unavailable");
         }
         if (Volatile.Read(ref _accepting) == 0 || Volatile.Read(ref _desiredOpen) == 0 || _clock.GetElapsedTime(_windowStart) >= PairingTiming.Window || !_windowScope()) return PairingResponses.Error("pair_unavailable");
+        if (_rosterTarget?.Endpoint is { } endpoint && endpoint != source) return PairingResponses.Error("pair_unavailable");
         byte[] key = Convert.FromBase64String(packet.PublicSpkiBase64!); string peer = V2Crypto.PeerId(key);
         if (peer == _identity.PeerId || _expected is not null && _expected != peer) return PairingResponses.Error("pair_unavailable");
         long now = _clock.GetTimestamp();
@@ -144,10 +147,10 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
         if (_sources.ContainsKey(source) || _sources.Count >= 1024) return PairingResponses.Error("pair_unavailable");
         _sources[source] = now; long epoch = Volatile.Read(ref _epoch);
         bool LiveRequest() => epoch == Volatile.Read(ref _epoch) && Volatile.Read(ref _accepting) != 0 && Volatile.Read(ref _desiredOpen) != 0 && Volatile.Read(ref _stopped) == 0 && !cancellation.IsCancellationRequested && _clock.GetElapsedTime(_windowStart) < PairingTiming.Window && _windowScope();
-        var candidate = _identity.Candidate(key, LiveRequest);
+        var candidate = _identity.Candidate(key, LiveRequest, _rosterTarget);
         if (!candidate.Ready) return PairingResponses.Error("pair_unavailable");
         string nb = PairingWire.NewNonce(); V2Format.TryDecodeNonce22(packet.SessionId, out var sid); V2Format.TryDecodeNonce22(nb, out var nbBytes);
-        var session = new Session(packet.SessionId, source, key, nb, PairingWire.Commitment(packet.SessionId, PairingCrypto.Commitment(sid, key, _identity.PublicKey, nbBytes)), candidate.Current, epoch, now);
+        var session = new Session(packet.SessionId, source, key, nb, PairingWire.Commitment(packet.SessionId, PairingCrypto.Commitment(sid, key, _identity.PublicKey, nbBytes)), candidate.Current, epoch, now, _rosterTarget);
         _session = session;
         if (!LiveRequest()) { End("cancelled"); return PairingResponses.Error("pair_cancelled"); }
         PublishSession(session); return PairingResponses.Ok(session.Commitment);
@@ -192,18 +195,18 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
         if (!session.LocalConfirmed || session.RemoteSignature is null || session.Transcript is null) return PairingResponses.Error("pair_state");
         byte[] confirmation = _identity.Confirmation(session.Id, PairingRole.Responder, session.Transcript);
         session.FinalizationStarted = true;
-        if (!_identity.Finalize(session.Expected, () => Live(session) && !cancellation.IsCancellationRequested))
+        if (!_identity.Finalize(session.Expected, () => Live(session) && !cancellation.IsCancellationRequested, session.RosterTarget))
         { End("stale_security"); return PairingResponses.Error("pair_cancelled"); }
         Remember(session, confirmation); _session = null; Interlocked.Increment(ref _epoch); Volatile.Write(ref _accepting, 0);
-        Publish(new(PairingStage.Paired, SessionId: session.Id, PeerId: session.Expected.PeerId, Sas: session.Consent!.Sas, LocalConfirmed: true, RemoteConfirmed: true, MayBeAsymmetric: true));
+        Publish(new(PairingStage.Paired, SessionId: session.Id, PeerId: session.Expected.PeerId, Sas: session.Consent!.Sas, LocalConfirmed: true, RemoteConfirmed: true, MayBeAsymmetric: true, RosterTarget: session.RosterTarget));
         return PairingResponses.Ok(confirmation);
     }
     private bool Live(Session session) => Volatile.Read(ref _stopped) == 0 && session.Epoch == Volatile.Read(ref _epoch) &&
         _clock.GetElapsedTime(session.Start) < PairingTiming.Session && _clock.GetElapsedTime(_windowStart) < PairingTiming.Window && _windowScope();
-    private bool CurrentSecurity(Session session) => _identity.IsCurrent() && _identity.Store.GetPeerSecuritySnapshot(session.Expected.PeerId) == session.Expected;
+    private bool CurrentSecurity(Session session) => _identity.IsCurrent() && _identity.RosterCurrent(session.RosterTarget) && _identity.Store.GetPeerSecuritySnapshot(session.Expected.PeerId) == session.Expected;
     private void PublishSession(Session session) => Publish(new(session.Na is null ? PairingStage.Committed : session.LocalConfirmed ? PairingStage.Waiting : PairingStage.SasShown,
         SessionId: session.Id, PeerId: session.Expected.PeerId, Sas: session.Consent?.Sas, LocalConfirmed: session.LocalConfirmed, RemoteConfirmed: session.RemoteSignature is not null,
-        Consent: session.LocalConfirmed ? null : session.Consent, Remaining: Remaining(session)));
+        Consent: session.LocalConfirmed ? null : session.Consent, Remaining: Remaining(session), RosterTarget: session.RosterTarget));
     private TimeSpan Remaining(Session session) => TimeSpan.FromSeconds(Math.Max(0, Math.Min((PairingTiming.Window - _clock.GetElapsedTime(_windowStart)).TotalSeconds, (PairingTiming.Session - _clock.GetElapsedTime(session.Start)).TotalSeconds)));
     private void Publish(PairingView view) => Volatile.Write(ref _view, view);
     private void Expire()
@@ -228,7 +231,7 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
         if (_session is not { } session) return;
         _session = null; if (invalidate) Interlocked.Increment(ref _epoch); Remember(session, null);
         try { _identity.Cleanup(session.Expected); } catch (Exception e) when (e is StoreException or IOException or UnauthorizedAccessException or ObjectDisposedException) { }
-        Publish(new(PairingStage.Ended, reason, session.Id, session.Expected.PeerId, session.Consent?.Sas, session.LocalConfirmed, session.RemoteSignature is not null, MayBeAsymmetric: session.FinalizationStarted));
+        Publish(new(PairingStage.Ended, reason, session.Id, session.Expected.PeerId, session.Consent?.Sas, session.LocalConfirmed, session.RemoteSignature is not null, MayBeAsymmetric: session.FinalizationStarted, RosterTarget: session.RosterTarget));
     }
     internal Task PulseAsync()
     {
@@ -249,8 +252,9 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
             return new(_disposal = Task.Run(async () => { await _timer.ConfigureAwait(false); await _serial.WaitAsync().ConfigureAwait(false); try { End("stopped"); Publish(new(PairingStage.Closed, "stopped")); } finally { _serial.Release(); _shutdown.Dispose(); } }));
         }
     }
-    private sealed class Session(string id, string source, byte[] key, string nb, byte[] commitment, PeerSecuritySnapshot expected, long epoch, long start)
+    private sealed class Session(string id, string source, byte[] key, string nb, byte[] commitment, PeerSecuritySnapshot expected, long epoch, long start, PairingRosterTarget? rosterTarget)
     {
+        internal readonly PairingRosterTarget? RosterTarget = rosterTarget;
         internal string Id = id, Source = source, Nb = nb;
         internal byte[] PublicKey = key, Commitment = commitment;
         internal PeerSecuritySnapshot Expected = expected;

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NekoChat.Core.V2;
+using NekoChat.Core.Storage;
 
 namespace NekoChat.Core.Pairing;
 
@@ -9,18 +10,19 @@ public enum PairingStage { Closed, Listening, Requested, Committed, SasShown, Wa
 /// <summary>One user action for the exact actor/session/SAS that was rendered. It does not itself establish a peer's consent.</summary>
 public sealed class PairingConsent
 {
-    internal PairingConsent(object owner, long epoch, string session, string peer, string sas)
-    { Owner = owner; Epoch = epoch; SessionId = session; PeerId = peer; Sas = sas; }
+    internal PairingConsent(object owner, long epoch, string session, string peer, string sas, PairingRosterTarget? rosterTarget = null)
+    { Owner = owner; Epoch = epoch; SessionId = session; PeerId = peer; Sas = sas; RosterTarget = rosterTarget; }
     internal object Owner { get; }
     internal long Epoch { get; }
     internal int Consumed;
     public string SessionId { get; }
     public string PeerId { get; }
     public string Sas { get; }
+    public PairingRosterTarget? RosterTarget { get; }
 }
 public sealed record PairingView(PairingStage Stage, string Reason = "", string? SessionId = null, string? PeerId = null,
     string? Sas = null, bool LocalConfirmed = false, bool RemoteConfirmed = false, PairingConsent? Consent = null,
-    TimeSpan Remaining = default, bool MayBeAsymmetric = false);
+    TimeSpan Remaining = default, bool MayBeAsymmetric = false, PairingRosterTarget? RosterTarget = null);
 
 public static class PairingTiming
 {

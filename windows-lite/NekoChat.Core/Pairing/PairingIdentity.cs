@@ -30,17 +30,19 @@ public sealed class PairingIdentity : IDisposable
         if (Volatile.Read(ref _disposed)) return false;
         return Store.GetLocalIdentitySnapshot() == _original;
     }
-    internal PairingCandidateResult Candidate(byte[] publicKey, Func<bool> live)
+    internal bool RosterCurrent(PairingRosterTarget? target) => target is null || Store.IsPairingRosterTargetCurrent(target);
+    internal PairingCandidateResult Candidate(byte[] publicKey, Func<bool> live, PairingRosterTarget? target = null)
     {
         string peer = V2Crypto.PeerId(publicKey); var context = Store.GetPeerVerificationContext(peer);
         if (!live() || !IsCurrent() || context.Security.LocalIdentityId != PeerId || context.Security.LocalRevision != _original.Revision || context.LocalSpkiBase64 != PublicSpkiBase64)
             return new(false, "stale-security", context.Security);
-        return Store.BeginPairingCandidateIfCurrent(context.Security, publicKey, live);
+        return target is null ? Store.BeginPairingCandidateIfCurrent(context.Security, publicKey, live) : Store.BeginRosterPairingCandidateIfCurrent(context.Security, publicKey, target, live);
     }
-    internal bool Finalize(PeerSecuritySnapshot expected, Func<bool> live)
+    internal bool Finalize(PeerSecuritySnapshot expected, Func<bool> live, PairingRosterTarget? target = null)
     {
         if (!live() || !IsCurrent() || expected.LocalIdentityId != PeerId || expected.LocalRevision != _original.Revision ||
             expected.Pairing is not (PairingState.Unpaired or PairingState.Pending or PairingState.Paired)) return false;
+        if (target is not null) return Store.CompleteRosterPairingIfCurrent(expected, target, live).Completed;
         var result = Store.SetPairingStateIfCurrent(expected, PairingState.Paired, live);
         return result.Changed || result is { Reason: "unchanged", Current.Pairing: PairingState.Paired } && result.Current == expected;
     }

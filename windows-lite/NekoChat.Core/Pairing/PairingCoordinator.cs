@@ -1,4 +1,5 @@
 using NekoChat.Core.V2;
+using NekoChat.Core.Storage;
 
 namespace NekoChat.Core.Pairing;
 
@@ -27,7 +28,7 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
         {
             var intent = Volatile.Read(ref _intent);
             if (intent is null) return Volatile.Read(ref _terminal);
-            if (!intent.DisplayReady) return Current(intent) ? new(PairingStage.Closed, "preparing", MayBeAsymmetric: intent.PriorUncertainty) : new(PairingStage.Ended, "scope_ended", MayBeAsymmetric: intent.PriorUncertainty);
+            if (!intent.DisplayReady) return Current(intent) ? new(PairingStage.Closed, "preparing", MayBeAsymmetric: intent.PriorUncertainty, RosterTarget: intent.RosterTarget) : new(PairingStage.Ended, "scope_ended", MayBeAsymmetric: intent.PriorUncertainty, RosterTarget: intent.RosterTarget);
             var view = intent.Role switch {
                 PairingSessionRole.Initiator => _initiator.View,
                 PairingSessionRole.Responder => _responder.View,
@@ -35,10 +36,10 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
             };
             if (intent.PriorUncertainty) view = view with { MayBeAsymmetric = true };
             if (view.Stage == PairingStage.Paired) return view;
-            if (!Current(intent)) return new(PairingStage.Ended, "scope_ended", MayBeAsymmetric: view.MayBeAsymmetric);
+            if (!Current(intent)) return new(PairingStage.Ended, "scope_ended", MayBeAsymmetric: view.MayBeAsymmetric, RosterTarget: intent.RosterTarget);
             TimeSpan left = PairingTiming.Window - _clock.GetElapsedTime(intent.Start);
             if (intent.Role == PairingSessionRole.Initiator && view is { Stage: PairingStage.Ended, Reason: "remote_ended" })
-                return new(PairingStage.Listening, "awaiting_cross_request", PeerId: intent.ExpectedPeer, Remaining: left);
+                return new(PairingStage.Listening, "awaiting_cross_request", PeerId: intent.ExpectedPeer, Remaining: left, RosterTarget: intent.RosterTarget);
             return view with { Remaining = TimeSpan.FromTicks(Math.Max(0, Math.Min(view.Remaining.Ticks, left.Ticks))) };
         }
     }
@@ -49,7 +50,14 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
         _initiator = new(identity, clock, startTimers); _responder = new(identity, clock, startTimers); _client = new(_initiator);
     }
     /// <param name="scopeCurrent">Fast, thread-safe, no-I/O predicate, also called inside final SQLite guards.</param>
-    public async Task<PairingStep> BeginAsync(string ip, int port, string? expectedPeerId, Func<bool> scopeCurrent, CancellationToken cancellation = default)
+    public Task<PairingStep> BeginAsync(string ip, int port, string? expectedPeerId, Func<bool> scopeCurrent, CancellationToken cancellation = default) => BeginCore(ip, port, expectedPeerId, scopeCurrent, cancellation, null);
+    public Task<PairingStep> BeginRosterAsync(PairingRosterTarget target, string ip, int port, Func<bool> scopeCurrent, CancellationToken cancellation = default)
+    {
+        ArgumentNullException.ThrowIfNull(target); PairingLanClient.ValidateEndpoint(ip, port); ArgumentNullException.ThrowIfNull(scopeCurrent);
+        if (target.Endpoint is not null && target.Endpoint != ip) return Task.FromResult(new PairingStep("roster_route_mismatch"));
+        return BeginCore(ip, port, target.BoundPeerId, scopeCurrent, cancellation, target);
+    }
+    private async Task<PairingStep> BeginCore(string ip, int port, string? expectedPeerId, Func<bool> scopeCurrent, CancellationToken cancellation, PairingRosterTarget? rosterTarget)
     {
         PairingLanClient.ValidateEndpoint(ip, port); Validate(expectedPeerId, scopeCurrent);
         if (!_actions.Wait(0)) return new("busy");
@@ -60,13 +68,13 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
             {
                 if (_stopped != 0) return new("stopped");
                 preparation = CloseLocked("superseded");
-                intent = new(Interlocked.Increment(ref _generation), _clock.GetTimestamp(), ip, expectedPeerId, scopeCurrent, cancellation, PairingSessionRole.Initiator);
+                intent = new(Interlocked.Increment(ref _generation), _clock.GetTimestamp(), ip, expectedPeerId, scopeCurrent, cancellation, PairingSessionRole.Initiator, rosterTarget);
                 Volatile.Write(ref _intent, intent);
             }
             await preparation.ConfigureAwait(false);
             if (!Current(intent, PairingSessionRole.Initiator)) return new("role_changed");
             intent.OutgoingReady = true;
-            var result = await _client.BeginAsync(ip, port, expectedPeerId, () => Current(intent, PairingSessionRole.Initiator), cancellation).ConfigureAwait(false);
+            var result = await (rosterTarget is null ? _client.BeginAsync(ip, port, expectedPeerId, () => Current(intent, PairingSessionRole.Initiator), cancellation) : _client.BeginRosterAsync(ip, port, rosterTarget, () => Current(intent, PairingSessionRole.Initiator), cancellation)).ConfigureAwait(false);
             lock (_lifecycle)
             {
                 if (!Current(intent, PairingSessionRole.Initiator)) return new("role_changed");
@@ -77,13 +85,16 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
                     intent.DisplayReady = true;
                 }
                 // A crossed request may arrive just after the smaller peer's403. Retain only that explicit bounded intent, no automatic outgoing retry.
-                else { intent.Ended = true; Volatile.Write(ref _terminal, new(PairingStage.Ended, result.Code, PeerId: intent.ExpectedPeer)); Volatile.Write(ref _intent, null); }
+                else { intent.Ended = true; Volatile.Write(ref _terminal, new(PairingStage.Ended, result.Code, PeerId: intent.ExpectedPeer, RosterTarget: intent.RosterTarget)); Volatile.Write(ref _intent, null); }
                 return result;
             }
         }
         finally { _actions.Release(); }
     }
-    public async Task<bool> OpenWindowAsync(string? expectedPeerId, Func<bool> scopeCurrent, CancellationToken cancellation = default)
+    public Task<bool> OpenWindowAsync(string? expectedPeerId, Func<bool> scopeCurrent, CancellationToken cancellation = default) => OpenCore(expectedPeerId, scopeCurrent, cancellation, null);
+    public Task<bool> OpenRosterWindowAsync(PairingRosterTarget target, Func<bool> scopeCurrent, CancellationToken cancellation = default)
+    { ArgumentNullException.ThrowIfNull(target); return OpenCore(target.BoundPeerId, scopeCurrent, cancellation, target); }
+    private async Task<bool> OpenCore(string? expectedPeerId, Func<bool> scopeCurrent, CancellationToken cancellation, PairingRosterTarget? rosterTarget)
     {
         Validate(expectedPeerId, scopeCurrent);
         if (!_actions.Wait(0)) return false;
@@ -94,13 +105,19 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
             {
                 if (_stopped != 0) return false;
                 preparation = CloseLocked("superseded");
-                intent = new(Interlocked.Increment(ref _generation), _clock.GetTimestamp(), null, expectedPeerId, scopeCurrent, cancellation, PairingSessionRole.Responder);
+                intent = new(Interlocked.Increment(ref _generation), _clock.GetTimestamp(), null, expectedPeerId, scopeCurrent, cancellation, PairingSessionRole.Responder, rosterTarget);
                 Volatile.Write(ref _intent, intent);
             }
             await preparation.ConfigureAwait(false);
             if (!Current(intent, PairingSessionRole.Responder)) return false;
-            bool opened = await _responder.OpenWindowAsync(expectedPeerId, intent.Start, () => Current(intent, PairingSessionRole.Responder)).ConfigureAwait(false);
-            lock (_lifecycle) { intent.DisplayReady = opened && Current(intent, PairingSessionRole.Responder); return intent.DisplayReady; }
+            bool opened = await _responder.OpenWindowAsync(expectedPeerId, intent.Start, () => Current(intent, PairingSessionRole.Responder), rosterTarget).ConfigureAwait(false);
+            lock (_lifecycle)
+            {
+                intent.DisplayReady = opened && Current(intent, PairingSessionRole.Responder);
+                if (!opened && rosterTarget is not null && ReferenceEquals(_intent, intent))
+                { intent.Ended = true; Volatile.Write(ref _terminal, new(PairingStage.Ended, "stale_roster", RosterTarget: rosterTarget)); Volatile.Write(ref _intent, null); }
+                return intent.DisplayReady;
+            }
         }
         finally { _actions.Release(); }
     }
@@ -133,9 +150,9 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
     public Task InvalidateAsync() { lock (_lifecycle) return _stopped == 0 ? CloseLocked("scope_changed") : _disposal ?? _closing; }
     private Task CloseLocked(string reason)
     {
-        bool uncertain = View.MayBeAsymmetric;
+        var previous = View; bool uncertain = previous.MayBeAsymmetric;
         if (_intent is { } old) old.Ended = true;
-        Volatile.Write(ref _intent, null); Interlocked.Increment(ref _generation); Volatile.Write(ref _terminal, new(PairingStage.Closed, reason, MayBeAsymmetric: uncertain));
+        Volatile.Write(ref _intent, null); Interlocked.Increment(ref _generation); Volatile.Write(ref _terminal, new(PairingStage.Closed, reason, MayBeAsymmetric: uncertain, RosterTarget: previous.RosterTarget));
         if (!_closing.IsCompleted) return _closing;
         // Both calls invalidate actor intent synchronously before returning their drain task. Their callbacks never acquire this coordinator lock.
         return _closing = Task.WhenAll(_client.CancelAsync(), _responder.CloseWindowAsync());
@@ -171,7 +188,7 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
                         if (!Current(yielded, PairingSessionRole.Switching)) return PairingResponses.Error("pair_cancelled");
                         yielded.Role = PairingSessionRole.Responder;
                     }
-                    if (!await _responder.OpenWindowAsync(peer, yielded.Start, () => Current(yielded, PairingSessionRole.Responder)).ConfigureAwait(false)) return PairingResponses.Error("pair_cancelled");
+                    if (!await _responder.OpenWindowAsync(peer, yielded.Start, () => Current(yielded, PairingSessionRole.Responder), yielded.RosterTarget).ConfigureAwait(false)) return PairingResponses.Error("pair_cancelled");
                     lock (_lifecycle)
                     {
                         yielded.DisplayReady = Current(yielded, PairingSessionRole.Responder);
@@ -205,8 +222,9 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
             }));
         }
     }
-    private sealed class Intent(long generation, long start, string? ip, string? expectedPeer, Func<bool> scopeCurrent, CancellationToken cancellation, PairingSessionRole role)
+    private sealed class Intent(long generation, long start, string? ip, string? expectedPeer, Func<bool> scopeCurrent, CancellationToken cancellation, PairingSessionRole role, PairingRosterTarget? rosterTarget)
     {
+        internal readonly PairingRosterTarget? RosterTarget = rosterTarget;
         internal readonly long Generation = generation, Start = start;
         internal readonly string? Ip = ip, ExpectedPeer = expectedPeer;
         internal readonly Func<bool> ScopeCurrent = scopeCurrent;

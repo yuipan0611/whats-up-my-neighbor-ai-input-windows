@@ -6,6 +6,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using NekoChat.Core.Pairing;
 using NekoChat.Core.Storage;
+using NekoChat.Core.Roster;
 using NekoChat.Core.V2;
 
 namespace NekoChat.Tests;
@@ -13,12 +14,12 @@ namespace NekoChat.Tests;
 internal static class PairingCrashChecks
 {
     private const string ChildMode = "--pairing-crash-child";
-    private sealed record Input(string SyntheticKey, string RemotePeer)
+    private sealed record Input(string SyntheticKey, string RemotePeer, bool Scoped = false)
     { public override string ToString() => "Synthetic pairing fixture key input"; }
     private sealed record Command(string Kind, int Port = 0);
     private sealed record Report(string Code, int Port, string PeerId, string PublicSpki, long LocalRevision, PairingSessionRole Role,
         PairingStage Stage, string? SessionId, string? Sas, bool HasConsent, bool MayBeAsymmetric, PairingState? Pairing,
-        long Messages, long Attempts, bool DraftPresent, bool ReceiptsEnabled);
+        long Messages, long Attempts, bool DraftPresent, bool ReceiptsEnabled, string? RosterPeer);
     internal static async Task<bool> RunChild(string[] args)
     {
         if (args.Length == 0 || args[0] != ChildMode) return false;
@@ -30,7 +31,7 @@ internal static class PairingCrashChecks
         var faults = new Faults(); int armed = 0;
         void Boundary(string op)
         {
-            if (op != "security-change" || Interlocked.Exchange(ref armed, 0) != 1) return;
+            if (op is not ("security-change" or "pair-and-bind") || Interlocked.Exchange(ref armed, 0) != 1) return;
             Console.WriteLine("BOUNDARY:" + args[2]); Console.Out.Flush();
             using var stop = new ManualResetEventSlim(false); stop.Wait(TimeSpan.FromSeconds(15)); throw new TimeoutException("Parent failed to kill fixture.");
         }
@@ -38,6 +39,13 @@ internal static class PairingCrashChecks
         using var store = ChatStore.Open(new(args[1]) { Faults = faults, TextValidator = t => V2Text.Check(t, 16384) == V2TextProblem.None });
         // Only explicit synthetic fixture provisioning; never RegisterPeer/force paired, even on restart.
         store.EnsureLocalIdentity(V2Crypto.PeerId(key.ExportSubjectPublicKeyInfo()), key.ExportSubjectPublicKeyInfo(), "synthetic-stdin-fixture");
+        string? rowId = null;
+        if (input.Scoped)
+        {
+            var rows = store.GetRosterSnapshot();
+            if (rows.Count == 0) store.SaveManualRosterEntry(null, new("synthetic child selection", "001"), RosterImportPreview.ComputeSnapshotToken(rows));
+            rowId = store.GetRosterSnapshot().Single().Entry.Id;
+        }
         using var writer = new V2PacketWriter(Clone(key), 16384); using var identity = new PairingIdentity(store, key);
         await using var coordinator = new PairingCoordinator(identity); using var messaging = new V2LanClient(store, writer);
         await using var listener = new V2TcpListener(new V2Receiver(store, writer), new() { BindAddress = IPAddress.Loopback, Port = 0, RequestsPerSourcePerMinute = 10000 }, coordinator);
@@ -48,7 +56,7 @@ internal static class PairingCrashChecks
             return new(code, listener.Port, identity.PeerId, identity.PublicSpkiBase64, store.GetLocalIdentitySnapshot().Revision, coordinator.Role, view.Stage,
                 view.SessionId, view.Sas, view.Consent is not null, view.MayBeAsymmetric, store.GetPeerSecuritySnapshot(input.RemotePeer).Pairing,
                 Number(store.DatabasePath, "SELECT count(*) FROM Message"), Number(store.DatabasePath, "SELECT count(*) FROM ManualSendAttempt"),
-                Number(store.DatabasePath, "SELECT count(*) FROM Draft") != 0, store.GetReadReceiptPolicy().Enabled);
+                Number(store.DatabasePath, "SELECT count(*) FROM Draft") != 0, store.GetReadReceiptPolicy().Enabled, rowId is null ? null : store.GetRosterSnapshot().Single().Entry.PeerId);
         }
         void Output(string code) { Console.WriteLine(JsonSerializer.Serialize(Snapshot(code))); Console.Out.Flush(); }
         Output("ready");
@@ -59,8 +67,8 @@ internal static class PairingCrashChecks
             string code;
             switch (command.Kind)
             {
-                case "OPEN": code = await coordinator.OpenWindowAsync(input.RemotePeer, () => true) ? "opened" : "not_opened"; break;
-                case "BEGIN": code = (await coordinator.BeginAsync("127.0.0.1", command.Port, input.RemotePeer, () => true)).Code; break;
+                case "OPEN": code = await (rowId is null ? coordinator.OpenWindowAsync(input.RemotePeer, () => true) : coordinator.OpenRosterWindowAsync(store.CapturePairingRosterTarget(rowId)!, () => true)) ? "opened" : "not_opened"; break;
+                case "BEGIN": code = (await (rowId is null ? coordinator.BeginAsync("127.0.0.1", command.Port, input.RemotePeer, () => true) : coordinator.BeginRosterAsync(store.CapturePairingRosterTarget(rowId)!, "127.0.0.1", command.Port, () => true))).Code; break;
                 case "CONFIRM":
                     var consent = coordinator.View.Consent;
                     if (consent is null) code = "no_consent";
@@ -86,6 +94,7 @@ internal static class PairingCrashChecks
     {
         int checks = 0, killed = 0, restarted = 0;
         void Check(bool value, string label) { checks++; if (!value) throw new Exception("P1 crash/restart: " + label); }
+        foreach (bool scoped in new[] { false, true })
         foreach (string role in new[] { "responder", "initiator" })
         foreach (string point in new[] { "before", "after" })
         {
@@ -94,7 +103,7 @@ internal static class PairingCrashChecks
             using var childKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
             try
             {
-                await using var parent = new Node(Path.Combine(root, "parent"));
+                await using var parent = new Node(Path.Combine(root, "parent"), scoped);
                 using var child = Start(childData, point); Task<string> errors = child.StandardError.ReadToEndAsync();
                 byte[]? iConfirmation = null; bool interruptedProxy = false;
                 // This is a real socket forwarder; no fake transport, signature or direct paired setup.
@@ -105,19 +114,19 @@ internal static class PairingCrashChecks
                 });
                 try
                 {
-                    await Supply(child, childKey, parent.Identity.PeerId); var ready = await Read(child);
+                    await Supply(child, childKey, parent.Identity.PeerId, scoped); var ready = await Read(child);
                     parent.RemotePort = ready.Port;
                     Check(ready is { Code: "ready", Role: PairingSessionRole.None, Stage: PairingStage.Closed, HasConsent: false, Pairing: null } && ready.PeerId == V2Crypto.PeerId(childKey.ExportSubjectPublicKeyInfo()), "new process starts closed with only correct synthetic public metadata: " + role + "/" + point);
                     Report sas;
                     if (role == "responder")
                     {
                         Check((await Ask(child, new("OPEN"))).Code == "opened", "R requires explicit local open before actual request");
-                        Check((await parent.Coordinator.BeginAsync("127.0.0.1", proxy.Port, ready.PeerId, () => true)).Code == "awaiting_user", "parent I handshakes with actual R child over TCP");
+                        Check((await parent.Begin(proxy.Port, ready.PeerId)).Code == "awaiting_user", "parent I handshakes with actual R child over TCP");
                         sas = await Ask(child, new("VIEW"));
                     }
                     else
                     {
-                        Check(await parent.Coordinator.OpenWindowAsync(ready.PeerId, () => true), "parent R explicitly opens for actual I child");
+                        Check(await parent.Open(ready.PeerId), "parent R explicitly opens for actual I child");
                         // Parent's endpoint records both confirm frames for replay probes; child targets actual parent listener.
                         sas = await Ask(child, new("BEGIN", parent.Port));
                         Check(sas.Code == "awaiting_user", "actual I child completes commitment/reveal over TCP");
@@ -149,12 +158,14 @@ internal static class PairingCrashChecks
                     else
                         Check(parent.Store.GetPeerSecuritySnapshot(ready.PeerId).Pairing == PairingState.Paired, "R may commit before I crashes; cannot pretend two databases are atomic");
                     Check(Text(db, "SELECT pairingState FROM Peer") == (point == "before" ? "pending" : "paired"), "direct SQLite read before product reopen proves exact committed trust boundary");
+                    if (scoped) Check(Text(db, "SELECT peerId FROM RosterEntry") == (point == "after" ? parent.Identity.PeerId : null), "direct SQLite before reopen proves scoped roster binding and trust share the exact COMMIT boundary");
                     Check(Text(db, "PRAGMA integrity_check") == "ok" && Number(db, "SELECT count(*) FROM Message") == 0 && Number(db, "SELECT count(*) FROM ManualSendAttempt") == 0 && Text(db, "SELECT rawText FROM Draft") == "retained synthetic draft", "kill preserves database integrity/draft and pairing creates no message attempts");
                     using var next = Start(childData, "normal"); Task<string> restartErrors = next.StandardError.ReadToEndAsync();
                     try
                     {
-                        await Supply(next, childKey, parent.Identity.PeerId); var reopened = await Read(next);
+                        await Supply(next, childKey, parent.Identity.PeerId, scoped); var reopened = await Read(next);
                         Check(reopened.PeerId == ready.PeerId && reopened.PublicSpki == ready.PublicSpki && reopened.LocalRevision == ready.LocalRevision && reopened.Pairing == (point == "before" ? PairingState.Pending : PairingState.Paired), "restart preserves same public identity/revision and committed local trust only");
+                        if (scoped) Check(reopened.RosterPeer == (point == "after" ? parent.Identity.PeerId : null), "restart preserves only committed roster binding, never completes missing half");
                         Check(reopened is { Role: PairingSessionRole.None, Stage: PairingStage.Closed, SessionId: null, Sas: null, HasConsent: false, DraftPresent: true, ReceiptsEnabled: false } && (await Ask(next, new("CONFIRM"))).Code == "no_consent", "restart never restores session/SAS/consent/window or changes receipt privacy");
                         byte[] old = role == "responder" ? iConfirmation! : parent.Endpoint.LastRConfirmation!;
                         Check(old is not null && (await Post(reopened.Port, old)).StatusCode == 409 && (await Post(reopened.Port, PairingWire.Request(PairingWire.NewNonce(), parent.Identity.PublicSpkiBase64))).StatusCode == 403, "old signed confirmation cannot revive RAM session; new request still needs explicit open");
@@ -166,7 +177,7 @@ internal static class PairingCrashChecks
                             if (role == "responder")
                             {
                                 Check((await Ask(next, new("OPEN"))).Code == "opened", "explicit repair reopens R window");
-                                Check((await parent.Coordinator.BeginAsync("127.0.0.1", reopened.Port, ready.PeerId, () => true)).Code == "awaiting_user", "explicit repair starts fresh outgoing session");
+                                Check((await parent.Begin(reopened.Port, ready.PeerId)).Code == "awaiting_user", "explicit repair starts fresh outgoing session");
                                 fresh = await Ask(next, new("VIEW"));
                                 Check(fresh.HasConsent && fresh.SessionId != oldSid && fresh.Sas == parent.Coordinator.View.Sas && !parent.Coordinator.View.LocalConfirmed, "repair has fresh transcript/tickets; old human actions never inherited");
                                 Check((await Ask(next, new("CONFIRM"))).Code == "local_confirmed", "repair requires fresh R human action");
@@ -175,11 +186,11 @@ internal static class PairingCrashChecks
                             else
                             {
                                 // Restarting I does not reset retained R admission. Prove the refusal on actual TCP at the original parent clock before advancing it.
-                                Check(await parent.Coordinator.OpenWindowAsync(ready.PeerId, () => true) && (await Ask(next, new("BEGIN", parent.Port))).Code == "remote_ended",
+                                Check(await parent.Open(ready.PeerId) && (await Ask(next, new("BEGIN", parent.Port))).Code == "remote_ended",
                                     "restarted I cannot bypass retained R two-second fresh-request cooldown");
                                 // Explicit new action after2s on injected monotonic clock; no production limiter reset, relaxation or automatic retry.
                                 parent.Clock.Advance(2);
-                                Check(await parent.Coordinator.OpenWindowAsync(ready.PeerId, () => true), "already paired R explicitly opens repair without downgrading trust");
+                                Check(await parent.Open(ready.PeerId), "already paired R explicitly opens repair without downgrading trust");
                                 fresh = await Ask(next, new("BEGIN", parent.Port));
                                 Check(fresh is { Code: "awaiting_user", HasConsent: true } && fresh.SessionId != oldSid && fresh.Sas == parent.Coordinator.View.Sas, "restarted I needs new SID/SAS and independent action: code=" + fresh.Code + ", consent=" + fresh.HasConsent + ", sameSas=" + (fresh.Sas == parent.Coordinator.View.Sas));
                                 Check((await parent.Coordinator.ConfirmAsync(parent.Coordinator.View.Consent!)).Code == "local_confirmed" && (await Ask(next, new("CONFIRM"))).Code == "paired", "existing paired R unchanged CAS and repaired I complete with fresh consent");
@@ -187,6 +198,7 @@ internal static class PairingCrashChecks
                             var delivered = await Ask(next, new("SEND", parent.Port));
                             Check(delivered is { Code: "ok", Pairing: PairingState.Paired, Messages: 1, DraftPresent: false } && parent.Number("SELECT count(*) FROM Message") == 1, "explicit repaired pair converges to real signed message/storage ACK and draft clearing");
                         }
+                        if (scoped) Check((await Ask(next, new("VIEW"))).RosterPeer == parent.Identity.PeerId && parent.BoundPeer == ready.PeerId, "explicit fresh scoped repair leaves both selected rows bound to the verified counterpart");
                         Check(NoPrivateKeyFiles(root, childKey) && NoPrivateKeyFiles(root, parent.KeyForScan), "raw synthetic private keys/base64 never persist in child/parent fixture files");
                         Check((await Ask(next, new("STOP"))).Code == "stopped", "restart listener/control drains cleanly");
                         await next.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); restarted++;
@@ -198,8 +210,8 @@ internal static class PairingCrashChecks
             }
             finally { Directory.Delete(root, true); }
         }
-        Check(killed == 4 && restarted == 4, "exactly four actual boundary kills and four clean restart processes");
-        Console.WriteLine($"Conditional P1 crash/restart: {checks} actual socket/P256/SQLite checks,4 killed I/R processes and4 clean restarts; no native Windows claim."); return checks;
+        Check(killed == 8 && restarted == 8, "exactly eight actual boundary kills and eight clean restart processes, including four pair-and-bind cases");
+        Console.WriteLine($"Conditional P1 crash/restart: {checks} actual socket/P256/SQLite checks,8 killed I/R processes and8 clean restarts (4 scoped atomic binding); no native Windows claim."); return checks;
     }
     private static ECDsa Clone(ECDsa key)
     { var p = key.ExportParameters(true); try { return ECDsa.Create(p); } finally { CryptographicOperations.ZeroMemory(p.D!); } }
@@ -211,10 +223,10 @@ internal static class PairingCrashChecks
         foreach (string arg in new[] { ChildMode, data, boundary }) info.ArgumentList.Add(arg);
         return Process.Start(info) ?? throw new InvalidOperationException("Fixture process missing.");
     }
-    private static async Task Supply(Process child, ECDsa key, string peer)
+    private static async Task Supply(Process child, ECDsa key, string peer, bool scoped)
     {
         byte[] bytes = key.ExportPkcs8PrivateKey();
-        try { await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new Input(Convert.ToBase64String(bytes), peer))); await child.StandardInput.FlushAsync(); }
+        try { await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new Input(Convert.ToBase64String(bytes), peer, scoped))); await child.StandardInput.FlushAsync(); }
         finally { CryptographicOperations.ZeroMemory(bytes); }
     }
     private static async Task Send(Process child, Command command) { await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(command)); await child.StandardInput.FlushAsync(); }
@@ -254,10 +266,15 @@ internal static class PairingCrashChecks
         internal V2TcpListener Listener { get; }
         internal int Port => Listener.Port;
         internal int RemotePort;
-        internal Node(string root)
+        private readonly string? _rowId;
+        internal string? BoundPeer => _rowId is null ? null : Store.GetRosterSnapshot().Single().Entry.PeerId;
+        internal Task<bool> Open(string peer) => _rowId is null ? Coordinator.OpenWindowAsync(peer, () => true) : Coordinator.OpenRosterWindowAsync(Store.CapturePairingRosterTarget(_rowId)!, () => true);
+        internal Task<PairingStep> Begin(int port, string peer) => _rowId is null ? Coordinator.BeginAsync("127.0.0.1", port, peer, () => true) : Coordinator.BeginRosterAsync(Store.CapturePairingRosterTarget(_rowId)!, "127.0.0.1", port, () => true);
+        internal Node(string root, bool scoped)
         {
             Writer = new(Clone(KeyForScan), 16384); Store = ChatStore.Open(new(root) { TextValidator = t => V2Text.Check(t, 16384) == V2TextProblem.None });
             Store.EnsureLocalIdentity(Writer.PeerId, Convert.FromBase64String(Writer.PublicSpkiBase64), "synthetic-parent"); Identity = new(Store, Clone(KeyForScan)); Coordinator = new(Identity, Clock, false); Endpoint = new(Coordinator);
+            if (scoped) _rowId = Store.SaveManualRosterEntry(null, new("synthetic parent selection", "002"), RosterImportPreview.ComputeSnapshotToken(Store.GetRosterSnapshot())).EntryId;
             Listener = new(new V2Receiver(Store, Writer), new() { BindAddress = IPAddress.Loopback, Port = 0, RequestsPerSourcePerMinute = 10000 }, Endpoint); Listener.Start();
         }
         internal long Number(string sql) => PairingCrashChecks.Number(Store.DatabasePath, sql);
