@@ -58,6 +58,8 @@ public interface IChatStore : IDisposable
     NekoChat.Core.Presence.PresenceTarget? GetPresenceTarget(string rowId);
     PresenceWriteResult ApplyRosterPresenceEvidence(NekoChat.Core.Presence.PresenceWriteJob job, Func<bool> stillCurrent);
     PeerSecuritySnapshot GetPeerSecuritySnapshot(string peerId);
+    /// <summary>Capture a candidate and its pin atomically; never grants trust. Expected snapshot and session guard are mandatory.</summary>
+    PairingCandidateResult BeginPairingCandidateIfCurrent(PeerSecuritySnapshot expected, byte[] canonicalPublicKey, Func<bool> stillCurrent);
     PeerVerificationContext GetPeerVerificationContext(string peerId);
     LegacyReceiveContext GetLegacyReceiveContext(string sourceIp);
     LegacyReceiveResult ReceiveLegacyMessage(DirectMessage message, LegacyReceiveContext expected, Func<bool> stillCurrent);

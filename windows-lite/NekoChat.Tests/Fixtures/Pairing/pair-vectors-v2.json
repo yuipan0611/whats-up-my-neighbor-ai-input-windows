@@ -1,0 +1,634 @@
+{
+  "_about": "N002P formula & wire vectors. ECDSA signatures are randomized; vectors assert 'verifiable'. Keys are PUBLIC TEST KEYS.",
+  "keys": {
+    "A_initiator_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+    "B_responder_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+    "X_attacker_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEK0mybKdcRveFSGko/rNHt00fFH+oue7Ft69c0duoCtRFh/+tk1C5vQrs1NMbV7Mu2Vp8iv4wtAze4joMHjIvHQ=="
+  },
+  "cases": [
+    {
+      "id": "PV-01",
+      "group": "formula",
+      "description": "合法配對：A 發起、B 回應（A、B 為公開測試金鑰）",
+      "session_id_hex": "bb761ed8b539c9de2a1da045d80918f8",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "8937f147f6b3866aa086872224fe8673",
+      "nb_hex": "db285ecaed2adac8252e03493723a9b5",
+      "commit_hex": "15ed4c55afd6ca47db1d50f3f80703529fbfef55ef842ef1dcd37b5c6b50a955",
+      "transcript_hex": "158c8ac94c94adb4e847e5474ce9655fbaf675065ca2f138567f15db78b9abd0",
+      "sas": "302982",
+      "confirm_initiator": {
+        "signing_input_utf8": "nekochat-v2\npair.confirm\ninitiator\n158c8ac94c94adb4e847e5474ce9655fbaf675065ca2f138567f15db78b9abd0",
+        "sig_b64": "vuc0zY7WwQCqtMVfCnbqhf0ial4csHVRyy40yxVHbuG95ArxMQdm9+71lkHT4egHtu9cp9QfAVNFdsOWXZqdbw==",
+        "expect_verify": true
+      },
+      "confirm_responder": {
+        "signing_input_utf8": "nekochat-v2\npair.confirm\nresponder\n158c8ac94c94adb4e847e5474ce9655fbaf675065ca2f138567f15db78b9abd0",
+        "sig_b64": "Zc9c82guT9D1wmpK5VhFuEI6bkVnUw+UHpVtqKp1+DN0J0LvPwPdNreXaWl2o17bYT2+DCXmyZGzqDoBmiBKhg==",
+        "expect_verify": true
+      }
+    },
+    {
+      "id": "PV-02",
+      "group": "formula",
+      "description": "反射：把 B 的 responder 簽章當成 initiator 簽章呈現（簽章輸入的 role 不同）→ 驗不過",
+      "session_id_hex": "bb761ed8b539c9de2a1da045d80918f8",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "8937f147f6b3866aa086872224fe8673",
+      "nb_hex": "db285ecaed2adac8252e03493723a9b5",
+      "commit_hex": "15ed4c55afd6ca47db1d50f3f80703529fbfef55ef842ef1dcd37b5c6b50a955",
+      "transcript_hex": "158c8ac94c94adb4e847e5474ce9655fbaf675065ca2f138567f15db78b9abd0",
+      "sas": "302982",
+      "confirm_initiator": {
+        "signing_input_utf8": "nekochat-v2\npair.confirm\ninitiator\n158c8ac94c94adb4e847e5474ce9655fbaf675065ca2f138567f15db78b9abd0",
+        "sig_b64": "lUhMNxnS3sBL03sPpmAnbFDA1Tsoq/svQbImRxkqiBci5L+XvvIDmIZtGsEtmeWpWOrO693BL1RKQsE+0wB4dQ==",
+        "expect_verify": false
+      }
+    },
+    {
+      "id": "PV-03",
+      "group": "formula",
+      "description": "MITM 換鑰：A 的 transcript 含 X、B 的含 B → 兩邊 SAS 與 TH 不同；B 對自己 transcript 的簽章在 A 的 transcript 上驗不過",
+      "session_id_hex": "bb761ed8b539c9de2a1da045d80918f8",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEK0mybKdcRveFSGko/rNHt00fFH+oue7Ft69c0duoCtRFh/+tk1C5vQrs1NMbV7Mu2Vp8iv4wtAze4joMHjIvHQ==",
+      "na_hex": "8937f147f6b3866aa086872224fe8673",
+      "nb_hex": "db285ecaed2adac8252e03493723a9b5",
+      "commit_hex": "c797e0b1257e570c5f10efe9e642af75338baa18e76cd7c8cc91a71a694db8fa",
+      "transcript_hex": "746e4b7886ddacbdcef8cc77144f4b43de9e53d62e10416065e30b81c4b7b76c",
+      "sas": "066637",
+      "other_leg_transcript_hex": "158c8ac94c94adb4e847e5474ce9655fbaf675065ca2f138567f15db78b9abd0",
+      "other_leg_sas": "302982",
+      "confirm_responder": {
+        "signing_input_utf8": "nekochat-v2\npair.confirm\nresponder\n746e4b7886ddacbdcef8cc77144f4b43de9e53d62e10416065e30b81c4b7b76c",
+        "sig_b64": "m49xfjGeq9IvDmpFAEoKPFQiuDFb1S7iylhnrxdBJDRpEwsxQuADPLW5+EJFwHf0LgzKGH0jWBBatzIoaL6HpA==",
+        "expect_verify": false
+      }
+    },
+    {
+      "id": "PV-04",
+      "group": "formula",
+      "description": "換 session_id → commit／TH／SAS 全變",
+      "session_id_hex": "e72a65faeabb38fd4d003ff980ede7ef",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "8937f147f6b3866aa086872224fe8673",
+      "nb_hex": "db285ecaed2adac8252e03493723a9b5",
+      "commit_hex": "e518787a82764b74edff17eedc5b4e9fef9ae55ce83b485bfcf17478cfbaf861",
+      "transcript_hex": "eae96e80500b23ca0fde2e9295f50a2b8de4c459cbff0b4bd758da99094c4dbd",
+      "sas": "118470"
+    },
+    {
+      "id": "PV-05",
+      "group": "formula",
+      "description": "換 Nb → commit／TH／SAS 全變",
+      "session_id_hex": "bb761ed8b539c9de2a1da045d80918f8",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "8937f147f6b3866aa086872224fe8673",
+      "nb_hex": "b2e1ed5b0f3c606417ddb854cd7b99de",
+      "commit_hex": "24f92c345cf6e1dc3c2f0f34e9e8efb0b370e19c0a317c2319edb134360b5b4f",
+      "transcript_hex": "e0e4d13fa77f9781cf6d3392e011ad06298d1f750d65d202cb97b5e142d1fb0a",
+      "sas": "825727"
+    },
+    {
+      "id": "PV-06",
+      "group": "formula",
+      "description": "initiator／responder 公鑰對調 → 全變（角色順序固定：先 pkI 後 pkR）",
+      "session_id_hex": "bb761ed8b539c9de2a1da045d80918f8",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "na_hex": "8937f147f6b3866aa086872224fe8673",
+      "nb_hex": "db285ecaed2adac8252e03493723a9b5",
+      "commit_hex": "f900ab24bac8243cbb898d986070bb53a97b824630e9d0c17df4e2d6c9afacf0",
+      "transcript_hex": "929a76bbff6e3c1aae723144993a89f928d27f2b8bcfed39dfc2c823b801bc29",
+      "sas": "195000"
+    },
+    {
+      "id": "PV-07",
+      "group": "formula",
+      "description": "SAS 公式取樣 1（含補零與 mod 1,000,000）",
+      "session_id_hex": "ec18eac8d758b1eba52d3c10d39adc6d",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "4e1195df020de59e0d65a33a4279f118",
+      "nb_hex": "c02c0b965e023abee808f2b548d8d519",
+      "commit_hex": "8ce4e38a81634ce2f4e4353ffa851237988a0df75deabdb966d1a3659a58b58d",
+      "transcript_hex": "147ee45d6a31f0faac76df501090f28998d13a764a1bd91dd52a69c49ac4999b",
+      "sas": "649510"
+    },
+    {
+      "id": "PV-08",
+      "group": "formula",
+      "description": "SAS 公式取樣 2（含補零與 mod 1,000,000）",
+      "session_id_hex": "e8bc163c82eee18733288c7d4ac636db",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "f55ff16f66f43360266b95db6f8fec01",
+      "nb_hex": "7dc96f776c8423e57a2785489a3f9c43",
+      "commit_hex": "4e2a6b182cd53976291c8b3228f4c8a03453258fb11eeae507f18170bd29d09f",
+      "transcript_hex": "342a419eed925f8a68ca5243cf7240384b00eec0c16f66717c513093e8ccf75a",
+      "sas": "582569"
+    },
+    {
+      "id": "PV-09",
+      "group": "formula",
+      "description": "SAS 公式取樣 3（含補零與 mod 1,000,000）",
+      "session_id_hex": "ad328846aa18b32a335816374511cac1",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "2c3a4249d77070058649dbd822dcaf79",
+      "nb_hex": "4814d92093ac8a0f4a2163ab87dee509",
+      "commit_hex": "3a63b86727a7c1cbd9c08afd4d0aefbd922724d76cebea50a5a19e9256645674",
+      "transcript_hex": "f2661b7f59833231b5ff95d1d45070b0cfd6930a8adc88072e57533ea7063c56",
+      "sas": "695024"
+    },
+    {
+      "id": "PV-10",
+      "group": "formula",
+      "description": "SAS 公式取樣 4（含補零與 mod 1,000,000）",
+      "session_id_hex": "41242b9fae56fad4e6e77dfe33cb18d1",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "f46dd28a5499d8efef0b8fb8ee1ec1c5",
+      "nb_hex": "76a8277347f52530e1cf979175a17898",
+      "commit_hex": "3bdfe878d8840d8b0281fbad4c4d48862fcd601a4ab80bf4f676a5f19d6b0394",
+      "transcript_hex": "9120f1645458f403ded66d00e45d903ba4048ca400bb83535a71e48ccb7d712a",
+      "sas": "389382"
+    },
+    {
+      "id": "PV-11",
+      "group": "formula",
+      "description": "SAS 公式取樣 5（含補零與 mod 1,000,000）",
+      "session_id_hex": "5b840157e7e86aef3b3fd0fc24f3add3",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "4539e4b4889079c2a00afeae0bfc1439",
+      "nb_hex": "486bacc5c2d8a71a73d51bf8e522deaa",
+      "commit_hex": "014a3f6f2855d27eb95769ab07fbdc19f028f3a83b4608a45353e9050483961d",
+      "transcript_hex": "bfd53ab3211c5210eb166a9b44f59b986644fd44f7409a39f6a322b449bd0885",
+      "sas": "747868"
+    },
+    {
+      "id": "PV-12",
+      "group": "formula",
+      "description": "SAS 公式取樣 6（含補零與 mod 1,000,000）",
+      "session_id_hex": "3b96fc064fa874a80a132bda60bebf54",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "66220e71591b2d933c0e935c138ebfd6",
+      "nb_hex": "3c5661974942379614b943d0593e4a5e",
+      "commit_hex": "f1bc50586b7a43d9537e41c8a3f2f45f59723c500a0580420624cc49f66e734b",
+      "transcript_hex": "a320275b2e0a88f78a8a96051b6a2ba4bd0e1e8e57980d1bda257e7d78419809",
+      "sas": "430803"
+    },
+    {
+      "id": "PV-13",
+      "group": "formula",
+      "description": "SAS 公式取樣 7（含補零與 mod 1,000,000）",
+      "session_id_hex": "71e7690959239ca065841eba3ebb2810",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "730bea4ff16f200fb931b06cae08a5da",
+      "nb_hex": "2f5da6e9921baa794759ee9f4b362555",
+      "commit_hex": "e922f2768be3c7ed03389882d2365a0cf8cd28699c9e33a273deaabf9c258d61",
+      "transcript_hex": "efaf9f7be4a586952603bf758a324b80400639c245f53fa1a89d8de8ba08b9ff",
+      "sas": "138389"
+    },
+    {
+      "id": "PV-14",
+      "group": "formula",
+      "description": "SAS 公式取樣 8（含補零與 mod 1,000,000）",
+      "session_id_hex": "13d28fed9becbe6637ef6b017fbefef7",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "20377cec9f51f6bf5ba1fa64649f3b16",
+      "nb_hex": "e1b0acf86b9621b8c13ca17bb2f2a23d",
+      "commit_hex": "41514c9a96818d85c599c87651ae910af952a86b1201bd6ffe5693ea53f86c81",
+      "transcript_hex": "0ac4eef49fe13c9a14134c9855ec939ff38cf2a78156741aa73e13ea61782ff0",
+      "sas": "133411"
+    },
+    {
+      "id": "PV-15",
+      "group": "formula",
+      "description": "SAS 公式取樣 9（含補零與 mod 1,000,000）",
+      "session_id_hex": "1cb7637b6957ac5d6f6cdec745554afd",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "ce609b5bf3b974a84907e237aca30112",
+      "nb_hex": "92ee93de02ea87db530298f4d66c6398",
+      "commit_hex": "8ce1fe3d7fcb9faed1952c08981e448a9577a27957efc907994e2ef79282a8e3",
+      "transcript_hex": "a030512c7539607cf859e8e0d024fa0783d33f1c6b578995dc733373fb61bde8",
+      "sas": "157658"
+    },
+    {
+      "id": "PV-16",
+      "group": "formula",
+      "description": "SAS 公式取樣 10（含補零與 mod 1,000,000）",
+      "session_id_hex": "e72d310dbb213f4c2e34da28935b3890",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "2b12242f306cde1c5f3670f1ea20dd4d",
+      "nb_hex": "cb440fe2f7ec20d54f4726630cebadb8",
+      "commit_hex": "d60e111669fcd46b44b4bb02e763f9ca348e253374e765a93fb64c05d84534b5",
+      "transcript_hex": "f1a7993afb676b8c8a392b575def1ddc446098ba454f20f13e1ffc24cf567428",
+      "sas": "251494"
+    },
+    {
+      "id": "PV-17",
+      "group": "formula",
+      "description": "SAS 公式取樣 11（含補零與 mod 1,000,000）",
+      "session_id_hex": "d34beeb70cddcc1f973ab468a4f74675",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "e80fb65ac70384bd8bab0358d60b7cbe",
+      "nb_hex": "087f4c7109d76636536c712c51212520",
+      "commit_hex": "594c2b9f0a1097ea54e98fed13c8e73fce56bc91bfa9c456625d8dd062dbfb18",
+      "transcript_hex": "3532c45128bae36d91ef95b948e4a0afdfe832703e8d1c4fd88dcc7a0b795724",
+      "sas": "881333"
+    },
+    {
+      "id": "PV-18",
+      "group": "formula",
+      "description": "SAS 公式取樣 12（含補零與 mod 1,000,000）",
+      "session_id_hex": "568db421693629b25e9eb5597365e4e8",
+      "pk_initiator_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+      "pk_responder_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+      "na_hex": "ea1ff066194e9ce5fbc1533b244022f9",
+      "nb_hex": "8101d16893f3425fbb4ff727e5502764",
+      "commit_hex": "075f6eb4bf74b93fde3eccbc5155594917bc1419060d38189983c44a9cf457ff",
+      "transcript_hex": "95c865aa6af1e35117653c778a38893a89e09eec72ad4328d9346080c9a9c86f",
+      "sas": "029704"
+    },
+    {
+      "id": "PW-01",
+      "group": "wire",
+      "description": "合法 pair.request",
+      "kind": "pair.request",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.request",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "initiator_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ=="
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "PW-02",
+      "group": "wire",
+      "description": "session_id 尾端 LF",
+      "kind": "pair.request",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.request",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A\n",
+        "initiator_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ=="
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-03",
+      "group": "wire",
+      "description": "session_id 尾端 CRLF",
+      "kind": "pair.request",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.request",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A\r\n",
+        "initiator_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ=="
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-04",
+      "group": "wire",
+      "description": "session_id 21 字元",
+      "kind": "pair.request",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.request",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-",
+        "initiator_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ=="
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-05",
+      "group": "wire",
+      "description": "initiator_spki 92 bytes",
+      "kind": "pair.request",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.request",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "initiator_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQA="
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-06",
+      "group": "wire",
+      "description": "多出未知欄位",
+      "kind": "pair.request",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.request",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "initiator_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ==",
+        "extra": "x"
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-07",
+      "group": "wire",
+      "description": "缺 protocol",
+      "kind": "pair.request",
+      "message": {
+        "version": 2,
+        "kind": "pair.request",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "initiator_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ=="
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-08",
+      "group": "wire",
+      "description": "合法 pair.commit",
+      "kind": "pair.commit",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.commit",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "commitment": "Fe1MVa_WykfbHVDz-AcDUp-_71XvhC7x3NN7XGtQqVU"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "PW-09",
+      "group": "wire",
+      "description": "commitment 尾端 LF",
+      "kind": "pair.commit",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.commit",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "commitment": "Fe1MVa_WykfbHVDz-AcDUp-_71XvhC7x3NN7XGtQqVU\n"
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-10",
+      "group": "wire",
+      "description": "合法 pair.nonce",
+      "kind": "pair.nonce",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.nonce",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "na": "iTfxR_azhmqghociJP6Gcw"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "PW-11",
+      "group": "wire",
+      "description": "na 尾端 CR",
+      "kind": "pair.nonce",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.nonce",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "na": "iTfxR_azhmqghociJP6Gcw\r"
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-12",
+      "group": "wire",
+      "description": "na 最後字元非正規 base64url",
+      "kind": "pair.nonce",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.nonce",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "na": "iTfxR_azhmqghociJP6GcB"
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-13",
+      "group": "wire",
+      "description": "合法 pair.reveal",
+      "kind": "pair.reveal",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.reveal",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "responder_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOQ==",
+        "nb": "2yheyu0q2sglLgNJNyOptQ"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "PW-14",
+      "group": "wire",
+      "description": "responder_spki 壓縮點／非正規（91 bytes 但翻一個 bit 不在曲線上）",
+      "kind": "pair.reveal",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.reveal",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "responder_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXIdUTkIN1yNQ+nnWGH3h9pJRhh0mNeO983F9UwyP4pYijRkmtpGTuBdBV84PM3pgN0f4BJBElmTUZbID8BUUOA==",
+        "nb": "2yheyu0q2sglLgNJNyOptQ"
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-15",
+      "group": "wire",
+      "description": "合法 pair.confirm",
+      "kind": "pair.confirm",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.confirm",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "sig": "BWlNWBIYhcnywO56AZYwHLkWLaiuXMIFjJEF8zPNmWZlGmq3SAkN3OcV2GCYSPeN7i6A95QECn4iyfiDlQVEaw=="
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "PW-23",
+      "group": "wire",
+      "description": "同一 pair.confirm 重送（結構相同）",
+      "kind": "pair.confirm",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.confirm",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "sig": "oCAszipFKhwAfxoBR41hmyUQcJ3Z1VP/tL+XnIHRzyr3kh5YR3dpwentBAUvqvVnMRiin2szUFj8d5lBRAFYrw=="
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "PW-16",
+      "group": "wire",
+      "description": "pair.confirm 的 sig 63 bytes",
+      "kind": "pair.confirm",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.confirm",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "sig": "TN2qGkzSBJng0fREYrT4bVVDHCrNcnuM2b3voMbVqk3Wu4SMZ/ZkahNtJZ0wdCwDCXxM6y8rPsU3fQfw5Gfj"
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-17",
+      "group": "wire",
+      "description": "合法 pair.cancel",
+      "kind": "pair.cancel",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.cancel",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "reason": "user_rejected"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "PW-18",
+      "group": "wire",
+      "description": "pair.cancel reason 未知",
+      "kind": "pair.cancel",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.cancel",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "reason": "user_rejected\n"
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-20",
+      "group": "wire",
+      "description": "合法 pair.pending（R 的使用者尚未確認時對 pair.confirm 的立即回應）",
+      "kind": "pair.pending",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.pending",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "PW-21",
+      "group": "wire",
+      "description": "pair.pending 帶多餘欄位",
+      "kind": "pair.pending",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.pending",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "wait_ms": 1000
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-22",
+      "group": "wire",
+      "description": "pair.pending 的 session_id 尾端 LF",
+      "kind": "pair.pending",
+      "message": {
+        "protocol": "nekochat",
+        "version": 2,
+        "kind": "pair.pending",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A\n"
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    },
+    {
+      "id": "PW-19",
+      "group": "wire",
+      "description": "version 為 \"2\"（字串）",
+      "kind": "pair.request",
+      "message": {
+        "protocol": "nekochat",
+        "version": "2",
+        "kind": "pair.request",
+        "session_id": "u3Ye2LU5yd4qHaBF2AkY-A",
+        "initiator_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ1kNgj2z++HHQeWvvmOLty9jbfvMO+SmnzPScrjyPWwWMlkqEUTn6t+at3Oc+DFlUxPBJo9f/mmT9rN+IIILoQ=="
+      },
+      "expect": {
+        "result": "invalid_payload"
+      }
+    }
+  ]
+}
