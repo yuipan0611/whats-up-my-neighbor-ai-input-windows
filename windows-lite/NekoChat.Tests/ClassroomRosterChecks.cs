@@ -99,6 +99,11 @@ internal static class ClassroomRosterChecks
             Check(blockedResult is { Applied: false, Reason: "ip_conflict" } && store.GetRosterSnapshot().Count == 2 && !Directory.Exists(Path.Combine(f.Data, "backup")) &&
                 store.GetRosterSnapshot().Single(r => r.Entry.Id == a).Entry.Endpoint == X, "④ blocked preview cannot be applied: no row, address or backup changes, even for the valid line");
 
+            // VCM1a: every line conflicting must not look like a successful empty import, and no backup may be made.
+            var allConflict = Preview(store, "student_number,name,ip\n1,甲,10.0.0.5\n2,乙,10.0.0.5");
+            Check(allConflict.Changes.Count == 0 && !allConflict.CanApply && store.ApplyRosterPreview(allConflict) is { Applied: false, Reason: "ip_conflict" } &&
+                !Directory.Exists(Path.Combine(f.Data, "backup")) && store.GetRosterSnapshot().Single(r => r.Entry.Id == a).Entry.Endpoint == X, "④ all lines conflicting: refused, zero changes, no backup");
+
             var againstRow = Preview(store, "student_number,name,ip\n3,丙,10.0.0.1");
             Check(!againstRow.CanApply && againstRow.Items.Single().ErrorCodes.Contains("endpoint_conflict") && store.ApplyRosterPreview(againstRow).Reason == "ip_conflict",
                 "④ an address owned by a row outside the file also blocks");
