@@ -104,6 +104,8 @@ public sealed partial class ChatStore
         });
         string preToken = RosterImportPreview.ComputeSnapshotToken(preflight);
         if (!preview.MatchesSnapshot(preflight)) return Failure("roster_changed", preToken);
+        // CM-03: an address collision blocks the whole import; refuse before any backup is taken.
+        if (!preview.CanApply) return Failure("ip_conflict", preToken);
         if (preview.Changes.Count == 0) return Failure("no-changes", preToken);
         if (!RowsStillValid()) return Failure("endpoint-or-row-no-longer-valid", preToken);
         // 2. Backup (independent read-only connection), then 3. take the write lock and re-verify the snapshot.
