@@ -152,7 +152,24 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
         }
 
         var pending = _store.ListPendingClassroomReceipts(50);
-        if (pending.Count == 0) return;
+        if (pending.Count == 0)
+        {
+            lock (_gate)
+            {
+                _states.Clear();
+            }
+            return;
+        }
+
+        if (pending.Count < 50)
+        {
+            var activeKeys = new HashSet<string>(pending.Select(r => $"{r.Principal.Value}:{r.MessageId}"), StringComparer.Ordinal);
+            lock (_gate)
+            {
+                var deadKeys = _states.Keys.Where(k => !activeKeys.Contains(k)).ToList();
+                foreach (var k in deadKeys) _states.Remove(k);
+            }
+        }
 
         long now = _clock.GetTimestamp();
 
@@ -211,10 +228,15 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
                     Interlocked.Increment(ref TotalCompleted);
                     try { ReceiptsChanged?.Invoke(); } catch { }
                 }
+                else if (result.Status == "capability_missing")
+                {
+                    // Receiver does not support read receipts: don't retry 8 times
+                    state.Attempts = MaxAttemptsPerEvent;
+                }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Report($"receipt_send_exception: {ex.Message}");
+                Report("receipt_send_failed");
             }
             finally
             {

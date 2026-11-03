@@ -86,7 +86,19 @@ internal sealed class ChatRuntime : IAsyncDisposable
                 Pairing = new(_pairingIdentity);
             }
         }
-        Listener = new(receiver, new V2ListenerOptions { Port = port }, store, Pairing);
+        if (ArchivedIdentityFixture)
+        {
+            Listener = new(receiver, new V2ListenerOptions { Port = port }, store, Pairing);
+        }
+        else
+        {
+            var sink = new ClassroomStoreSink(store);
+            var endpoint = new ClassroomEndpointAdapter(sink);
+            var classroomListener = new ClassroomTcpListener(endpoint, new ClassroomListenerOptions { Port = port });
+            sink.MessageStored += (_, _, _) => DataChanged?.Invoke();
+            sink.ReceiptStored += (_, _) => DataChanged?.Invoke();
+            Listener = new DirectLanListener(classroomListener, sink);
+        }
         Worker = new(store, lifetime: _lifetime.Token);
         ClassroomReceipts = new ClassroomReceiptService(store, ClassroomSender, port, "127.0.0.1");
         ClassroomReceipts.ReceiptsChanged += () => DataChanged?.Invoke();

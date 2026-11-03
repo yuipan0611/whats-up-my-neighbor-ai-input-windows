@@ -11,6 +11,10 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
 {
     private readonly IChatStore _store;
 
+    public event Action<string, string, string?>? MessageStored;
+    public event Action<string, string>? ReceiptStored;
+    public event Action<LegacyDeliveryNotice>? LegacyMessageStored;
+
     public ClassroomStoreSink(IChatStore store)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -29,12 +33,14 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
         if (result is ClassroomStored stored)
         {
             byte[] ack = ClassroomPacketWriter.MessageAck("stored", request.MessageId!, request.Session!, sourceIp, localIp, request.Reaction, request.Text!);
+            try { MessageStored?.Invoke(sourceIp, request.Text!, request.Reaction); } catch { }
             return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(200, ack));
         }
 
         if (result is ClassroomDuplicate or ClassroomClearedDuplicate)
         {
             byte[] ack = ClassroomPacketWriter.MessageAck("duplicate", request.MessageId!, request.Session!, sourceIp, localIp, request.Reaction, request.Text!);
+            try { MessageStored?.Invoke(sourceIp, request.Text!, request.Reaction); } catch { }
             return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(200, ack));
         }
 
@@ -76,6 +82,7 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
 
         string status = result.Changed ? "ok" : result.Reason == "unchanged" ? "duplicate" : "discarded";
         byte[] ack = ClassroomPacketWriter.ReceiptAck(status, request.MessageId!, request.Session!, sourceIp, localIp);
+        try { ReceiptStored?.Invoke(sourceIp, request.MessageId!); } catch { }
         return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(200, ack));
     }
 
@@ -89,6 +96,11 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
         var result = _store.ReceiveLegacyMessage(message, captured, stillCurrent);
         if (result.Stored)
         {
+            if (result.LegacySeq is { } seq)
+            {
+                try { LegacyMessageStored?.Invoke(new(sourceIp, captured.Scope, seq, message.Reaction ?? ClassroomReactions.MatchText(message.Text)?.Id)); } catch { }
+            }
+            try { MessageStored?.Invoke(sourceIp, message.Text, message.Reaction); } catch { }
             byte[] response = "{\"status\":\"delivered\"}"u8.ToArray();
             return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(200, response));
         }

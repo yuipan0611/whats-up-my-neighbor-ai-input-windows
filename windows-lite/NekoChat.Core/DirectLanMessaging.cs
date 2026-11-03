@@ -68,9 +68,10 @@ public static class DirectLanMessaging
 /// <summary>Compatibility facade: v1's two events are retained; verified v2 storage notices have a separate event.</summary>
 public sealed class DirectLanListener : IAsyncDisposable
 {
-    private readonly V2.V2TcpListener _transport;
-    public int Port => _transport.Port;
-    public bool Running => _transport.Running;
+    private readonly V2.V2TcpListener? _transport;
+    private readonly Classroom.Transport.ClassroomTcpListener? _classroomTransport;
+    public int Port => _classroomTransport?.Port ?? _transport!.Port;
+    public bool Running => _classroomTransport is not null ? (_classroomTransport.Running && !_classroomTransport.Failed) : _transport!.Running;
     public string? Error { get; private set; }
     public event Action<string, string>? MessageReceived;
     public event Action<string, DirectMessage>? DirectMessageReceived;
@@ -81,6 +82,23 @@ public sealed class DirectLanListener : IAsyncDisposable
     public DirectLanListener(int port = DirectLanMessaging.DefaultPort) : this(null, new V2.V2ListenerOptions { Port = port }) { }
     public DirectLanListener(V2.V2Receiver receiver, int port = DirectLanMessaging.DefaultPort) : this(receiver, new V2.V2ListenerOptions { Port = port }) { }
     public DirectLanListener(V2.V2Receiver? receiver, V2.V2ListenerOptions options, Storage.IChatStore? legacyStore = null) : this(receiver, options, legacyStore, null) { }
+    public DirectLanListener(Classroom.Transport.ClassroomTcpListener classroomListener, Classroom.Transport.ClassroomStoreSink sink)
+    {
+        _classroomTransport = classroomListener ?? throw new ArgumentNullException(nameof(classroomListener));
+        if (sink is not null)
+        {
+            sink.MessageStored += (source, text, reaction) => {
+                DirectMessageReceived?.Invoke(source, new DirectMessage(text, reaction));
+                MessageReceived?.Invoke(source, text);
+            };
+            sink.LegacyMessageStored += notice => LegacyMessageStored?.Invoke(notice);
+        }
+        _classroomTransport.Diagnostic += code => {
+            if (code == "receiver_not_ready") Error = "接收服務已停止，請重新啟動。";
+            if (code == "listener_failed") Error = "接收服務已永久失效，無法接收訊息。";
+            Diagnostic?.Invoke(code);
+        };
+    }
     public DirectLanListener(V2.V2Receiver? receiver, V2.V2ListenerOptions options, Storage.IChatStore? legacyStore, Pairing.IPairingEndpoint? pairing)
     {
         _transport = new(receiver, options, pairing) {
@@ -98,16 +116,17 @@ public sealed class DirectLanListener : IAsyncDisposable
         _transport.MessageStored += notice => V2MessageStored?.Invoke(notice);
         _transport.Diagnostic += code => {
             if (code == "receiver_not_ready") Error = "接收服務已停止，請重新啟動。";
+            if (code == "listener_failed") Error = "接收服務已永久失效，無法接收訊息。";
             Diagnostic?.Invoke(code);
         };
     }
     public void Start()
     {
-        try { _transport.Start(); Error = null; }
+        try { if (_classroomTransport is not null) _classroomTransport.Start(); else _transport!.Start(); Error = null; }
         catch (Exception e) when (e is SocketException or InvalidOperationException or ObjectDisposedException)
         { Error = "接收服務無法啟動，請檢查 TCP 接收埠是否已被占用。"; }
     }
-    public ValueTask DisposeAsync() => _transport.DisposeAsync();
+    public ValueTask DisposeAsync() => _classroomTransport?.DisposeAsync() ?? _transport!.DisposeAsync();
 }
 
 public sealed record DirectMessage(string Text, string? Reaction);

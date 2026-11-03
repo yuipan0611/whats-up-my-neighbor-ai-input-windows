@@ -410,7 +410,7 @@ public partial class App : Application
                 if (closingApp || !ReferenceEquals(directListener, listener)) return;
                 chat.DataChanged(); pet.NotifyChat("新訊息", "peer:" + notice.SenderId, chat.PeerNotificationName(notice.SenderId));
             }));
-            listener.Diagnostic += code => { if (code == "receiver_not_ready") Dispatcher.BeginInvoke(new Action(() => { if (!closingApp && ReferenceEquals(directListener, listener)) chat.SetReceiverState(false, startupPort, listener.Error); })); };
+            listener.Diagnostic += code => { if (code is "receiver_not_ready" or "listener_failed") Dispatcher.BeginInvoke(new Action(() => { if (!closingApp && ReferenceEquals(directListener, listener)) chat.SetReceiverState(false, startupPort, listener.Error ?? "接收服務已停止"); })); };
             candidate.Start(); chatRuntime = candidate; candidate = null;
             chat.SetReceiverState(directListener.Running, directListener.Port, directListener.Error);
             chat.SetStatus(chatRuntime is { CanSend: true } ? "本機資料已就緒。" : "本機資料已就緒；教室傳送服務尚未就緒。");

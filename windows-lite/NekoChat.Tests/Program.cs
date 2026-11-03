@@ -24,9 +24,14 @@ if (args.SequenceEqual(new[] { "--listener-accept-recovery" })) { await NekoChat
 if (args.SequenceEqual(new[] { "--classroom-listener" })) { await NekoChat.Tests.ClassroomListenerChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-adapter" })) { await NekoChat.Tests.ClassroomEndpointAdapterChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--classroom-sink-tcp" })) { await NekoChat.Tests.ClassroomStoreSinkTcpChecks.RunAsync(); return; }
+if (args.SequenceEqual(new[] { "--classroom-store" })) { NekoChat.Tests.ClassroomStoreChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--ui-test-data" })) { NekoChat.Tests.UiTestDataChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-send" })) { await NekoChat.Tests.ClassroomSendChecks.RunAsync(); return; }
 if (args.SequenceEqual(new[] { "--classroom-receipt" })) { await NekoChat.Tests.ClassroomReceiptChecks.RunAsync(); return; }
+if (args.SequenceEqual(new[] { "--classroom-sender-independent" })) { try { await NekoChat.Tests.ClassroomSenderIndependentChecks.RunAsync(); } catch (InvalidOperationException e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); } return; }
+if (args.SequenceEqual(new[] { "--classroom-sender-outcome-independent" })) { try { await NekoChat.Tests.ClassroomSenderOutcomeIndependentChecks.RunAsync(); } catch (InvalidOperationException e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); } return; }
+if (args.SequenceEqual(new[] { "--classroom-adapter-independent" })) { try { await NekoChat.Tests.ClassroomAdapterIndependentChecks.RunAsync(); } catch (InvalidOperationException e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); } return; }
 if (args.SequenceEqual(new[] { "--archived-superseded" })) { await NekoChat.Tests.ArchivedSupersededChecks.Run(); return; }
 if (args.Length == 1 && NekoChat.Tests.ArchivedSupersededChecks.IsFocusedArgument(args[0]))
     Console.WriteLine("archived-superseded: historical signed/P1 regression only; excluded from current classroom acceptance.");

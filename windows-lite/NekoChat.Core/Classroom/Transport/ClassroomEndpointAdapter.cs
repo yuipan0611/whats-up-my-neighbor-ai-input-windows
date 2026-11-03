@@ -189,17 +189,24 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
             return Error(ClassroomCodes.StaleSession);
         }
 
-        if (_sink is not null)
+        if (_sink is null)
         {
-            var customResponse = await _sink.OnMessageAsync(sourceIp, localIp, req, stillCurrent, cancellation).ConfigureAwait(false);
-            if (customResponse is not null)
-            {
-                return customResponse;
-            }
+            return Error(ClassroomCodes.ReceiverNotReady);
         }
 
-        byte[] ack = ClassroomPacketWriter.MessageAck("stored", req.MessageId!, req.Session!, sourceIp, localIp, req.Reaction, req.Text!);
-        return new ClassroomTransportResponse(200, ack);
+        try
+        {
+            var customResponse = await _sink.OnMessageAsync(sourceIp, localIp, req, stillCurrent, cancellation).ConfigureAwait(false);
+            if (customResponse is null)
+            {
+                return Error(ClassroomCodes.ReceiverNotReady);
+            }
+            return customResponse;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Error(ClassroomCodes.StorageUnavailable);
+        }
     }
 
     private async Task<ClassroomTransportResponse> HandleReceiptAsync(
@@ -222,17 +229,24 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
             return Error(ClassroomCodes.StaleSession);
         }
 
-        if (_sink is not null)
+        if (_sink is null)
         {
-            var customResponse = await _sink.OnReceiptAsync(sourceIp, localIp, req, stillCurrent, cancellation).ConfigureAwait(false);
-            if (customResponse is not null)
-            {
-                return customResponse;
-            }
+            return Error(ClassroomCodes.ReceiverNotReady);
         }
 
-        byte[] ack = ClassroomPacketWriter.ReceiptAck("ok", req.MessageId!, req.Session!, sourceIp, localIp);
-        return new ClassroomTransportResponse(200, ack);
+        try
+        {
+            var customResponse = await _sink.OnReceiptAsync(sourceIp, localIp, req, stillCurrent, cancellation).ConfigureAwait(false);
+            if (customResponse is null)
+            {
+                return Error(ClassroomCodes.ReceiverNotReady);
+            }
+            return customResponse;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Error(ClassroomCodes.StorageUnavailable);
+        }
     }
 
     private async Task<ClassroomTransportResponse> HandleLegacyV1Async(
@@ -246,16 +260,23 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
             return Error(error);
         }
 
-        if (_sink is not null)
+        if (_sink is null)
         {
-            var customResponse = await _sink.OnLegacyDirectAsync(sourceIp, message!, stillCurrent, cancellation).ConfigureAwait(false);
-            if (customResponse is not null)
-            {
-                return customResponse;
-            }
+            return Error(ClassroomCodes.ReceiverNotReady);
         }
 
-        byte[] ack = "{\"status\":\"delivered\"}"u8.ToArray();
-        return new ClassroomTransportResponse(200, ack);
+        try
+        {
+            var customResponse = await _sink.OnLegacyDirectAsync(sourceIp, message!, stillCurrent, cancellation).ConfigureAwait(false);
+            if (customResponse is null)
+            {
+                return Error(ClassroomCodes.ReceiverNotReady);
+            }
+            return customResponse;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Error(ClassroomCodes.StorageUnavailable);
+        }
     }
 }

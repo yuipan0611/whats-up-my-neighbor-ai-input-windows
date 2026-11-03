@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -333,6 +334,92 @@ public static class ClassroomReceiptChecks
             Check(clearResult.Receipts == 1, "ClearClassroomConversation reports 1 cleared receipt");
             Check(storeB.ListPendingClassroomReceipts(10).Count == 0, "outbox is empty after ClearClassroomConversation");
 
+            // =========================================================================
+            // 5. Ben Review Findings Remediation & Negative Controls
+            // =========================================================================
+
+            // Case 5.1: Negative Control - ownIp mismatch rejected, outbox retained
+            string msgNeg = Guid.NewGuid().ToString();
+            var rxNeg = storeB.ReceiveClassroomMessage(ipA, new ClassroomIncoming(msgNeg, "Negative ownIp msg"), () => true);
+            long seqNeg = ((ClassroomStored)rxNeg).LocalSeq;
+            storeB.MarkClassroomVisibleRead(keyA, new[] { seqNeg }, new VisibleReadContext(keyA.Value, true, true, false, true));
+            Check(storeB.ListPendingClassroomReceipts(10).Count == 1, "outbox has 1 receipt queued for negative ownIp test");
+
+            // Peer lies about observed_sender_ip (returns 192.168.1.99 instead of ipB 192.168.1.20)
+            handlerB.OwnIp = "192.168.1.99";
+            handlerB.ReceiptHandler = null;
+            long attemptsBefore = serviceB.TotalAttempts;
+            long completedBefore = serviceB.TotalCompleted;
+            await serviceB.ProcessOutboxBatchAsync();
+            Check(serviceB.TotalAttempts > attemptsBefore, "serviceB attempted sending receipt with mismatched ownIp");
+            Check(serviceB.TotalCompleted == completedBefore, "serviceB did NOT complete receipt with mismatched ownIp");
+            Check(storeB.ListPendingClassroomReceipts(10).Count == 1, "outbox retained receipt when peer returned mismatched ownIp");
+
+            // Case 5.2: HelloSucceeds=false & HelloSupportsReadReceipt=false -> zero receipt requests
+            // First reset handler to truthful ownIp
+            handlerB.OwnIp = ipB;
+            serviceB.ResetAfterResume();
+
+            // Test HelloSucceeds = false
+            handlerB.HelloSucceeds = false;
+            handlerB.PathSequence.Clear();
+            await serviceB.ProcessOutboxBatchAsync();
+            Check(handlerB.PathSequence.Count(p => p.EndsWith("/receipt")) == 0, "HelloSucceeds=false produces ZERO receipt requests");
+            Check(storeB.ListPendingClassroomReceipts(10).Count == 1, "outbox retained after HelloSucceeds=false");
+
+            // Test HelloSupportsReadReceipt = false
+            handlerB.HelloSucceeds = true;
+            handlerB.HelloSupportsReadReceipt = false;
+            handlerB.PathSequence.Clear();
+            serviceB.ResetAfterResume();
+            await serviceB.ProcessOutboxBatchAsync();
+            Check(handlerB.PathSequence.Count(p => p.EndsWith("/receipt")) == 0, "HelloSupportsReadReceipt=false produces ZERO receipt requests");
+            Check(storeB.ListPendingClassroomReceipts(10).Count == 1, "outbox retained after HelloSupportsReadReceipt=false");
+
+            // Capability missing does not retry 8 times: advance time and check no more requests fired
+            handlerB.PathSequence.Clear();
+            timeProvider.Advance(TimeSpan.FromMinutes(2));
+            await serviceB.ProcessOutboxBatchAsync();
+            Check(handlerB.PathSequence.Count == 0, "capability_missing stops retry immediately without 8 attempts");
+
+            // Case 5.3: Dispose and reopen same SQLite DB -> outbox preserved, attempts start at 0
+            await serviceB.DisposeAsync();
+            storeB.Dispose();
+
+            using (var storeB2 = ChatStore.Open(new ChatStoreOptions(dbB)))
+            {
+                Check(storeB2.ListPendingClassroomReceipts(10).Count == 1, "same SQLite DB reopened has outbox preserved");
+                var handlerB2 = new MockReceiptHttpHandler
+                {
+                    TargetIp = ipA,
+                    OwnIp = ipB,
+                    HelloSupportsReadReceipt = true,
+                    HelloSucceeds = true
+                };
+                using var httpB2 = new HttpClient(handlerB2);
+                var senderB2 = new ClassroomSender(storeB2, httpB2, () => timeProvider.GetUtcNow().UtcDateTime);
+                var serviceB2 = new ClassroomReceiptService(storeB2, senderB2, 8768, ipB, timeProvider);
+
+                // Fresh service starts with 0 attempts and sends immediately
+                Check(serviceB2.TotalAttempts == 0, "fresh session has 0 total attempts");
+                await serviceB2.ProcessOutboxBatchAsync();
+                Check(serviceB2.TotalCompleted == 1, "fresh session delivers outbox immediately");
+                Check(storeB2.ListPendingClassroomReceipts(10).Count == 0, "outbox cleared after delivery");
+                await serviceB2.DisposeAsync();
+            }
+
+            // Case 5.4: CompleteClassroomReadReceipt returns false -> not completed, TotalCompleted unchanged
+            var pendingFakeReceipt = new PendingClassroomReceipt(1, "fake-msg", keyA, ipA, 1);
+            var fakeInterceptor = CompleteReceiptFailingStore.Create(storeA);
+            var senderFake = new ClassroomSender(fakeInterceptor, httpClient, () => timeProvider.GetUtcNow().UtcDateTime);
+            var serviceFake = new ClassroomReceiptService(fakeInterceptor, senderFake, 8768, ipA, timeProvider);
+
+            long fakeCompletedBefore = serviceFake.TotalCompleted;
+            var fakeResult = await senderFake.SendReceiptAsync(pendingFakeReceipt, 8768, ipA, () => true, default);
+            Check(!fakeResult.Completed, "SendReceiptAsync returns Completed=false when store CompleteClassroomReadReceipt returns false");
+            Check(serviceFake.TotalCompleted == fakeCompletedBefore, "TotalCompleted not incremented when store returns false");
+            await serviceFake.DisposeAsync();
+
             Console.WriteLine($"Classroom receipt CM-13 checks: {checks} checks passed.");
         }
         finally
@@ -340,6 +427,36 @@ public static class ClassroomReceiptChecks
             await receiptServiceA.DisposeAsync();
             try { Directory.Delete(tempBase, recursive: true); } catch { }
         }
+    }
+
+    public class CompleteReceiptFailingStore : DispatchProxy
+    {
+        private IChatStore _target = null!;
+
+        public static IChatStore Create(IChatStore target)
+        {
+            object proxy = Create<IChatStore, CompleteReceiptFailingStore>();
+            ((CompleteReceiptFailingStore)proxy)._target = target;
+            return (IChatStore)proxy;
+        }
+
+        public CompleteReceiptFailingStore() { }
+
+        public CompleteReceiptFailingStore(IChatStore target)
+        {
+            _target = target;
+        }
+
+        protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(IChatStore.CompleteClassroomReadReceipt))
+            {
+                return false;
+            }
+            return targetMethod?.Invoke(_target, args);
+        }
+
+        public static implicit operator CompleteReceiptFailingStore(ChatStore store) => new(store);
     }
 
     private static void timeSpanAdvanceForAttempt(ManualTimeProvider timeProvider, int attemptNumber)

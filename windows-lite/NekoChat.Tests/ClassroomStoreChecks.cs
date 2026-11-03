@@ -71,6 +71,16 @@ internal static class ClassroomStoreChecks
             Check(store.SaveClassroomDraft(pa, max + "a", 0, 3) is { Saved: false, Reason: "draft-too-large" } && store.GetClassroomDraftState(pa).RawText!.Length == ClassroomLimits.MaxDraftBytes &&
                 store.SaveClassroomDraft(pa, new string('語', 349_526), 0, 3) is { Saved: false, Reason: "draft-too-large" }, "CM-12: over 1 MiB (by UTF-8 bytes) is refused with a clear reason and the stored draft is untouched");
             Check(store.SaveClassroomDraft(pa, max + "a", 0, 3) is { Saved: false, Reason: "draft-too-large", CurrentEpoch: 0, CurrentRevision: 2 }, "draft-too-large reports the current guard, not zeros");
+            // bbc6ba4: MaxDraftUtf8Bytes option restricts draft limit dynamically
+            using (var fSmall = new Fixture())
+            {
+                var optSmall = new ChatStoreOptions(fSmall.Data) { UtcNow = () => new DateTime(2026, 11, 3, 3, 4, 5, DateTimeKind.Utc), MaxDraftUtf8Bytes = 16 };
+                using var storeSmall = ChatStore.Open(optSmall);
+                string entrySmall = Add(storeSmall, "丙", "10.0.0.3");
+                var pSmall = ClassroomPrincipalKey.ForRosterEntry(entrySmall);
+                Check(storeSmall.SaveClassroomDraft(pSmall, "short ok", 0, 1) is { Saved: true }, "small MaxDraftUtf8Bytes accepts draft within limit");
+                Check(storeSmall.SaveClassroomDraft(pSmall, "this draft exceeds 16 bytes limit", 0, 2) is { Saved: false, Reason: "draft-too-large" }, "small MaxDraftUtf8Bytes refuses draft exceeding configured limit");
+            }
             string longText = new('b', 3000);
             Check(store.SaveClassroomDraft(pa, longText, 0, 3) is { Saved: true } && store.BeginClassroomSend(pa, longText, 0, 3) is InvalidSend { Reason: "invalid-payload" } && store.GetClassroomDraftState(pa).RawText == longText,
                 "CM-12: a text over the send limit survives as a draft and is only refused when sending");
