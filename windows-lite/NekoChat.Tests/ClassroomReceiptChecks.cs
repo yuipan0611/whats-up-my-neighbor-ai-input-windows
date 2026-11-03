@@ -39,6 +39,7 @@ public static class ClassroomReceiptChecks
         public List<string> PathSequence { get; } = new();
         public string TargetIp { get; set; } = "192.168.1.50";
         public string OwnIp { get; set; } = "192.168.1.10";
+        public string? ClientLocalIp { get; set; }
         public string SessionId { get; set; } = ClassroomPacketWriter.NewToken();
         public bool HelloSucceeds { get; set; } = true;
         public bool HelloSupportsReadReceipt { get; set; } = true;
@@ -47,6 +48,7 @@ public static class ClassroomReceiptChecks
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            request.Options.Set(ClassroomSender.LocalEndpointOptionKey, ClientLocalIp ?? OwnIp);
             string path = request.RequestUri?.AbsolutePath ?? "";
             PathSequence.Add(path);
 
@@ -239,7 +241,8 @@ public static class ClassroomReceiptChecks
             var handlerB = new MockReceiptHttpHandler
             {
                 TargetIp = ipA,
-                OwnIp = ipB
+                OwnIp = ipB,
+                ClientLocalIp = ipB
             };
             using var httpB = new HttpClient(handlerB);
             var senderB = new ClassroomSender(storeB, httpB, () => timeProvider.GetUtcNow().UtcDateTime);
@@ -393,6 +396,7 @@ public static class ClassroomReceiptChecks
                 {
                     TargetIp = ipA,
                     OwnIp = ipB,
+                    ClientLocalIp = ipB,
                     HelloSupportsReadReceipt = true,
                     HelloSucceeds = true
                 };

@@ -22,12 +22,17 @@ public static class ClassroomSendChecks
     {
         public List<string> PathSequence { get; } = new();
         public bool SimulateLegacy { get; set; }
+        public bool SetLocalEndpointOption { get; set; } = true;
         public string SessionId { get; set; } = ClassroomPacketWriter.NewToken();
         public string TargetIp { get; set; } = "192.168.1.50";
         public string OwnIp { get; set; } = "192.168.1.10";
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (SetLocalEndpointOption)
+            {
+                request.Options.Set(ClassroomSender.LocalEndpointOptionKey, OwnIp);
+            }
             string path = request.RequestUri?.AbsolutePath ?? "";
             PathSequence.Add(path);
 
@@ -94,6 +99,28 @@ public static class ClassroomSendChecks
                 {
                     Content = new StringContent("{\"status\":\"delivered\"}", Encoding.UTF8, "application/json")
                 };
+                return resp;
+            }
+
+            if (path == "/nekochat/classroom/v1/receipt")
+            {
+                byte[] body = await request.Content!.ReadAsByteArrayAsync(cancellationToken);
+                using var doc = JsonDocument.Parse(body);
+                string messageId = doc.RootElement.GetProperty("message_id").GetString()!;
+                string session = doc.RootElement.GetProperty("session").GetString()!;
+
+                byte[] ack = ClassroomPacketWriter.ReceiptAck(
+                    "ok",
+                    messageId,
+                    session,
+                    OwnIp,
+                    TargetIp);
+
+                var resp = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(ack)
+                };
+                resp.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
                 return resp;
             }
 
@@ -236,6 +263,30 @@ public static class ClassroomSendChecks
 
             var sinkResp = await sink.OnMessageAsync(peerIp, ownIp, reqMsg, () => true, default);
             Check(sinkResp is not null && sinkResp.StatusCode == 200, "Store sink received message successfully");
+
+            // -----------------------------------------------------------------------------------------
+            // Check 5: Negative control - Options without LocalEndpointOptionKey must fail closed (item 5)
+            // -----------------------------------------------------------------------------------------
+            var handlerNoOption = new TraceHttpMessageHandler { OwnIp = ownIp, TargetIp = peerIp, SetLocalEndpointOption = false };
+            using var httpNoOption = new HttpClient(handlerNoOption);
+            var senderNoOption = new ClassroomSender(store, httpNoOption);
+
+            var negPrincipal = ClassroomPrincipalKey.ForSource("192.168.1.99")!.Value;
+            var startNeg = store.BeginClassroomSend(negPrincipal, "負控測試：無 Options 端點", 0, 1);
+            var startedNeg = (AttemptStarted)startNeg;
+            var prepNeg = store.GetClassroomPreparedSend(startedNeg.MessageId)!;
+
+            // 1. SendPreparedAsync with no endpoint option
+            var sendNegOutcome = await senderNoOption.SendPreparedAsync(prepNeg, 8768, ownIp, () => true);
+            Check(!sendNegOutcome.Success, "SendPreparedAsync without endpoint option failed");
+            Check(sendNegOutcome.Code == "local_endpoint_unknown", "SendPreparedAsync code is local_endpoint_unknown");
+            Check(sendNegOutcome.Completion is not Confirmed, "SendPreparedAsync without endpoint option is NOT Confirmed");
+
+            // 2. SendReceiptAsync with no endpoint option
+            var dummyReceipt = new PendingClassroomReceipt(1L, ClassroomPacketWriter.NewMessageId(), negPrincipal, "192.168.1.99", 1L);
+            var receiptNegOutcome = await senderNoOption.SendReceiptAsync(dummyReceipt, 8768, ownIp, () => true);
+            Check(!receiptNegOutcome.Completed, "SendReceiptAsync without endpoint option is NOT Completed");
+            Check(receiptNegOutcome.Status == "local_endpoint_unknown", "SendReceiptAsync status is local_endpoint_unknown");
 
             Console.WriteLine($"Classroom send and store wiring: {checks} checks passed.");
         }

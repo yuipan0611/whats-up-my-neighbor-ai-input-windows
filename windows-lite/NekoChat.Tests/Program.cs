@@ -22,6 +22,7 @@ if (args.SequenceEqual(new[] { "--receipt-privacy" })) { await NekoChat.Tests.Re
 if (args.SequenceEqual(new[] { "--listener-failure-policy" })) { await NekoChat.Tests.ListenerFailurePolicyChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--listener-accept-recovery" })) { await NekoChat.Tests.ListenerAcceptRecoveryChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-listener" })) { await NekoChat.Tests.ClassroomListenerChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--classroom-inbox" })) { NekoChat.Tests.ClassroomInboxChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-all" }))
 {

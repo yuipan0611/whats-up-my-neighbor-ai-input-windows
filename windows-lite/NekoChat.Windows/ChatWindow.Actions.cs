@@ -1,4 +1,5 @@
 using System.Windows;
+using NekoChat.Core.Classroom.Transport;
 using NekoChat.Core.Presentation;
 using NekoChat.Core.Storage;
 
@@ -155,9 +156,21 @@ public partial class ChatWindow
         }
         SetStatus(started.ReusedId ? "手動重送中，沿用原訊息 id…" : "教室傳送中，等待對方儲存確認…");
         await RefreshInboxAsync();
-        var transmission = runtime.SendClassroomAsync(prepared, _peerPort, conversation, buffer, sent);
-        UpdateComposer();
-        var outcome = await transmission;
+        ClassroomSendResult outcome;
+        try
+        {
+            var transmission = runtime.SendClassroomAsync(prepared, _peerPort, conversation, buffer, sent);
+            UpdateComposer();
+            outcome = await transmission;
+        }
+        catch (Exception ex)
+        {
+            await runtime.Worker.Run(s => s.CompleteClassroomAttempt(started.MessageId, new FailedOutcome("local_endpoint_unknown"), null, started.TryCount));
+            SetStatus($"傳送失敗（local_endpoint_unknown：{ex.Message}）；草稿仍在本機，未傳送。");
+            UpdateComposer();
+            await RefreshInboxAsync();
+            return;
+        }
         if (outcome.Completion is Confirmed { DraftCleared: true } && _selected?.ConversationId == conversation) SetDraftText(buffer.Text);
         SetStatus(outcome.Code == "ok" ? (outcome.Route == NekoChat.Core.Storage.ClassroomRoute.Classroom ? "已驗證對方的儲存確認。" : "已送達（舊版同學）。") : outcome.Code switch {
             "classroom-may-have-delivered" => "先前嘗試可能已送達教室，不降級為舊版重送；請確認後再試。",

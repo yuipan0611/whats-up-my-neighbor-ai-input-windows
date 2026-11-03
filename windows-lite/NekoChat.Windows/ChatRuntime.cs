@@ -122,8 +122,11 @@ internal sealed class ChatRuntime : IAsyncDisposable
                 return addr.IsIPv4MappedToIPv6 ? addr.MapToIPv4().ToString() : addr.ToString();
             }
         }
-        catch { }
-        return LanInvitation.PrimaryLocalIP() ?? throw new InvalidOperationException("無法解析本機網路端點位址（fail closed）。");
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"無法解析本機網路端點位址（fail closed）：{ex.Message}", ex);
+        }
+        throw new InvalidOperationException("無法解析本機網路端點位址（fail closed）。");
     }
     internal static string RootDirectory(Settings source, bool isolated) => UiTestOptions.ResolveRootDirectory(source, isolated);
     internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null, ChatPairingConfiguration? pairingConfiguration = null) => Task.Run(() => {

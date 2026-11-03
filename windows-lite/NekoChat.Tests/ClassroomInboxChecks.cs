@@ -123,23 +123,6 @@ internal static class ClassroomInboxChecks
             }
             Check(foundRemovedCanSendFalse, "snapshot dataset contains at least one entry with Removed=true and CanSend=false");
 
-            // Negative mutation check: if CanSend is forced to true, test must fail
-            var removedItem = inboxSnapshot.Entries.First(e => e.Removed);
-            bool mutantCaught = false;
-            try
-            {
-                bool forcedCanSend = true; // simulated bug
-                if (removedItem.Removed && forcedCanSend == removedItem.CanSend)
-                {
-                    throw new Exception("Bug not caught");
-                }
-                mutantCaught = true;
-            }
-            catch (Exception ex) when (ex.Message != "Bug not caught")
-            {
-                mutantCaught = true;
-            }
-            Check(mutantCaught, "CanSend=true mutation on removed item is detected");
 
             // ClassroomNotificationNames pure function tests (item 5)
             Check(ClassroomNotificationNames.Format("192.168.1.50", "同學甲", false) == "同學甲", "Notification name for valid roster contact");

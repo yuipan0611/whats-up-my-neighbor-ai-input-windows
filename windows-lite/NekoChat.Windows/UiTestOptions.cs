@@ -102,10 +102,6 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
         AssertSafePathFormat(rawPath);
 
         string fullPath = Path.GetFullPath(rawPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            fullPath = ExpandWindowsShortName(fullPath);
-        }
 
         string? root = Path.GetPathRoot(fullPath);
         if (string.IsNullOrEmpty(root))
@@ -189,7 +185,8 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            return ResolveWindowsFinalPath(path);
+            string expanded = ExpandWindowsShortName(path);
+            return ResolveWindowsFinalPath(expanded);
         }
         else
         {
@@ -255,10 +252,20 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
 
         var sb = new StringBuilder(1024);
         uint res = GetFinalPathNameByHandle(handle, sb, (uint)sb.Capacity, 0);
-        if (res == 0 || res >= sb.Capacity)
+        if (res == 0)
         {
             int err = Marshal.GetLastPInvokeError();
             throw new InvalidOperationException($"GetFinalPathNameByHandle 失敗（fail closed，error {err}）：'{path}'。");
+        }
+        if (res >= sb.Capacity)
+        {
+            sb = new StringBuilder((int)res);
+            res = GetFinalPathNameByHandle(handle, sb, (uint)sb.Capacity, 0);
+            if (res == 0 || res >= sb.Capacity)
+            {
+                int err = Marshal.GetLastPInvokeError();
+                throw new InvalidOperationException($"GetFinalPathNameByHandle 緩衝區重試失敗（fail closed，error {err}）：'{path}'。");
+            }
         }
 
         string winPath = sb.ToString();
@@ -317,6 +324,16 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
         {
             int err = Marshal.GetLastPInvokeError();
             throw new InvalidOperationException($"展開 Windows 8.3 短名失敗（fail closed，error {err}）：'{path}'。");
+        }
+        if (res >= sb.Capacity)
+        {
+            sb = new StringBuilder((int)res);
+            res = GetLongPathName(path, sb, (uint)sb.Capacity);
+            if (res == 0 || res >= sb.Capacity)
+            {
+                int err = Marshal.GetLastPInvokeError();
+                throw new InvalidOperationException($"展開 Windows 8.3 短名緩衝區重試失敗（fail closed，error {err}）：'{path}'。");
+            }
         }
         return sb.ToString();
     }

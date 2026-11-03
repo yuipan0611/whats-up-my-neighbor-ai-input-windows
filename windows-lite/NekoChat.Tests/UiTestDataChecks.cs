@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using NekoChat.Core;
 using NekoChat.Windows;
 
@@ -188,6 +189,34 @@ public static class UiTestDataChecks
             string root = UiTestOptions.ResolveRootDirectory(uiSettings, isolated: true);
             Check(root == Path.GetFullPath(testDir), "RootDirectory resolves directly to testDir without extra settings-data level");
             Check(Path.Combine(root, "data", "nekochat.db") == Path.Combine(Path.GetFullPath(testDir), "data", "nekochat.db"), "data file path is fixed");
+
+            // 9. Windows-only non-existent folder and Settings.DirectoryPath non-existent checks
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                // ① --ui-test-data 指向 C:\Temp\不存在的新資料夾，要能成功解析
+                string winNonExistent = @"C:\Temp\nonexistent_ui_test_" + Guid.NewGuid().ToString("N");
+                var optNonExistent = UiTestOptions.Parse(new[] { "--ui-test-data", winNonExistent });
+                Check(optNonExistent is not null, "parsed --ui-test-data for non-existent path on Windows");
+                Check(optNonExistent!.DataDirectory.EndsWith(Path.GetFileName(winNonExistent), StringComparison.OrdinalIgnoreCase), "resolved path ends with non-existent tail");
+
+                // ② Settings.DirectoryPath 不存在時，對無關的資料夾一樣要能成功
+                string testNonExistent = Path.Combine(Path.GetTempPath(), "nonexistent_ui_test_data_" + Guid.NewGuid().ToString("N"));
+                UiTestOptions.AssertSafeDataDirectory(testNonExistent);
+                Check(true, "AssertSafeDataDirectory succeeds when Settings.DirectoryPath or target contains non-existent segments");
+            }
+            else
+            {
+                // 通用跨平台未建立資料夾解析驗證
+                string nonExistentCross = Path.Combine(tempBase, "brand-new-dir", "sub-dir");
+                var optCross = UiTestOptions.Parse(new[] { "--ui-test-data", nonExistentCross });
+                Check(optCross is not null, "parsed --ui-test-data for non-existent path on non-Windows");
+                Check(optCross!.DataDirectory == Path.GetFullPath(nonExistentCross), "data directory matches expected path");
+                UiTestOptions.AssertSafeDataDirectory(nonExistentCross);
+                Check(true, "AssertSafeDataDirectory succeeds with non-existent target folder");
+
+                // PM 指定標記：Windows-only 項目在 Mac 上標「未執行（需 Windows）」
+                Console.WriteLine("Windows-only non-existent folder checks (C:\\Temp and non-existent official): 未執行（需 Windows，留到 C2 驗）");
+            }
 
             Console.WriteLine($"UI test data entry checks: {checks} checks passed.");
         }
