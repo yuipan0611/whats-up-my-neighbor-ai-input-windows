@@ -18,6 +18,12 @@ public partial class ChatWindow
         SetSending(true);
         try
         {
+            if (!runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(conversation, out var principal))
+            {
+                await SendClassroomCoreAsync(runtime, entry, conversation, buffer, sent, principal);
+                return;
+            }
+
             bool reuse = entry.Attempt is { State: not "sending" } pending && pending.RawSnapshot == sent.Text;
             var begun = await runtime.Worker.Run(s => {
                 var state = s.GetDraftState(conversation);
@@ -107,5 +113,40 @@ public partial class ChatWindow
             var saved = write.Ticket.Persist(s, write.Key); write.Buffer.CompleteWrite(write.Ticket, saved);
             if (!saved.Saved && write.Buffer.IsCurrent(write.Ticket) && write.Buffer.Dirty) throw new InvalidOperationException("Draft could not be saved before exit."); return saved;
         }, CancellationToken.None)));
+    }
+
+    private async Task SendClassroomCoreAsync(ChatRuntime runtime, InboxEntry entry, string conversation, DraftEditBuffer buffer, DraftWriteSnapshot sent, ClassroomPrincipalKey principal)
+    {
+        bool reuse = entry.Attempt is { State: not "sending" } pending && pending.RawSnapshot == sent.Text;
+        var begun = await runtime.Worker.Run(s => {
+            var state = s.GetClassroomDraftState(principal);
+            if (state != new DraftState(sent.Text, sent.Epoch, sent.Revision))
+            {
+                var saved = s.SaveClassroomDraft(principal, sent.Text, sent.Epoch, sent.Revision);
+                if (!saved.Saved) return new StaleDraft(saved.CurrentEpoch, saved.CurrentRevision);
+            }
+            return reuse ? s.BeginClassroomRetry(entry.Attempt!.MessageId, principal, sent.Text, sent.Epoch, sent.Revision) : s.BeginClassroomSend(principal, sent.Text, sent.Epoch, sent.Revision);
+        });
+        if (begun is not AttemptStarted started) { SetStatus(begun is StaleDraft ? "草稿版本已改變；未傳送，請保留目前文字後重新讀取。" : "無法建立傳送嘗試，請重試。"); return; }
+        buffer.CompleteWrite(sent, new(true, "saved-with-attempt", sent.Epoch, sent.Revision));
+        var prepared = await runtime.Worker.Run(s => s.GetClassroomPreparedSend(started.MessageId));
+        if (prepared is null || string.IsNullOrWhiteSpace(prepared.TargetIp))
+        {
+            await runtime.Worker.Run(s => s.CompleteClassroomAttempt(started.MessageId, new FailedOutcome("missing_endpoint"), null, started.TryCount));
+            SetStatus("缺少對方位址，未傳送；草稿仍在本機。"); return;
+        }
+        SetStatus(started.ReusedId ? "手動重送中，沿用原訊息 id…" : "教室傳送中，等待對方儲存確認…");
+        await RefreshInboxAsync();
+        var transmission = runtime.SendClassroomAsync(prepared, _peerPort, conversation, buffer, sent);
+        UpdateComposer();
+        var outcome = await transmission;
+        if (outcome.Completion is Confirmed { DraftCleared: true } && _selected?.ConversationId == conversation) SetDraftText(buffer.Text);
+        SetStatus(outcome.Code == "ok" ? (outcome.Route == NekoChat.Core.Storage.ClassroomRoute.Classroom ? "已驗證對方的儲存確認。" : "已送達（舊版同學）。") : outcome.Code switch {
+            "classroom-may-have-delivered" => "先前嘗試可能已送達教室，不降級為舊版重送；請確認後再試。",
+            "cancelled" => "已取消當次網路操作；取消不會清除草稿，對方可能已收到。不會自動重送。",
+            "payload_too_large" => "訊息超過對方可接受的上限，請修改後手動傳送。",
+            "storage_unavailable" => "本機無法儲存確認；對方可能已收到，請檢查後手動重送。",
+            _ => "尚未確認送達；不會自動重送。要再送請按重送。"
+        });
     }
 }

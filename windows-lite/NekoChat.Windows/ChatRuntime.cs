@@ -7,6 +7,7 @@ using NekoChat.Core.Pairing;
 using NekoChat.Core.Presentation;
 using NekoChat.Core.Storage;
 using NekoChat.Core.V2;
+using NekoChat.Core.Classroom.Transport;
 using NekoChat.Windows.Identity;
 
 namespace NekoChat.Windows;
@@ -45,13 +46,15 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal string IdentityStatus { get; }
     internal string? StartupWarning { get; }
     internal string DataDirectory { get; }
-    internal bool CanSend => _writer is not null && Listener.Running && !_lifetime.IsCancellationRequested;
+    internal ClassroomSender ClassroomSender { get; }
+    internal bool CanSend => ArchivedIdentityFixture ? (_writer is not null && Listener.Running && !_lifetime.IsCancellationRequested) : (Listener.Running && !_lifetime.IsCancellationRequested);
     internal CancellationToken Lifetime => _lifetime.Token;
     internal bool IsStopping => _lifetime.IsCancellationRequested;
     internal long WireGeneration => Volatile.Read(ref _wireGeneration);
     private ChatRuntime(ChatStore store, string dataDirectory, string identityDirectory, int port, ChatWireConfiguration? configuration, ChatPairingConfiguration? pairingConfiguration, bool isolated, string? warning)
     {
         _store = store; IsolatedData = isolated; DataDirectory = dataDirectory; StartupWarning = warning; Reads = new(store);
+        ClassroomSender = new ClassroomSender(store);
         ArchivedIdentityFixture = isolated && (configuration is not null || pairingConfiguration is not null);
         if (!isolated && (configuration is not null || pairingConfiguration is not null))
             throw new InvalidOperationException("Historical signed identity configuration requires an isolated fixture.");
@@ -137,6 +140,27 @@ internal sealed class ChatRuntime : IAsyncDisposable
                 }
             });
             _network.Add(task); return Finish(task);
+        }
+    }
+    internal Task<ClassroomSendResult> SendClassroomAsync(ClassroomPreparedSend prepared, int port, string conversation, DraftEditBuffer buffer, DraftWriteSnapshot sent)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            _lifetime.Token.ThrowIfCancellationRequested();
+            string ownIp = LanInvitation.LocalAddresses().FirstOrDefault() ?? "127.0.0.1";
+            var task = Task.Run(async () =>
+            {
+                var outcome = await ClassroomSender.SendPreparedAsync(prepared, port, ownIp, () => !_lifetime.IsCancellationRequested, _lifetime.Token).ConfigureAwait(false);
+                if (outcome.Completion is Confirmed { DraftCleared: true } && _store.GetClassroomDraftState(prepared.Principal) is { } fresh)
+                {
+                    var update = buffer.ApplyOwnAckClear(sent, fresh);
+                    if (update.PreserveEdit is { } edited) buffer.CompleteWrite(edited, edited.Persist(_store, conversation));
+                }
+                return outcome;
+            });
+            _network.Add(task);
+            return Finish(task);
         }
     }
     internal bool CanCancelAttempt(string messageId, int tryCount)

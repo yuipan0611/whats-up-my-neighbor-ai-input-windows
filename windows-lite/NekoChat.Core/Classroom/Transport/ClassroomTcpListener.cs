@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using NekoChat.Core.Roster;
 
 namespace NekoChat.Core.Classroom.Transport;
 
@@ -123,15 +124,15 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
                         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
                         continue;
                     }
-                    string source = remote.Address.ToString();
-                    string? reject = !LanInvitation.PrivateIPv4(source) ? "source_not_allowed" : null;
+                    string? source = ClassroomSource.Canonical(remote.Address);
+                    string? reject = source is null || !LanInvitation.PrivateIPv4(source) ? "source_not_allowed" : null;
                     lock (_gate)
                     {
                         if (_workers.Count >= _options.MaximumConnections) reject = "rate_limited";
                         if (reject is null && Running && !_lifetime.IsCancellationRequested)
                         {
                             long generation = Volatile.Read(ref _generation);
-                            var context = new ClassroomConnectionContext(source, local.Address.ToString());
+                            var context = new ClassroomConnectionContext(source!, local.Address.ToString());
                             var owned = client;
                             var work = Task.Run(() => HandleAsync(owned, context, generation)); _workers.Add(work, owned); transferred = true;
                             _ = work.ContinueWith(done => {
