@@ -271,7 +271,7 @@ public sealed partial class ChatStore : IChatStore
     }
 
     /// <summary>Short-lived read connection: no transaction is ever kept across calls, so no long reader can pin the WAL.</summary>
-    private T Read<T>(Func<SqliteConnection, T> body)
+    private T Read<T>(Func<SqliteConnection, T> body, [System.Runtime.CompilerServices.CallerMemberName] string operation = "")
     {
         ThrowIfDisposed();
         return Guard(() =>
@@ -279,7 +279,9 @@ public sealed partial class ChatStore : IChatStore
             using var c = NewConnection(create: false);
             ApplyPragmas(c);
             ExecRaw(c, "PRAGMA query_only=ON");
-            return body(c);
+            T result = body(c);
+            _options.Faults?.AfterRead(operation);
+            return result;
         });
     }
 
