@@ -76,6 +76,10 @@
      <CheckBox x:Name="AutoStartCheck" Content="開機啟動" Checked="AutoStartChecked" Unchecked="AutoStartUnchecked" Margin="0,8,0,16"/>
      <Button x:Name="CheckIdentityButton" Content="檢查本機身分…" Click="CheckIdentityClick" HorizontalAlignment="Left" Margin="0,0,0,8"/>
      <TextBlock x:Name="IdentityRecoveryStatus" Text="檢查不會自動建立或替換身分。" TextWrapping="Wrap" Foreground="#596B80" FontSize="12" Margin="0,0,0,16"/>
+     <TextBlock Text="目前同學的配對與信任" FontWeight="Bold"/>
+     <TextBlock x:Name="PairingStatus" Text="先選擇已儲存的名單。" Foreground="#596B80" TextWrapping="Wrap" Margin="0,6,0,8"/>
+     <WrapPanel><Button x:Name="OpenPairingButton" Content="核對與綁定…" Click="OpenPairingClick" IsEnabled="False" Margin="0,0,8,8"/><Button x:Name="UnlinkPeerButton" Content="解除名單綁定…" Click="UnlinkPeerClick" IsEnabled="False" Margin="0,0,8,8"/><Button x:Name="RevokePeerButton" Content="撤銷這個身分…" Click="RevokePeerClick" IsEnabled="False" Margin="0,0,8,8"/><Button x:Name="ResetPeerButton" Content="允許重新核對…" Click="ResetPeerClick" IsEnabled="False" Margin="0,0,0,8"/></WrapPanel>
+     <TextBlock Text="解除綁定會保留對話與身分信任；撤銷影響所有綁定同一身分的名單。允許重新核對不會直接完成配對。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,20"/>
      <TextBlock x:Name="ManualRosterTitle" Text="手動新增同學（不會自動配對）" FontWeight="Bold"/>
      <TextBlock Text="姓名" Margin="0,8,0,4"/><TextBox x:Name="ContactName" AutomationProperties.Name="同學姓名"/>
      <TextBlock Text="學號（可留白）" Margin="0,8,0,4"/><TextBox x:Name="StudentNumberBox" AutomationProperties.Name="學號"/>

@@ -140,6 +140,113 @@ internal static class PairingRosterChecks
         }
         Console.WriteLine($"Conditional P1 roster: {checks} real SQLite/TCP selected-row, immutable consent, ABA, atomic trust/binding, post-state, concurrency and privacy checks; no human/WPF claim."); return checks;
     }
+    internal static async Task<int> RunHost()
+    {
+        int checks = 0;
+        void Check(bool value, string label) { checks++; if (!value) throw new Exception("P1 host: " + label); }
+        foreach (var next in new PairingState?[] { null, PairingState.Revoked, PairingState.Suspended, PairingState.Unpaired })
+        {
+            using var f = new Db(); var candidate = f.Candidate(f.Target); f.Store.CompleteRosterPairingIfCurrent(candidate.Current, f.Target, () => true);
+            var target = f.Target; var changed = f.Store.ChangeSelectedPeerIfCurrent(target, next, () => true);
+            Check(changed.Changed && (next is null ? f.Row.PeerId is null && f.Security.Pairing == PairingState.Paired : f.Row.PeerId == f.Peer && f.Security.Pairing == next), "explicit selected management transition " + next);
+            Check(!f.Store.ChangeSelectedPeerIfCurrent(target, PairingState.Unpaired, () => true).Changed && !f.Store.IsPairingRosterTargetCurrent(target), "old management selection cannot follow trust or binding transition " + next);
+            Check(f.Number("SELECT count(*) FROM Conversation") == 1 && !f.Store.GetReadReceiptPolicy().Enabled, "management retains history container and privacy default " + next);
+        }
+        foreach (string mutation in new[] { "row", "trust-aba", "local-aba", "cancel", "trigger" })
+        {
+            using var f = new Db(); f.Candidate(f.Target); f.Store.CompleteRosterPairingIfCurrent(f.Security, f.Target, () => true); var target = f.Target;
+            if (mutation == "row") f.Edit(name: "合成變更");
+            if (mutation == "trust-aba") { f.Store.SetPairingState(f.Peer, PairingState.Revoked); f.Store.SetPairingState(f.Peer, PairingState.Paired); }
+            if (mutation == "local-aba") f.Execute("UPDATE LocalIdentity SET credentialRef='changed'; UPDATE LocalIdentity SET credentialRef='fixture'");
+            if (mutation == "trigger") f.Execute("CREATE TRIGGER fixture_management AFTER UPDATE OF pairingState ON Peer BEGIN UPDATE RosterEntry SET displayName='unexpected'; END");
+            var result = f.Store.ChangeSelectedPeerIfCurrent(target, PairingState.Revoked, () => mutation != "cancel");
+            Check(!result.Changed && f.Security.Pairing == PairingState.Paired && f.Row.PeerId == f.Peer, "management guard rollback " + mutation);
+            if (mutation == "trust-aba") Check(!f.Store.IsPairingRosterTargetCurrent(target) && !f.Candidate(target).Ready, "captured bound trust cannot rebaseline after ABA before candidate");
+        }
+        using (var f = new Db())
+        {
+            f.Candidate(f.Target); f.Store.CompleteRosterPairingIfCurrent(f.Security, f.Target, () => true);
+            bool rejected = false; try { f.Store.ChangeSelectedPeerIfCurrent(f.Target, PairingState.Paired, () => true); } catch (ArgumentException) { rejected = true; }
+            Check(rejected, "management never supplies paired consent");
+        }
+        foreach (string exit in new[] { "close", "resume", "supersede", "reject", "ok" })
+        {
+            await using var a = new HostNode(); await using var b = new HostNode();
+            await using var ai = a.Host.OpenDialog(a.Data.Target); await using var bi = b.Host.OpenDialog(b.Data.Target);
+            Check(ai.View is { Stage: PairingStage.Closed, Sas: null, Consent: null } && PairingDialogPresentation.From(ai.View, ai.Active, ai.Busy).CanStart, "new dialog has no inherited SAS " + exit);
+            await bi.BeginAsync(null, a.Port, true); var begun = await ai.BeginAsync("127.0.0.1", b.Port, false);
+            var ac = ai.View.Consent!; var bc = bi.View.Consent!;
+            Check(begun.Code == "awaiting_user" && ac is not null && bc is not null && ai.View.Sas == bi.View.Sas && a.Data.Row.PeerId is null && b.Data.Row.PeerId is null, "real host TCP handshake has no automatic binding " + exit);
+            Check(PairingDialogPresentation.From(ai.View, true, false).CanCompare && !PairingDialogPresentation.From(ai.View, true, true).CanCompare && !PairingDialogPresentation.From(ai.View, false, false).CanCompare, "presentation respects active/busy authority " + exit);
+            if (exit == "ok")
+            {
+                await bi.ConfirmAsync(bc!); var done = await ai.ConfirmAsync(ac!);
+                Check(done.Code == "paired" && a.Data.Row.PeerId == b.Identity.PeerId && b.Data.Row.PeerId == a.Identity.PeerId, "both explicit host tickets commit own original rows");
+                Check(PairingDialogPresentation.From(ai.View, ai.Active, ai.Busy) is { Finished: true, CanStart: false, CanCompare: false }, "completed dialog cannot grant a second consent");
+            }
+            else if (exit == "reject")
+            {
+                Check(await ai.RejectAsync(ac!), "explicit rejection consumes current host ticket");
+                var outcome = PairingDialogPresentation.From(ai.View, ai.Active, ai.Busy);
+                Check(outcome.Status == "本輪已中止" && outcome.CanStart && !outcome.CanCompare && (await ai.ConfirmAsync(ac!)).Code != "paired" && a.Data.Row.PeerId is null, "rejected native projection preserves outcome and explicit recovery without stale confirmation");
+                Check(PairingDialogPresentation.From(ai.View with { MayBeAsymmetric = true }, true, false).Status == "結果未確認，兩台可能狀態不同", "uncertain commit outcome takes precedence over rejection copy");
+            }
+            else
+            {
+                PairingDialogSession? replacement = null;
+                if (exit == "close") await ai.DisposeAsync();
+                if (exit == "resume") { var drain = a.Host.InvalidateAsync("resume"); Check(!ai.Active && ai.View.Consent is null, "resume immediately invalidates ticket before drain"); await drain; }
+                if (exit == "supersede") { replacement = a.Host.OpenDialog(a.Data.Target); await ai.DisposeAsync(); Check(replacement.Active && replacement.View.Sas is null && replacement.View.Reason == "not_started", "late old close cannot cancel or copy SAS to new dialog"); }
+                Check(!ai.Active && (await ai.ConfirmAsync(ac!)).Code == "stale_consent" && a.Data.Row.PeerId is null && a.Data.Store.GetPeerSecuritySnapshot(b.Identity.PeerId).Pairing != PairingState.Paired, "closed/invalidated host never finalizes old ticket " + exit);
+                if (replacement is not null) await replacement.DisposeAsync();
+            }
+        }
+        foreach (string role in new[] { "i", "r" })
+        {
+            await using var a = new HostNode(); await using var b = new HostNode();
+            await using var ai = a.Host.OpenDialog(a.Data.Target); await using var bi = b.Host.OpenDialog(b.Data.Target);
+            await bi.BeginAsync(null, a.Port, true); await ai.BeginAsync("127.0.0.1", b.Port, false);
+            using var entered = new ManualResetEventSlim(); using var release = new ManualResetEventSlim(); var stopped = role == "i" ? a : b; var session = role == "i" ? ai : bi;
+            stopped.Data.Faults.Before = op => { if (op == "pair-and-bind") { entered.Set(); if (!release.Wait(TimeSpan.FromSeconds(5))) throw new IOException("Synthetic host commit barrier"); } };
+            await bi.ConfirmAsync(bi.View.Consent!); var confirming = Task.Run(() => ai.ConfirmAsync(ai.View.Consent!));
+            try
+            {
+                Check(await Task.Run(() => entered.Wait(TimeSpan.FromSeconds(4))), "real final transaction reached before close " + role);
+                var close = session.DisposeAsync().AsTask(); Check(!session.Active && session.View.Consent is null, "close invalidates synchronously while SQL is blocked " + role);
+                release.Set(); await Task.WhenAll(close, confirming).WaitAsync(TimeSpan.FromSeconds(5));
+                Check(stopped.Data.Row.PeerId is null && stopped.Data.Store.GetPeerSecuritySnapshot(role == "i" ? b.Identity.PeerId : a.Identity.PeerId).Pairing != PairingState.Paired, "last-moment close rolls back final trust/binding " + role);
+            }
+            finally { release.Set(); stopped.Data.Faults.Before = null; }
+        }
+        foreach (bool unlink in new[] { false, true })
+        {
+            using var f = new Db(); f.Candidate(f.Target); f.Store.CompleteRosterPairingIfCurrent(f.Security, f.Target, () => true);
+            var stored = (Stored)f.Store.ReceiveVerifiedMessage(new(f.Peer, "synthetic-read-" + unlink, V2Crypto.PeerId(f.Key.ExportSubjectPublicKeyInfo()), "合成已讀"));
+            using var connection = f.Connection(); using var query = connection.CreateCommand(); query.CommandText = "SELECT id FROM Conversation WHERE peerId=@peer"; query.Parameters.AddWithValue("@peer", f.Peer); var conv = (string)query.ExecuteScalar()!;
+            f.Store.SetReadReceiptPolicy(true); f.Store.MarkVisibleRead(conv, [stored.LocalSeq], new(conv, true, true, false, true));
+            Check(f.Store.ListPendingReadReceipts().Count == 1, "fixture has one explicit opt-in queued read");
+            var result = f.Store.ChangeSelectedPeerIfCurrent(f.Target, unlink ? null : PairingState.Revoked, () => true);
+            Check(result.DroppedReceipts == (unlink ? 0 : 1) && f.Number("SELECT count(*) FROM ReceiptOutbox") == (unlink ? 1 : 0) && f.Number("SELECT count(*) FROM Message WHERE localReadAt IS NOT NULL") == 1 && f.Store.GetReadReceiptPolicy().Enabled, "revoke purges only pending peer receipts; unlink preserves trust/read and global choice");
+        }
+        await using (var node = new HostNode())
+        {
+            await using var session = node.Host.OpenDialog(node.Data.Target); await session.BeginAsync(null, node.Port, true); node.Data.Edit(name: "等候期間變更");
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            while (session.View.Stage == PairingStage.Listening) await Task.Delay(25, timeout.Token);
+            Check(session.View is { Stage: PairingStage.Ended, Reason: "trust_changed", Consent: null } && !PairingDialogPresentation.From(session.View, session.Active, session.Busy).CanStart, "passive listening expires original selection after metadata change");
+        }
+        Console.WriteLine($"Conditional P1 dialog host: {checks} real TCP/lifetime, bound trust epoch and guarded management checks; WPF/human consent unexecuted."); return checks;
+    }
+    private sealed class HostNode : IAsyncDisposable
+    {
+        internal Db Data { get; } = new();
+        internal PairingIdentity Identity { get; }
+        internal PairingSessionHost Host { get; }
+        private V2TcpListener Listener { get; }
+        internal int Port => Listener.Port;
+        internal HostNode() { Identity = new(Data.Store, Clone(Data.Key)); Host = new(Identity); Listener = new(null, new() { BindAddress = IPAddress.Loopback, Port = 0, RequestsPerSourcePerMinute = 10000 }, Host); Listener.Start(); }
+        public async ValueTask DisposeAsync() { await Listener.DisposeAsync(); await Host.DisposeAsync(); Identity.Dispose(); Data.Dispose(); }
+    }
     private static bool HasLabel(byte[] packet, string label)
     {
         using var doc = JsonDocument.Parse(packet);

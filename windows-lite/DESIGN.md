@@ -12,6 +12,7 @@ colors:
   divider: "#DCE3EC"
   warning-text: "#916015"
   warning-surface: "#FFF8E8"
+  error-text: "#B43E3E"
 typography:
   headline:
     fontFamily: "Microsoft JhengHei UI, Microsoft JhengHei"
@@ -30,6 +31,10 @@ typography:
   code:
     fontFamily: "Consolas, Microsoft JhengHei UI"
     fontSize: "13px"
+  sas:
+    fontFamily: "Consolas"
+    fontSize: "32px"
+    fontWeight: 700
 rounded:
   inset: "4px"
   control: "8px"
@@ -49,6 +54,14 @@ components:
     padding: "4px 8px"
   input:
     padding: "4px 6px"
+  pairing-button:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.text}"
+    padding: "6px 12px"
+  pairing-confirm:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.canvas}"
+    padding: "6px 12px"
   inbox-navigation:
     backgroundColor: "{colors.primary-soft}"
     textColor: "{colors.primary}"
@@ -72,9 +85,9 @@ components:
 
 Operate：沿用已核准的 themeA 平面淺色 Inbox／對話方向，以清楚的名單、訊息與可操作狀態支援課堂交流。這是現有 WPF 原始碼的視覺系統記錄，並非新的視覺身份提案；既有貓與五項課堂反應資產保留。
 
-記錄範圍為 `NekoChat.Windows/ChatWindow.xaml`、`ChatWindow.Inbox.cs`、`MessageHistoryView.cs`、`RosterImportWindow.cs`。視覺方向權威為 `/Users/panh.c/Desktop/NekoChat Lite/docs/team/ui/preview/evidence/01-default-1440.jpg` 與 `05-narrow440-conversation-optA.jpg`；它們是瀏覽器 preview，並非 Windows 執行截圖。本文件的 token 來自 WPF 宣告，所有尺寸以 DIP 解讀；YAML 的 `px` 僅為跨工具表示法。
+記錄範圍為 `NekoChat.Windows/ChatWindow.xaml`、`ChatWindow.Inbox.cs`、`MessageHistoryView.cs`、`RosterImportWindow.cs`，並延伸記錄 `PairingWindow.xaml`／`.xaml.cs`、`ChatWindow.Pairing.cs` 與 Core 的 `PairingDialogPresentation.cs`；配對方向依 `design/pairing-dialog.md`。視覺方向權威為 `/Users/panh.c/Desktop/NekoChat Lite/docs/team/ui/preview/evidence/01-default-1440.jpg` 與 `05-narrow440-conversation-optA.jpg`；它們是瀏覽器 preview，並非 Windows 執行截圖。本文件的 token 來自 WPF 宣告，所有尺寸以 DIP 解讀；YAML 的 `px` 僅為跨工具表示法。
 
-Windows 原生執行截圖尚不存在；Mac cross-build 不構成字型、DPI、IME、控制項主題或視覺還原的證據。原三項來源審查問題已修正，原生驗證 disposition 仍為 `fix`，不得將此文件視為通過視覺驗收。
+Windows 原生執行截圖尚不存在；Mac cross-build 不構成字型、DPI、IME、控制項主題或視覺還原的證據。原三項來源審查問題已修正，原生驗證 disposition 仍為 `fix`，不得將此文件視為通過視覺驗收。配對的來源／瀏覽器拒絕結果問題已修正並重擷取，但原生 disposition 仍為 `fix/unexecuted`；Windows 截圖、鍵盤、輔助技術、DPI、生命週期與教室雙機證據尚缺。
 
 **Key Characteristics:**
 - 白底、淡藍選取與低彩度中性色。
@@ -99,6 +112,7 @@ Windows 原生執行截圖尚不存在；Mac cross-build 不構成字型、DPI�
 - **輔助灰藍**（`muted`）：狀態、學號、時間、操作提示與輸入框邊線。
 - **分隔灰藍**（`divider`）：欄、對話標頭、輸入區與程式碼容器的細線。
 - **警示文字／警示底**（`warning-text`／`warning-surface`）：舊版未驗證訊息與當次傳送嘗試；草稿提示亦用警示文字色。這些是狀態角色，不是第二品牌主色。
+- **錯誤紅**（`error-text`）：既有主視窗儲存錯誤與配對動作錯誤文字，搭配具體說明；不新增錯誤底色或品牌主色。
 
 **The State Has Words Rule.** 主要狀態同時提供文字，不只依賴圓點與顏色。在線圓點使用 `#237353`；警示外框使用 `#916015`，未知狀態另有虛線。
 
@@ -114,6 +128,8 @@ Windows 原生執行截圖尚不存在；Mac cross-build 不構成字型、DPI�
 - **Label**：學號、狀態、時間、未讀徽章與輔助說明；使用 label。
 - **Code**：保留換行的程式碼內容；使用 code；不套語法上色。
 
+配對標題沿用 headline（18 DIP Bold），原名單姓名為（16 DIP SemiBold），狀態副標為（16 DIP Bold），正文（13 DIP），IP 提示小字（12 DIP）。六位 SAS 使用 `sas`（Consolas、32 DIP Bold），以三位一組置中顯示，是供逐位核對的資料，不是裝飾字體。
+
 來源未建立統一行高或字距 token。主介面為緊密的工具型文字階層；不得臆造展示字階。CSV 匯入另為原生 Window，未明訂同一字族與字級，不能宣稱全應用已統一。
 
 **The Source Is Not Acceptance Rule.** 原始碼 token 與跨平台編譯只能證明宣告及編譯；Windows 字型、DPI、IME 與視覺還原須另驗。
@@ -126,6 +142,8 @@ Shell 寬度（≤700 DIP）切換為全頁同學名單或全頁對話；對話�
 
 間距主要使用 frontmatter 的四級節奏。主要欄邊界留白（16 DIP），訊息最大寬度（520 DIP），送出靠右、收到靠左；文字折行，程式碼不折行且雙向捲動，程式碼閱讀區最高（160 DIP）。CSV 預覽使用資料表而非訊息卡，初始（860 × 640 DIP），最小（440 × 360 DIP）；不推定其窄高可用性已驗證。
 
+配對為由主視窗擁有的原生對話框，名義尺寸（520 × 700 DIP）、最小（440 × 360 DIP）；載入時由 `DisplayScreens.FitChat` 依工作區與 DPI 約束，工作區較小時亦放寬最小值。本文尺寸不代表實機量測通過。內容區可垂直捲動、動作換行；「關閉」保留於固定底列。
+
 ## Elevation & Depth
 
 主畫面以白底、淡灰藍、淡藍填色及細分隔線分層，未宣告自訂陰影或漸層。設定為有邊線的內嵌覆層；ContextMenu、原生對話框與一般控制項仍由 Windows 主題繪製，不推定它們沒有系統陰影。
@@ -134,7 +152,7 @@ Shell 寬度（≤700 DIP）切換為全頁同學名單或全頁對話；對話�
 
 ## Shapes
 
-程式碼容器與當次傳送提示使用較小圓角（`inset`）；Inbox 導覽與輸入容器使用中圓角（`control`）；訊息使用較柔和圓角（`message`）。名單頭像與在線提示為圓形。一般 Button／TextBox 未自訂 ControlTemplate 的圓角，保留原生主題表現，不將其推定為同一圓角族。
+程式碼容器與當次傳送提示使用較小圓角（`inset`）；Inbox 導覽與輸入容器使用中圓角（`control`）；訊息使用較柔和圓角（`message`）。名單頭像與在線提示為圓形。一般 Button／TextBox 未自訂 ControlTemplate 的圓角，保留原生主題表現，不將其推定為同一圓角族。`preview/pairing-dialog.html` 按鈕的（4px）圓角只是瀏覽器近似，並非 Windows 控制項規格。
 
 ## Components
 
@@ -157,6 +175,16 @@ Inbox 導覽為淡藍底、藍字粗體。名單列使用 hover／selected 填�
 ### Status and native surfaces
 
 信任與傳送嘗試用條件式警示面，送達未確認時提供手動重送／取消當次。CSV 先顯示新增、更新、略過、歧義等預覽，再套用；它不是已核准的額外視覺方向。名單標籤不代表身分信任，畫面須維持明確區分。
+
+### Pairing dialog
+
+沿用白底、灰藍文字、分隔線與藍色明確確認動作。開啟時固定原名單的姓名、學號、老師標籤（不授權）、既有綁定身分及綁定意圖；已有 IP 唯讀沿用，未有 IP 可輸入本輪位址，不自動寫回名單。發起／等待與六位核對碼分區，按鈕最小高（34 DIP）、內距依 `pairing-button`／`pairing-confirm`；外觀仍由原生 template 決定。
+
+這是 protected-focus 來源實作：初始焦點在「關閉」，沒有預設確認按鈕；面對面核對勾選預設未選，核對票更換或視窗失焦即清除，只有本輪可用、視窗作用中且明確勾選時才啟用確認。關閉、隱藏與 scope／恢復等變更的失效處理是來源行為，尚未通過 Windows 生命週期驗收。
+
+狀態以標題及文字區分尚未開始、交換中、核對碼／倒數、等候結果、到期、名單／身分／信任變更、明確拒絕及結果未確認。拒絕顯示「本輪已中止」，不宣稱撤銷既有信任；完成僅顯示「本機已完成配對與綁定」，要求查看對方畫面，不能宣稱兩台同時提交。到期或失效後不自動恢復。狀態與錯誤區有來源宣告的 polite live setting，輔助技術實效待原生驗證。
+
+`preview/pairing-dialog.html` 僅有合成資料與本機控制模擬，不能傳輸或配對；原 Inbox 兩張核准圖不等於新對話框已核准。普通 App 啟動尚未設定配對、入口停用且不自動建立金鑰；隔離 smoke 為來源準備，不是已執行的 Windows 證據。
 
 P1／L 決策仍未定，不在設計文件補預設值。教材功能暫緩；目前「教材功能保留」為既有占位文案，不代表已實作。桌面一般訊息提醒僅姓名與「新訊息」，不顯示正文；此為隱私文案約束，不是新增通知外觀規範。
 

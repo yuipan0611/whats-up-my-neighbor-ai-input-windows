@@ -41,6 +41,6 @@ public sealed partial class ChatStore
             return (new PairingCandidateResult(true, "candidate-ready", Current(context)), true);
         }, commitGuard: stillCurrent,
             guardRejected: () => new PairingCandidateResult(false, "stale-security", GetPeerSecuritySnapshot(expected.PeerId)),
-            transactionGuard: target is null ? null : ctx => stillCurrent() && PairingRosterMatches(ctx, target) && (target.BoundPeerId is null || target.BoundPeerId == expected.PeerId));
+            transactionGuard: target is null ? null : ctx => stillCurrent() && PairingRosterMatches(ctx, target) && (target.BoundPeerId is null || target.BoundPeerId == expected.PeerId && target.BoundSecurity is { KeySha256: not null } && target.BoundSecurity == expected));
     }
 }

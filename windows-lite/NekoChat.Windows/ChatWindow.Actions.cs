@@ -86,7 +86,7 @@ public partial class ChatWindow
         if (_runtime?.Presence is { } presence) { presence.StateChanged -= PresenceChanged; presence.SetView(false, [], null); }
         UpdateComposer();
     }
-    internal void BeginClosing() { _closingRequested = true; IsEnabled = false; _saveTimer.Stop(); _readTimer.Stop(); _userOpened = false; ViewChanged(); UpdateComposer(); }
+    internal void BeginClosing() { _closingRequested = true; _pairingWindow?.CloseSafely(); if (_runtime is not null) _ = _runtime.InvalidatePairingAsync("owner_closing"); IsEnabled = false; _saveTimer.Stop(); _readTimer.Stop(); _userOpened = false; ViewChanged(); UpdateComposer(); }
     internal bool HasUnsavedDrafts => _drafts.Values.Any(buffer => buffer.Dirty && !buffer.Clearing);
     internal Task FlushForExitAsync()
     {

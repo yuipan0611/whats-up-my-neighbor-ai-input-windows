@@ -79,7 +79,7 @@ public partial class ChatWindow
     }
     internal void ShowDataFailure(string message)
     { StorageStatus.Text = message; ReloadData.Visibility = Visibility.Visible; UpdateComposer(); }
-    internal void DetachRuntime() { if (_runtime?.Presence is { } presence) presence.StateChanged -= PresenceChanged; _runtime = null; _receiverRunning = false; ReceiverStatus.Text = "接收暫停，等待本機資料就緒。"; UpdateComposer(); }
+    internal void DetachRuntime() { _pairingWindow?.CloseSafely(); _pairingSelection = null; if (_runtime?.Presence is { } presence) presence.StateChanged -= PresenceChanged; _runtime = null; _receiverRunning = false; ReceiverStatus.Text = "接收暫停，等待本機資料就緒。"; RefreshPairingControls(); UpdateComposer(); }
     internal void DataChanged() { if (!_stopping) _ = RefreshInboxAsync(refreshHistory: true); }
     private void PresenceChanged() => Dispatcher.BeginInvoke(new Action(() => { if (!_stopping) { ApplyInboxFilter(); UpdateHeader(); } }));
     private async Task RefreshInboxAsync(bool refreshHistory = false)
@@ -334,18 +334,19 @@ public partial class ChatWindow
     private async void AddRosterClick(object sender, RoutedEventArgs e) { SettingsPane.Visibility = Visibility.Visible; ViewChanged(); await LoadManualFormAsync(null); ContactName.Focus(); }
     private async Task LoadManualFormAsync(string? rosterId)
     {
-        _editingRosterId = rosterId; _manualFormSnapshot = null; long generation = ++_manualFormGeneration; SaveContactButton.IsEnabled = DeleteContactButton.IsEnabled = false;
+        _editingRosterId = rosterId; _manualFormSnapshot = null; _pairingSelection = null; RefreshPairingControls(); long generation = ++_manualFormGeneration; SaveContactButton.IsEnabled = DeleteContactButton.IsEnabled = false;
         ManualRosterTitle.Text = rosterId is null ? "手動新增同學（不會自動配對）" : "編輯目前名單標籤（不變更配對）";
         SaveContactButton.Content = rosterId is null ? "新增到名單" : "儲存這位同學";
         if (_runtime is null) { ContactName.Text = StudentNumberBox.Text = RecipientIp.Text = ""; TeacherLabel.IsChecked = false; return; }
         try
         {
-            var rows = await _runtime.Worker.Run(s => s.GetRosterSnapshot());
+            var loaded = await _runtime.Worker.Run(s => (Rows: s.GetRosterSnapshot(), Target: rosterId is null ? null : s.CapturePairingRosterTarget(rosterId)));
+            var rows = loaded.Rows;
             if (generation != _manualFormGeneration) return;
             var row = rosterId is null ? null : rows.FirstOrDefault(r => r.Entry.Id == rosterId);
             if (rosterId is not null && row is null) { StorageStatus.Text = "這筆名單已移除，請重新開啟設定。"; return; }
             _manualFormSnapshot = RosterImportPreview.ComputeSnapshotToken(rows); ContactName.Text = row?.Entry.DisplayName ?? ""; StudentNumberBox.Text = row?.Entry.StudentNumber ?? ""; RecipientIp.Text = row?.Entry.Endpoint ?? ""; TeacherLabel.IsChecked = row?.Entry.IsTeacher == true;
-            SaveContactButton.IsEnabled = true; DeleteContactButton.IsEnabled = row is not null;
+            SaveContactButton.IsEnabled = true; DeleteContactButton.IsEnabled = row is not null; _pairingSelection = loaded.Target; RefreshPairingControls();
         }
         catch (Exception ex) { ShowStorageError(ex); }
     }
@@ -357,10 +358,12 @@ public partial class ChatWindow
         try
         {
             var edit = new RosterEdit(name, string.IsNullOrWhiteSpace(StudentNumberBox.Text) ? null : StudentNumberBox.Text.Trim(), TeacherLabel.IsChecked == true, ip.Length == 0 ? null : ip);
+            await _runtime.InvalidatePairingAsync("roster_edit");
             var result = await _runtime.Worker.Run(s => s.SaveManualRosterEntry(id, edit, token));
             if (result.Changed || result.Reason == "unchanged")
             {
                 if (generation == _manualFormGeneration) { _editingRosterId = result.EntryId; _manualFormSnapshot = result.SnapshotToken; SaveContactButton.Content = "儲存這位同學"; DeleteContactButton.IsEnabled = true; }
+                if (generation == _manualFormGeneration) await LoadManualFormAsync(result.EntryId);
                 SetStatus(result.Changed ? "名單已儲存；不變更身分或配對。" : "名單沒有變動。"); _runtime.Presence?.Refresh(); await RefreshInboxAsync();
             }
             else StorageStatus.Text = RosterFailure(result.Reason);
@@ -373,6 +376,7 @@ public partial class ChatWindow
         if (MessageBox.Show(this, "移除此名單標籤？\n已確認對話保留；舊版訊息改為匿名，不會刪除內容。", "移除名單標籤", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
         try
         {
+            await _runtime.InvalidatePairingAsync("roster_delete");
             var result = await _runtime.Worker.Run(s => s.DeleteRosterEntry(id, token));
             if (!result.Changed) { StorageStatus.Text = RosterFailure(result.Reason); return; }
             await LoadManualFormAsync(null); _runtime.Presence?.Refresh(); await RefreshInboxAsync(true); SetStatus("名單標籤已移除，對話仍保留。");

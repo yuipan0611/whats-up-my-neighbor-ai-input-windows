@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using NekoChat.Core;
 using NekoChat.Core.Identity;
 using NekoChat.Core.Presence;
+using NekoChat.Core.Pairing;
 using NekoChat.Core.Presentation;
 using NekoChat.Core.Storage;
 using NekoChat.Core.V2;
@@ -13,6 +14,9 @@ namespace NekoChat.Windows;
 /// <summary>Explicit configuration supplied by a settled product policy or an isolated fixture. No implicit L or identity mode.</summary>
 internal sealed record ChatWireConfiguration(int MaximumTextBytes);
 
+/// <summary>Explicit conditional P1 policy/fixture activation; ordinary startup supplies null. Does not provision a key or choose L.</summary>
+internal sealed record ChatPairingConfiguration;
+
 internal sealed class ChatRuntime : IAsyncDisposable
 {
     private readonly object _gate = new();
@@ -22,6 +26,10 @@ internal sealed class ChatRuntime : IAsyncDisposable
     private readonly V2PacketWriter? _writer;
     private readonly V2LanClient? _client;
     private Task? _disposal;
+    private readonly PairingIdentity? _pairingIdentity;
+    private Task _pairingDrain = Task.CompletedTask;
+    internal PairingSessionHost? Pairing { get; }
+    internal bool IsolatedData { get; }
     private long _wireGeneration;
     internal ChatStoreWorker Worker { get; }
     internal VisibleReadSession Reads { get; }
@@ -37,9 +45,9 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal string DataDirectory { get; }
     internal bool CanSend => _writer is not null && Listener.Running && !_lifetime.IsCancellationRequested;
     internal CancellationToken Lifetime => _lifetime.Token;
-    private ChatRuntime(ChatStore store, string dataDirectory, string identityDirectory, int port, ChatWireConfiguration? configuration, string? warning)
+    private ChatRuntime(ChatStore store, string dataDirectory, string identityDirectory, int port, ChatWireConfiguration? configuration, ChatPairingConfiguration? pairingConfiguration, bool isolated, string? warning)
     {
-        _store = store; DataDirectory = dataDirectory; StartupWarning = warning; Reads = new(store);
+        _store = store; IsolatedData = isolated; DataDirectory = dataDirectory; StartupWarning = warning; Reads = new(store);
         var local = store.GetLocalIdentitySnapshot(); var vault = WindowsIdentityVault.Create(identityDirectory); var coordinator = new LocalIdentityCoordinator(store, vault);
         IdentityRecovery = new(store, vault);
         IdentityStatus = local.Id is null || local.PublicSpkiBase64 is null && local.CredentialRef is null ? "身分方案尚未設定" :
@@ -56,13 +64,19 @@ internal sealed class ChatRuntime : IAsyncDisposable
             Receipts = new(store, _client);
             Receipts.ReceiptsChanged += () => DataChanged?.Invoke();
         }
-        Listener = new(receiver, new V2ListenerOptions { Port = port }, store);
+        if (pairingConfiguration is not null && coordinator.Inspect() is IdentityConsistent)
+        {
+            ECDsa? key = coordinator.OpenCurrentKey(() => true);
+            try { _pairingIdentity = new(store, key); key = null; } finally { key?.Dispose(); }
+            Pairing = new(_pairingIdentity);
+        }
+        Listener = new(receiver, new V2ListenerOptions { Port = port }, store, Pairing);
         Worker = new(store, lifetime: _lifetime.Token);
         _maintenance = Task.Run(MaintainBackups);
     }
     internal static string RootDirectory(Settings source, bool isolated) => isolated
         ? Path.Combine(Path.GetDirectoryName(source.PersistencePath!)!, Path.GetFileNameWithoutExtension(source.PersistencePath) + "-data") : Settings.DirectoryPath;
-    internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null) => Task.Run(() => {
+    internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null, ChatPairingConfiguration? pairingConfiguration = null) => Task.Run(() => {
         string root = RootDirectory(source.Value, isolated);
         string data = Path.Combine(root, "data"); ChatStore? store = null;
         try
@@ -74,7 +88,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             });
             var imported = source.CanImportLegacyRoster && source.Value.Contacts.Count <= NekoChat.Core.Roster.RosterCsv.MaxRows ? source.ImportLegacyRoster(store) : null;
             string? warning = !source.CanImportLegacyRoster ? "設定檔無法讀取；原檔保留，未從這份設定匯入名單。" : source.Value.Contacts.Count > NekoChat.Core.Roster.RosterCsv.MaxRows ? "舊名單超過單次匯入上限，尚未匯入；請分批以 CSV 預覽匯入。" : imported is { Skipped: > 0 } ? $"舊名單已匯入；略過 {imported.Skipped} 筆無效或重複資料。" : null;
-            var runtime = new ChatRuntime(store, data, Path.Combine(root, "identity"), port, configuration, warning); store = null; return runtime;
+            var runtime = new ChatRuntime(store, data, Path.Combine(root, "identity"), port, configuration, pairingConfiguration, isolated, warning); store = null; return runtime;
         }
         finally { store?.Dispose(); }
     });
@@ -102,9 +116,14 @@ internal sealed class ChatRuntime : IAsyncDisposable
     }
     private async Task<T> Finish<T>(Task<T> task)
     { try { return await task.ConfigureAwait(false); } finally { lock (_gate) _network.Remove(task); } }
-    internal void ResetAfterResume() { Interlocked.Increment(ref _wireGeneration); Presence?.ResetAfterResume(); Receipts?.ResetAfterResume(); }
+    internal Task InvalidatePairingAsync(string reason)
+    {
+        Interlocked.Increment(ref _wireGeneration);
+        lock (_gate) return _pairingDrain = Pairing?.InvalidateAsync(reason) ?? Task.CompletedTask;
+    }
+    internal void ResetAfterResume() { _ = InvalidatePairingAsync("resume"); Presence?.ResetAfterResume(); Receipts?.ResetAfterResume(); }
     internal async Task StopReceivingAsync()
-    { await _lifetime.CancelAsync().ConfigureAwait(false); await Listener.DisposeAsync().ConfigureAwait(false); if (Presence is not null) await Presence.DisposeAsync().ConfigureAwait(false); if (Receipts is not null) await Receipts.DisposeAsync().ConfigureAwait(false); await _maintenance.ConfigureAwait(false); }
+    { var pairingDrain = InvalidatePairingAsync("receiver_stopped"); await _lifetime.CancelAsync().ConfigureAwait(false); await pairingDrain.ConfigureAwait(false); await Listener.DisposeAsync().ConfigureAwait(false); if (Presence is not null) await Presence.DisposeAsync().ConfigureAwait(false); if (Receipts is not null) await Receipts.DisposeAsync().ConfigureAwait(false); await _maintenance.ConfigureAwait(false); }
     internal async Task DrainNetworkAsync()
     { Task[] network; lock (_gate) network = _network.ToArray(); await Task.WhenAll(network).ConfigureAwait(false); }
     public ValueTask DisposeAsync()
@@ -120,7 +139,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
         finally
         {
             try { await Worker.DisposeAsync().ConfigureAwait(false); }
-            finally { _client?.Dispose(); _writer?.Dispose(); _store.Dispose(); _lifetime.Dispose(); }
+            finally { try { if (Pairing is not null) await Pairing.DisposeAsync().ConfigureAwait(false); await _pairingDrain.ConfigureAwait(false); } finally { _pairingIdentity?.Dispose(); _client?.Dispose(); _writer?.Dispose(); _store.Dispose(); _lifetime.Dispose(); } }
         }
     }
     private async Task MaintainBackups()

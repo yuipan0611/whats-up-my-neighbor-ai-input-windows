@@ -1,0 +1,36 @@
+<Window x:Class="NekoChat.Windows.PairingWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="核對與綁定同學" Width="520" Height="700" MinWidth="440" MinHeight="360" Background="White" Foreground="#1C2C41"
+ FontFamily="Microsoft JhengHei UI, Microsoft JhengHei" FontSize="13" WindowStartupLocation="CenterOwner">
+ <Window.Resources>
+  <Style TargetType="Button"><Setter Property="Padding" Value="12,6"/><Setter Property="MinHeight" Value="34"/><Setter Property="Background" Value="White"/><Setter Property="BorderBrush" Value="#596B80"/><Setter Property="Cursor" Value="Hand"/></Style>
+  <Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap"/></Style>
+ </Window.Resources>
+ <Grid>
+  <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="24,20,24,16">
+   <StackPanel>
+    <TextBlock Text="核對與綁定同學" FontSize="18" FontWeight="Bold" Margin="0,0,0,16"/>
+    <TextBlock x:Name="OriginalName" FontSize="16" FontWeight="SemiBold"/>
+    <TextBlock x:Name="OriginalLabels" Foreground="#596B80" Margin="0,4,0,8"/>
+    <TextBlock Text="完成後會將這筆本機名單綁定到此次核對的身分。姓名與老師標籤只供辨識，不代表信任或權限。" Foreground="#596B80" Margin="0,0,0,20"/>
+    <Label Content="對方內網 IP" Target="{Binding ElementName=Endpoint}" Padding="0,0,0,4"/>
+    <TextBox x:Name="Endpoint" Padding="8,6" BorderBrush="#596B80" AutomationProperties.Name="對方內網 IP"/>
+    <TextBlock x:Name="EndpointHint" Foreground="#596B80" FontSize="12" Margin="0,4,0,8"/>
+    <WrapPanel><Button x:Name="BeginButton" Content="發起核對" Click="BeginClick" Margin="0,0,8,8"/><Button x:Name="ListenButton" Content="等待對方發起" Click="ListenClick" Margin="0,0,0,8"/></WrapPanel>
+    <Border BorderBrush="#DCE3EC" BorderThickness="0,1,0,0" Margin="0,12,0,0" Padding="0,20,0,0">
+     <StackPanel>
+      <TextBlock x:Name="StateTitle" FontWeight="Bold" FontSize="16" AutomationProperties.LiveSetting="Polite"/>
+      <TextBlock x:Name="StateDetail" Foreground="#596B80" Margin="0,6,0,12"/>
+      <TextBlock x:Name="SasNumber" Text="— — —   — — —" FontFamily="Consolas" FontSize="32" FontWeight="Bold" HorizontalAlignment="Center" AutomationProperties.Name="本輪六位核對碼"/>
+      <TextBlock x:Name="Countdown" Foreground="#596B80" HorizontalAlignment="Center" Margin="0,4,0,16"/>
+      <CheckBox x:Name="Compared" Checked="ComparedChanged" Unchecked="ComparedChanged" IsEnabled="False" Margin="0,0,0,12"><TextBlock Text="我已面對面核對，兩邊六位數完全相同。"/></CheckBox>
+      <WrapPanel><Button x:Name="ConfirmButton" Content="數字相同，確認綁定" Click="ConfirmClick" IsEnabled="False" Background="#2859C5" Foreground="White" Margin="0,0,8,8"/><Button x:Name="RejectButton" Content="數字不同，中止" Click="RejectClick" IsEnabled="False" Margin="0,0,0,8"/></WrapPanel>
+      <TextBlock x:Name="ActionStatus" Foreground="#B43E3E" AutomationProperties.LiveSetting="Polite" Margin="0,4,0,0"/>
+     </StackPanel>
+    </Border>
+   </StackPanel>
+  </ScrollViewer>
+  <Border Grid.Row="1" Background="#F3F6FA" BorderBrush="#DCE3EC" BorderThickness="0,1,0,0" Padding="24,12"><Button x:Name="CloseButton" Content="關閉" Click="CloseClick" HorizontalAlignment="Right"/></Border>
+ </Grid>
+</Window>

@@ -214,6 +214,8 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
         foreach (string expired in _finished.Where(p => _clock.GetElapsedTime(p.Value.When) >= PairingTiming.History).Select(p => p.Key).ToArray()) _finished.Remove(expired);
         Volatile.Write(ref _retained, _finished.Count);
         if (Volatile.Read(ref _accepting) != 0 && (_clock.GetElapsedTime(_windowStart) >= PairingTiming.Window || !_windowScope())) Volatile.Write(ref _accepting, 0);
+        if (_session is null && View.Stage == PairingStage.Listening && !_identity.RosterCurrent(_rosterTarget))
+        { Volatile.Write(ref _accepting, 0); Volatile.Write(ref _desiredOpen, 0); Publish(new(PairingStage.Ended, "trust_changed", RosterTarget: _rosterTarget)); }
         if (_session is { } session)
         {
             if (!Live(session) || session.Na is null && _clock.GetElapsedTime(session.Start) >= PairingTiming.Idle) End("timeout");

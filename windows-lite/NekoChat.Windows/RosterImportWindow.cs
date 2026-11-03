@@ -97,6 +97,7 @@ internal sealed class RosterImportWindow : Window
         var captured = _preview; _busy = true; _apply.IsEnabled = false;
         try
         {
+            await _runtime.InvalidatePairingAsync("roster_import");
             var result = await _runtime.Worker.Run(s => s.ApplyRosterPreview(captured));
             if (result.Applied) { DialogResult = true; return; }
             _status.Text = "名單或位址已改變；尚未套用。請按重新讀取並重新檢查預覽。";

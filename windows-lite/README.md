@@ -92,3 +92,11 @@ App 提供 `--restore-backup <獨立備份.db> <全新目錄>`，只在新目錄
 ## 本機身分遺失
 
 設定中的「檢查本機身分…」只做背景檢查；既有身分遺失或不符時，經明確確認才會建立新身分，保留歷史與草稿、暫停既有配對並關閉對外已讀回條。首次身分方案與產品訊息上限仍待決，未自動採用 P1。詳見 [IDENTITY-VERIFICATION.md](IDENTITY-VERIFICATION.md)；Windows 原生流程未執行。
+
+## 條件式配對來源與預覽
+
+已補設定入口、選定名單的核對／綁定視窗與生命週期守衛。一般啟動仍未選定身分方案及訊息上限，不會自動建立金鑰或啟用配對。
+
+- [工程狀態與限制](PAIRING-IMPLEMENTATION.md)
+- [Windows 合成檢查及未執行清單](PAIRING-VERIFICATION.md)
+- [合成排版預覽](preview/pairing-dialog.html)（沒有配對能力，不是 WPF 驗收）

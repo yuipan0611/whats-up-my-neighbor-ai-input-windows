@@ -55,6 +55,7 @@ public partial class ChatWindow : Window
     private void OnClosing(object? sender, CancelEventArgs e)
     {
         e.Cancel = true;
+        _pairingWindow?.CloseSafely();
         Hide();
     }
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-02T23:14:36.831983+00:00",
+  "generatedAt": "2026-11-03T02:03:01.482858+00:00",
   "title": "Design System: Neko Chat Lite — Windows Inbox",
   "extensions": {
     "colorMeta": {
@@ -153,6 +153,21 @@
           "oklch(0.950 0.02232 87.15)"
         ],
         "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
+      },
+      "error-text": {
+        "role": "neutral",
+        "displayName": "錯誤紅",
+        "tonalRamp": [
+          "oklch(0.150 0.15350 23.95)",
+          "oklch(0.264 0.15350 23.95)",
+          "oklch(0.379 0.15350 23.95)",
+          "oklch(0.493 0.15350 23.95)",
+          "oklch(0.607 0.15350 23.95)",
+          "oklch(0.721 0.15350 23.95)",
+          "oklch(0.836 0.15350 23.95)",
+          "oklch(0.950 0.15350 23.95)"
+        ],
+        "tonalRampPurpose": "合成展示資料，非 WPF 已使用色階或新增規範。"
       }
     },
     "shadows": [],
@@ -175,7 +190,13 @@
         "NekoChat.Windows/ChatWindow.xaml",
         "NekoChat.Windows/ChatWindow.Inbox.cs",
         "NekoChat.Windows/MessageHistoryView.cs",
-        "NekoChat.Windows/RosterImportWindow.cs"
+        "NekoChat.Windows/RosterImportWindow.cs",
+        "NekoChat.Windows/PairingWindow.xaml",
+        "NekoChat.Windows/PairingWindow.xaml.cs",
+        "NekoChat.Windows/ChatWindow.Pairing.cs",
+        "NekoChat.Windows/ChatRuntime.cs",
+        "NekoChat.Core/Pairing/PairingDialogPresentation.cs",
+        "design/pairing-dialog.md"
       ],
       "nativeDisposition": "fix",
       "unverified": [
@@ -183,7 +204,11 @@
         "font resolution",
         "DPI",
         "IME",
-        "visual fidelity"
+        "visual fidelity",
+        "pairing keyboard flow",
+        "assistive technology",
+        "pairing lifecycle",
+        "classroom two-machine execution"
       ],
       "previewOnly": true,
       "panelTranslation": "HTML/CSS 僅示意來源 token，不是 WPF 控制項 template 或還原驗收。瀏覽器 focus-visible 為原生焦點 fallback；不新增 WPF hover、pressed 或 motion 規則。",
@@ -191,8 +216,55 @@
         "原生預設控制項字型與 template 未驗證",
         "CSV 匯入外觀未取得新視覺核准",
         "三項已修來源問題不轉為系統規則",
-        "P1/L 未決、教材占位非已交付能力"
+        "P1/L 未決、教材占位非已交付能力",
+        "配對 HTML 的 4px 圓角不是 Windows 控制項規格",
+        "Inbox 核准圖不是配對對話框的視覺核准"
       ]
+    },
+    "typographyMeta": {
+      "sas": {
+        "displayName": "六位核對碼",
+        "purpose": "逐位面對面核對的資料；使用 DESIGN.md 的 sas token，不作展示字體。"
+      }
+    },
+    "pairingDialog": {
+      "mode": "Operate — approved themeA extension",
+      "sourceArtifact": [
+        "NekoChat.Windows/PairingWindow.xaml",
+        "NekoChat.Windows/PairingWindow.xaml.cs",
+        "NekoChat.Windows/ChatWindow.Pairing.cs"
+      ],
+      "copyProjection": "NekoChat.Core/Pairing/PairingDialogPresentation.cs",
+      "directionContract": "design/pairing-dialog.md",
+      "layout": "由主視窗擁有；名義 520×700 DIP、最小 440×360 DIP；DisplayScreens.FitChat 依工作區與 DPI 約束並可放寬最小值。可捲動內容、動作換行、固定關閉底列。來源宣告，非原生量測。",
+      "dataContext": "固定開啟時原名單的姓名、學號、老師標籤（不授權）、既有綁定與綁定意圖；已有 IP 唯讀，臨時 IP 不自動寫回名單。",
+      "consent": "protected-focus；初始焦點關閉、無預設確認；核對勾選初始未選，核對票更換或失焦清除；僅本輪有效、作用中且明確勾選時可確認。",
+      "states": [
+        "尚未開始",
+        "交換中",
+        "六位核對碼／倒數",
+        "等候結果",
+        "到期",
+        "名單／身分／信任變更",
+        "本輪已中止（不撤銷既有信任）",
+        "本機已完成配對與綁定（須查看對方）",
+        "結果未確認，兩台可能狀態不同"
+      ],
+      "lifecycle": "關閉、隱藏與 scope／恢復等變更有來源失效處理；原生生命週期尚未驗證。",
+      "accessibility": "來源有欄位名稱與狀態／錯誤 polite live setting；不代表輔助技術或鍵盤驗收通過。",
+      "browserArtifact": "preview/pairing-dialog.html",
+      "browserEvidence": "合成資料與本機控制模擬，無網路／配對能力；字型、控制項與 4px 按鈕圓角為近似。HTML 截圖不構成 WPF 還原證據。",
+      "sourceBrowserRejectionFinding": "已修正來源及瀏覽器的拒絕結果並重擷取；不轉為原生驗收通過。",
+      "nativeDisposition": "fix/unexecuted",
+      "nativeEvidenceMissing": [
+        "Windows screenshots",
+        "keyboard",
+        "assistive technology",
+        "DPI",
+        "lifecycle",
+        "classroom two-machine execution"
+      ],
+      "ordinaryStartup": "配對未設定、入口停用、不自動建立金鑰；不選 identity 或 L 預設。隔離 smoke 僅為來源準備。"
     }
   },
   "components": [
@@ -243,11 +315,18 @@
       "description": "送出訊息的 token 示意，不表示真實傳送。",
       "html": "<article class=\"ds-outgoing\">這段程式碼想請老師幫忙<div class=\"ds-out-meta\">10:31 · 對方已儲存</div></article>",
       "css": ".ds-outgoing{font-family:\"Microsoft JhengHei UI\",\"Microsoft JhengHei\",sans-serif;font-size:13px;color:#1C2C41;background:#E9EFFD;border-radius:12px;padding:8px 12px;max-width:520px;margin-left:auto}.ds-out-meta{font-size:12px;color:#596B80;margin-top:4px}"
+    },
+    {
+      "name": "六位核對碼",
+      "kind": "custom",
+      "description": "SAS 資料字階的靜態 HTML 示意；非有效票、配對功能或 Windows 字型證據。",
+      "html": "<div class=\"ds-pairing-sas\" aria-label=\"示意六位核對碼\">123 456</div>",
+      "css": ".ds-pairing-sas{font-family:Consolas,monospace;font-size:32px;font-weight:700;text-align:center;color:#1C2C41;white-space:nowrap}"
     }
   ],
   "narrative": {
     "northStar": "Operate — themeA 平面淺色",
-    "overview": "Operate：沿用已核准的 themeA 平面淺色 Inbox／對話方向，以清楚的名單、訊息與可操作狀態支援課堂交流。這是現有 WPF 原始碼的視覺系統記錄，並非新的視覺身份提案；既有貓與五項課堂反應資產保留。\n\n記錄範圍為 `NekoChat.Windows/ChatWindow.xaml`、`ChatWindow.Inbox.cs`、`MessageHistoryView.cs`、`RosterImportWindow.cs`。視覺方向權威為 `/Users/panh.c/Desktop/NekoChat Lite/docs/team/ui/preview/evidence/01-default-1440.jpg` 與 `05-narrow440-conversation-optA.jpg`；它們是瀏覽器 preview，並非 Windows 執行截圖。本文件的 token 來自 WPF 宣告，所有尺寸以 DIP 解讀；YAML 的 `px` 僅為跨工具表示法。\n\nWindows 原生執行截圖尚不存在；Mac cross-build 不構成字型、DPI、IME、控制項主題或視覺還原的證據。原三項來源審查問題已修正，原生驗證 disposition 仍為 `fix`，不得將此文件視為通過視覺驗收。",
+    "overview": "Operate：沿用已核准的 themeA 平面淺色 Inbox／對話方向，以清楚的名單、訊息與可操作狀態支援課堂交流。這是現有 WPF 原始碼的視覺系統記錄，並非新的視覺身份提案；既有貓與五項課堂反應資產保留。\n\n記錄範圍為 `NekoChat.Windows/ChatWindow.xaml`、`ChatWindow.Inbox.cs`、`MessageHistoryView.cs`、`RosterImportWindow.cs`，並延伸記錄 `PairingWindow.xaml`／`.xaml.cs`、`ChatWindow.Pairing.cs` 與 Core 的 `PairingDialogPresentation.cs`；配對方向依 `design/pairing-dialog.md`。視覺方向權威為 `/Users/panh.c/Desktop/NekoChat Lite/docs/team/ui/preview/evidence/01-default-1440.jpg` 與 `05-narrow440-conversation-optA.jpg`；它們是瀏覽器 preview，並非 Windows 執行截圖。本文件的 token 來自 WPF 宣告，所有尺寸以 DIP 解讀；YAML 的 `px` 僅為跨工具表示法。\n\nWindows 原生執行截圖尚不存在；Mac cross-build 不構成字型、DPI、IME、控制項主題或視覺還原的證據。原三項來源審查問題已修正，原生驗證 disposition 仍為 `fix`，不得將此文件視為通過視覺驗收。配對的來源／瀏覽器拒絕結果問題已修正並重擷取，但原生 disposition 仍為 `fix/unexecuted`；Windows 截圖、鍵盤、輔助技術、DPI、生命週期與教室雙機證據尚缺。",
     "keyCharacteristics": [
       "白底、淡藍選取與低彩度中性色。",
       "窄寬改為名單／對話單頁切換；短高保留 compact composer。",
@@ -256,18 +335,18 @@
     "rules": [
       {
         "name": "The State Has Words Rule",
-        "body": "主要狀態同時提供文字，不只依賴圓點與顏色。在線圓點使用 WPF `SeaGreen`；警示外框使用 `DarkGoldenrod`，未知狀態另有虛線。",
+        "body": "主要狀態同時提供文字，不只依賴圓點與顏色。在線圓點使用 `#237353`；警示外框使用 `#916015`，未知狀態另有虛線。",
         "section": "colors"
-      },
-      {
-        "name": "The Flat Surface Rule",
-        "body": "主畫面使用填色與分隔線分層，未宣告陰影或漸層。",
-        "section": "elevation"
       },
       {
         "name": "The Source Is Not Acceptance Rule",
         "body": "原始碼 token 與跨平台編譯只能證明宣告及編譯；Windows 字型、DPI、IME 與視覺還原須另驗。",
         "section": "typography"
+      },
+      {
+        "name": "The Flat Surface Rule",
+        "body": "主畫面使用填色與分隔線分層，未宣告陰影或漸層。",
+        "section": "elevation"
       }
     ],
     "dos": [

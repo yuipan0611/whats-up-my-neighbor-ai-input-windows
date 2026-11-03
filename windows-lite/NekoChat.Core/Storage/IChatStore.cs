@@ -64,6 +64,7 @@ public interface IChatStore : IDisposable
     bool IsPairingRosterTargetCurrent(PairingRosterTarget target);
     PairingCandidateResult BeginRosterPairingCandidateIfCurrent(PeerSecuritySnapshot expected, byte[] canonicalPublicKey, PairingRosterTarget target, Func<bool> stillCurrent);
     RosterPairingResult CompleteRosterPairingIfCurrent(PeerSecuritySnapshot expected, PairingRosterTarget target, Func<bool> stillCurrent);
+    RosterPeerActionResult ChangeSelectedPeerIfCurrent(PairingRosterTarget target, PairingState? next, Func<bool> stillCurrent);
     PeerVerificationContext GetPeerVerificationContext(string peerId);
     LegacyReceiveContext GetLegacyReceiveContext(string sourceIp);
     LegacyReceiveResult ReceiveLegacyMessage(DirectMessage message, LegacyReceiveContext expected, Func<bool> stillCurrent);

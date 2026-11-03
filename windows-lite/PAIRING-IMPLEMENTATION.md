@@ -96,11 +96,23 @@ route generation、caller cancellation、120秒lifetime及外部fast scope predi
 
 崩潰suite由原92增為195：共8次真kill／8次正常restart，其中新增4個scoped I/R BeforeCommit／AfterCommit case直接在產品重開前讀Peer與RosterEntry，證明pending+unbound或paired+bound始終同一COMMIT。重啟不補成缺失的一半，明確fresh repair後兩邊selected row都綁定正確簽章對象。fixture私鑰仍僅stdin與RAM，姓名不用於wire。完整hash／命令／controls見 `build/wire-evidence/pairing-roster-delivery.json`。
 
+## Host／設定／SAS 視窗來源整合
+
+`PairingSessionHost` 為 runtime 的單一配對視窗 owner。每次開啟先令舊意圖失效再等待 physical work；新視窗在明確發起／等候前不繼承舊 SAS 或 terminal state。原 roster target、候選金鑰及 one-use consent 沿用同一份。關閉／owner 隱藏／runtime 停止、睡眠恢復與名單／信任操作都先作 RAM 失效，再等待 Core／SQL 結束；當下 callback 不在 dispatcher 作 DB I/O。接收與配對排空後才 dispose 借用的金鑰與 store。
+
+`ChatRuntime` 新增獨立於 L 的 explicit `ChatPairingConfiguration`。正常啟動沒有傳入，不自動 provision 金鑰、不選 P1、不啟用配對。只有明確隔離的 Windows fixture 用新 DPAPI profile 啟用 P1；私訊和 L 仍停用。listener 直接借用 host endpoint。配對重選、resume、trust 操作亦推進 outgoing message generation，舊傳送不能用新信任基準完成。
+
+設定頁提供核對／綁定、解除名單綁定、撤銷身分、允許重新核對。`PairingWindow` 顯示開啟時的姓名／學號／本機老師標籤／既有綁定與 IP，明確說明本輪會綁定哪一筆名單；已宣告 IP 不可在視窗內暗改。未宣告 IP 只供當輪顯式輸入，不回填名單。六位 SAS 與時限由 Core RAM projection 呈現，只有 stage、目前 ticket、視窗焦點及未勾選的人工比較 checkbox 全符合時，確認按鈕才可用。沒有 default confirm button；deactivation／ticket 更替清除勾選。短高 body 捲動、固定 close footer；工作區用既有 FitChat 調整。拒絕顯示「本輪已中止」及明確重試指示；可能不對稱的結果優先保留。完成只稱本機完成，對方結果仍以對方畫面為準。
+
+選定列 snapshot 現在同一 SELECT 也凍結原本 bound peer 的 key/state/revision；在 candidate 前被 revoke→paired 改回原值也不能採用新的信任基準。`ChangeSelectedPeerIfCurrent` 在交易首尾核 original row/local/peer epoch 和 live predicate，只能 unlink、revoked、suspended、unpaired，不能直接授予 paired。unlink 保留 peer trust／對話；trust action 只清除該 peer 的未送回條，保留已讀與全域 opt-in。缺金鑰舊綁定須先明確解除綁定。
+
+Mac 的真 TCP／SQLite host checks 含 close、resume、supersede、reject、雙方顯式確認、I/R COMMIT 前被關閉回滾、管理操作與 ABA／trigger／receipt purge。瀏覽器排版 artifact 為 `preview/pairing-dialog.html`，只有合成狀態、無網路與配對；其字型、尺寸與控制項不能作 WPF 還原證據。獨立 finish review 的 rejected-outcome 文案 finding 已補 source regression；Windows native disposition 保持 fix/unexecuted。
+
 ## 後續完成條件
 
-仍須完成host／設定與實際窗口接線、resume／rebind等事件的意圖撤銷。配對COMMIT前後真process-kill／重啟、雙向並行確認與不同SAS的換鑰MITM實例已有產品證據，但不能代替最終host／UI整合。選定名單的durable revision、最後同交易綁定及跨角色傳遞現已完成，host仍須實際使用scoped入口、呈現當時姓名／學號與綁定意義，並接上生命周期事件；不能用Core/TCP證據冒充host／UI已完成。
+Host／設定／SAS 視窗的來源與 cross-build 已完成，不等於 Windows／人類使用驗收。原生檢查入口與操作單見 [PAIRING-VERIFICATION.md](PAIRING-VERIFICATION.md)。仍須在 Windows 驗證 WPF 焦點／鍵盤／輔助工具、DPAPI／CNG／ACL、DPI／工作區、真睡眠恢復／OS／雙實機與教室。它們目前一律未執行。
 
-只有剩餘條件全部有證據，才能稱為條件式P1完成；正常產品啟用仍須使用者的身分方案與訊息上限決定。最終三包裝／DELIVERY待所有來源固定後重建；目前舊包裝不代表這批來源。Windows CNG／DPAPI／WPF／可用性與雙實機教室另列未執行。教材依使用者指示暫緩。
+正常產品啟用仍須使用者的身分方案與訊息上限決定，不以 fixture 或 preview 代答。最終三包裝／DELIVERY 待所有來源固定後重建；舊包裝不代表這批來源。教材依使用者指示暫緩。原 N002P-v2 的設計審查缺陷記錄保留；新增工程證據不回寫成原提案已通過。
 
 ## 密碼學範圍
 
