@@ -47,7 +47,7 @@ internal static class ClassroomSenderOutcomeIndependentChecks
     };
     private static WireReply Loopback_Json(byte[] body, int status = 200) => NekoChat.Tests.Loopback.Json(status, body);
 
-    private static async Task<Run> Exercise(Func<WireReq, WireReply>? script, string ownIpParameter, int? cancelAfterMs = null, bool cancelBefore = false, Func<int?, HttpClient>? clientFactory = null, string? textOverride = null, string? cancelAfterStoreCall = null, Func<bool>? stillCurrent = null)
+    private static async Task<Run> Exercise(Func<WireReq, WireReply>? script, string ownIpParameter, int? cancelAfterMs = null, bool cancelBefore = false, Func<int?, HttpClient>? clientFactory = null, string? textOverride = null, string? cancelAfterStoreCall = null, Func<bool>? stillCurrent = null, Action<ChatStore, ClassroomPrincipalKey>? afterRouteRecorded = null, Func<WireReq, WireReply>? unusedPlaceholder = null)
     {
         string dir = NekoChat.Tests.Loopback.TempDir("classroom-outcome-indep-");
         try
@@ -63,6 +63,7 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             var sender = new ClassroomSender(proxy, http);
             using var cancel = new CancellationTokenSource();
             if (cancelAfterStoreCall is not null) recorder.AfterCall = name => { if (name == cancelAfterStoreCall) cancel.Cancel(); };
+            if (afterRouteRecorded is not null) { var previous = recorder.AfterCall; recorder.AfterCall = name => { previous?.Invoke(name); if (name == "RecordClassroomRoute") afterRouteRecorded(store, principal); }; }
             if (cancelBefore) cancel.Cancel(); else if (cancelAfterMs is { } ms) cancel.CancelAfter(ms);
             ClassroomSendResult? result = null; string? thrown = null;
             try { result = await sender.SendPreparedAsync(prepared, 8768, ownIpParameter, stillCurrent ?? (() => true), cancel.Token); }
@@ -558,6 +559,32 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             string sending = ClassroomSendUiPolicy.DecideAttemptBanner("sending", false);
             Check(!Maybe(sending) && !sending.Contains("未送出"), "UI-B banner while sending: neutral (still waiting for the other side's storage confirmation)", "text='" + sending + "'");
             Check(ClassroomSendUiPolicy.DecideAttemptBanner(null, false).Length > 0, "UI-B banner for an unknown state still says something", "");
+        }
+
+        // ---- UI-D (Discarded AFTER the message was written): the user clears the conversation while the message is on its way (the attempt row disappears), the peer stores the message and
+        // ACKs it. Whatever the store answers, the screen must NOT say "not sent": the text did reach the other side. ----
+        {
+            var o = await Exercise(Peer(), Loopback, afterRouteRecorded: (st, pr) => st.ClearClassroomConversation(pr));
+            string t = o.Result is null ? "" : UiText(o);
+            Check(o.TextOnWire, "UI-D clear during send: the message really went out (fixture sanity)", Describe(o));
+            Check(o.Result is not null && !(t.Contains("未送出") || t.Contains("未傳送")), "UI-D clear during send: the screen never says not-sent for a message that reached the peer", "text='" + t + "' " + Describe(o));
+        }
+
+        // ---- REG (ClassroomSendRegistry.Start ordering): by the time the task that Start returned is observed as completed, the registration must already be gone; otherwise the cancel
+        // button stays enabled for a finished attempt. Stress: many tiny sends, check immediately after the await. ----
+        {
+            var registry = new ClassroomSendRegistry();
+            var okResult = new ClassroomSendResult(true, "ok", new Confirmed(1, true), ClassroomRoute.Classroom);
+            int stillRegistered = 0, canCancelAfter = 0; const int N = 4000;
+            for (int i = 0; i < N; i++)
+            {
+                string id = "reg-" + i;
+                var t = registry.Start(id, 1, async ct => { if ((i & 1) == 0) await Task.Yield(); return okResult; }, CancellationToken.None);
+                await t;
+                if (registry.TryGet(id, 1).HasValue) stillRegistered++;
+                if (registry.CanCancel(id, 1)) canCancelAfter++;
+            }
+            Check(stillRegistered == 0 && canCancelAfter == 0, "REG after the task returned by Start has completed, the registration is already removed and the cancel button is not offered", $"{stillRegistered} of {N} still registered, {canCancelAfter} still cancelable");
         }
 
         // ---- F5: cancellation never records a route and never sends the text (contract §11: cancelled is unconfirmed, nothing is retried). ----
