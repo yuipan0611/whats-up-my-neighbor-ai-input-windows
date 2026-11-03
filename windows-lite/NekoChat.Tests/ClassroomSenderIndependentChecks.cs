@@ -192,7 +192,7 @@ internal static class ClassroomSenderIndependentChecks
         {
             using var doc = JsonDocument.Parse(r.Body);
             string nonce = doc.RootElement.GetProperty("client_nonce").GetString()!;
-            return Json(200, ClassroomPacketWriter.HelloOk(nonce, ClassroomPacketWriter.NewToken(), PeerIp, OwnIp, new[] { "receipts" }));
+            return Json(200, ClassroomPacketWriter.HelloOk(nonce, ClassroomPacketWriter.NewToken(), PeerIp, OwnIp, new[] { "msg.plain", "receipt.read" }));
         }
         if (r.IsClassroomMessage)
         {
