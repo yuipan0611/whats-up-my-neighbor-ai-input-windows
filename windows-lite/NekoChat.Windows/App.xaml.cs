@@ -66,6 +66,7 @@ public partial class App : Application
 
         try
         {
+            var uiTestOptions = UiTestOptions.Parse(e.Args);
             var messagingSmoke = MessagingSmokeOptions.Parse(e.Args);
             bool keyboardSmoke = e.Args.Length == 2 && e.Args[0] == "--keyboard-smoke-test";
             bool gestureSmoke = e.Args.Length == 2 && e.Args[0] == "--interaction-smoke-test";
@@ -74,7 +75,8 @@ public partial class App : Application
             bool instanceProbe = e.Args.Length == 2 && e.Args[0] == "--instance-probe";
             if (messagingSmoke is null && !gestureSmoke && !receiverSmoke && !keyboardSmoke)
             {
-                instanceGate = new Mutex(true, "Local\\NekoChat.WindowsLite.App", out bool firstInstance);
+                string mutexName = uiTestOptions?.MutexName ?? "Local\\NekoChat.WindowsLite.App";
+                instanceGate = new Mutex(true, mutexName, out bool firstInstance);
                 if (instanceProbe)
                 {
                     Directory.CreateDirectory(e.Args[1]);
@@ -84,20 +86,27 @@ public partial class App : Application
                 }
                 if (!firstInstance)
                 {
+                    if (uiTestOptions is not null)
+                    {
+                        Shutdown(1);
+                        return;
+                    }
                     MessageBox.Show("NekoChat 已經在執行。請使用桌面上現有的貓咪；雙擊貓咪可開啟聊天。若要更新，請先從貓咪右鍵選「離開」。", "NekoChat 已開啟");
                     Shutdown();
                     return;
                 }
             }
-            var settingsSource = e.Args.Length == 0 ? Settings.LoadWithStatus() : null;
+            var settingsSource = (e.Args.Length == 0 || uiTestOptions is not null) ? Settings.LoadWithStatus(uiTestOptions?.SettingsFilePath) : null;
             string? smokeDirectory = messagingSmoke?.Directory ?? (e.Args.Length == 2 && (keyboardSmoke || gestureSmoke || receiverSmoke || instanceSmoke ||
                 e.Args[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test") ? e.Args[1] : null);
-            if (e.Args.Length > 0 && smokeDirectory is null) throw new ArgumentException("不支援這組啟動參數。");
+            if (e.Args.Length > 0 && smokeDirectory is null && uiTestOptions is null) throw new ArgumentException("不支援這組啟動參數。");
             settings = settingsSource?.Value ?? (smokeDirectory is not null ? Settings.ForSmoke(smokeDirectory) : new Settings { AutoStartOnLogin = false, ReadOnlyFallback = true });
+            if (uiTestOptions is not null) settings = settings with { AutoStartOnLogin = false };
             if (messagingSmoke is not null) settings = settings with { TeacherIp = "127.0.0.1" };
-            directSendPort = messagingSmoke?.PeerPort ?? DirectLanMessaging.DefaultPort;
+            directSendPort = uiTestOptions?.Port ?? messagingSmoke?.PeerPort ?? DirectLanMessaging.DefaultPort;
+            startupPort = uiTestOptions?.Port ?? messagingSmoke?.ListenPort ?? DirectLanMessaging.DefaultPort;
 
-            if (settings.AutoStartOnLogin)
+            if (settings.AutoStartOnLogin && uiTestOptions is null)
             {
                 LoginStartup.Apply(true);
             }
@@ -154,13 +163,16 @@ public partial class App : Application
             chat.AutoStartChanged += enabled =>
             {
                 pet.UpdateAutoStartChecked(enabled);
-                LoginStartup.Apply(enabled);
+                if (uiTestOptions is null)
+                {
+                    LoginStartup.Apply(enabled);
+                }
             };
             chat.SendRequested += async (targetIp, text) => await SendDirectMessageAsync(targetIp, text);
             chat.ReactionRequested += async (targetIp, reaction) => await SendDirectMessageAsync(targetIp, reaction.Text, reaction, preserveDraft: true);
             pet.ExitRequested += async () => await RequestShutdownAsync();
-            startupSource = settingsSource ?? new SettingsLoadResult(settings, smokeDirectory is not null ? SettingsSourceStatus.Loaded : SettingsSourceStatus.Unavailable);
-            isolatedData = smokeDirectory is not null; startupPort = messagingSmoke?.ListenPort ?? DirectLanMessaging.DefaultPort;
+            startupSource = settingsSource ?? new SettingsLoadResult(settings, (smokeDirectory is not null || uiTestOptions is not null) ? SettingsSourceStatus.Loaded : SettingsSourceStatus.Unavailable);
+            isolatedData = smokeDirectory is not null || uiTestOptions is not null;
             chat.DataRetryRequested += () => _ = StartDataAsync();
             // Historical recovery source is retained; ordinary classroom startup has no recovery command.
             if (messagingSmoke is not null) chat.IdentityRecoveryRequested += () => _ = RecoverIdentityAsync();
@@ -194,7 +206,7 @@ public partial class App : Application
                 _ = Dispatcher.BeginInvoke(new Action(async () => await RunInteractionSmokeTestAsync(e.Args[1])));
             }
 
-            if (e.Args.Length == 0)
+            if (e.Args.Length == 0 && uiTestOptions is null)
             {
                 _ = Task.Delay(3000).ContinueWith(_ => Dispatcher.Invoke(() => _ = CheckForUpdatesAsync(false)));
             }

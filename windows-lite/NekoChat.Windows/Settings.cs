@@ -46,6 +46,10 @@ internal record Settings
         AutoStartOnLogin = false, PersistencePath = Path.Combine(Path.GetFullPath(outputDirectory), "settings-fixture-" + Guid.NewGuid().ToString("N") + ".json")
     };
 
+    internal static Settings ForUiTest(string dataDirectory) => new() {
+        AutoStartOnLogin = false, PersistencePath = Path.Combine(Path.GetFullPath(dataDirectory), "settings.json")
+    };
+
     internal static Settings Load() => LoadWithStatus().Value;
 
     internal static SettingsLoadResult LoadWithStatus(string? filePath = null)

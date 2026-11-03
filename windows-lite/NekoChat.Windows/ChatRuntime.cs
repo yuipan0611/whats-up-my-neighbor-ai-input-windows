@@ -86,8 +86,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
         Worker = new(store, lifetime: _lifetime.Token);
         _maintenance = Task.Run(MaintainBackups);
     }
-    internal static string RootDirectory(Settings source, bool isolated) => isolated
-        ? Path.Combine(Path.GetDirectoryName(source.PersistencePath!)!, Path.GetFileNameWithoutExtension(source.PersistencePath) + "-data") : Settings.DirectoryPath;
+    internal static string RootDirectory(Settings source, bool isolated) => UiTestOptions.ResolveRootDirectory(source, isolated);
     internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null, ChatPairingConfiguration? pairingConfiguration = null) => Task.Run(() => {
         if (!isolated && (configuration is not null || pairingConfiguration is not null))
             throw new InvalidOperationException("Historical signed identity configuration requires an isolated fixture.");

@@ -1,0 +1,124 @@
+using System;
+using System.IO;
+using NekoChat.Core;
+using NekoChat.Windows;
+
+namespace NekoChat.Tests;
+
+public static class UiTestDataChecks
+{
+    public static void Run()
+    {
+        int checks = 0;
+        void Check(bool cond, string name)
+        {
+            checks++;
+            if (!cond) throw new InvalidOperationException($"Check failed: {name}");
+        }
+
+        void Expect<TEx>(Action action, string name) where TEx : Exception
+        {
+            checks++;
+            bool threw = false;
+            try { action(); }
+            catch (TEx) { threw = true; }
+            catch (Exception ex) { throw new InvalidOperationException($"Expected {typeof(TEx).Name} for {name}, but got {ex.GetType().Name}: {ex.Message}"); }
+            if (!threw) throw new InvalidOperationException($"Expected {typeof(TEx).Name} for {name}, but nothing was thrown.");
+        }
+
+        string tempBase = Path.Combine(Path.GetTempPath(), "nekochat-ui-test-check-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempBase);
+
+        try
+        {
+            string testDir = Path.Combine(tempBase, "isolated-data");
+            Directory.CreateDirectory(testDir);
+
+            // 1. Basic parsing with default port
+            var opt1 = UiTestOptions.Parse(new[] { "--ui-test-data", testDir });
+            Check(opt1 is not null, "parsed --ui-test-data");
+            Check(opt1!.DataDirectory == Path.GetFullPath(testDir), "data directory matches normalized path");
+            Check(opt1.Port == DirectLanMessaging.DefaultPort, "default port is DirectLanMessaging.DefaultPort");
+            Check(opt1.SettingsFilePath == Path.Combine(Path.GetFullPath(testDir), "settings.json"), "settings path has fixed name");
+            Check(opt1.DatabaseDirectory == Path.Combine(Path.GetFullPath(testDir), "data"), "database directory has fixed name");
+            Check(opt1.DatabaseFilePath == Path.Combine(Path.GetFullPath(testDir), "data", "nekochat.db"), "database file has fixed name");
+
+            // 2. Custom port parsing in different argument orders
+            var opt2 = UiTestOptions.Parse(new[] { "--ui-test-data", testDir, "--ui-test-port", "8799" });
+            Check(opt2 is not null && opt2.Port == 8799, "parsed --ui-test-port 8799");
+
+            var opt3 = UiTestOptions.Parse(new[] { "--ui-test-port", "8766", "--ui-test-data", testDir });
+            Check(opt3 is not null && opt3.Port == 8766, "parsed reversed order arguments");
+
+            // 3. Argument validation and error handling
+            Expect<ArgumentException>(() => UiTestOptions.Parse(new[] { "--ui-test-port", "8766" }), "port without data dir rejected");
+            Expect<ArgumentException>(() => UiTestOptions.Parse(new[] { "--ui-test-data" }), "missing data directory value rejected");
+            Expect<ArgumentException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", "   " }), "whitespace data directory rejected");
+            Expect<ArgumentException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", testDir, "--ui-test-port" }), "missing port value rejected");
+            Expect<ArgumentException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", testDir, "--ui-test-port", "not-a-number" }), "non-numeric port rejected");
+            Expect<ArgumentException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", testDir, "--ui-test-port", "0" }), "port 0 rejected");
+            Expect<ArgumentException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", testDir, "--ui-test-port", "65536" }), "port 65536 rejected");
+            Expect<ArgumentException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", testDir, "--ui-test-data", testDir }), "duplicate --ui-test-data rejected");
+            Expect<ArgumentException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", testDir, "--ui-test-port", "8765", "--ui-test-port", "8766" }), "duplicate --ui-test-port rejected");
+            Expect<ArgumentException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", testDir, "--unknown-flag" }), "unrecognized flag with ui-test rejected");
+
+            // Ordinary args or smoke args should return null without throwing
+            Check(UiTestOptions.Parse(Array.Empty<string>()) is null, "empty args returns null");
+            Check(UiTestOptions.Parse(new[] { "--startup-smoke-test", testDir }) is null, "smoke args return null");
+
+            // 4. Safety guard: rejection if located inside official %LOCALAPPDATA%\NekoChat.WindowsLite
+            string official = Settings.DirectoryPath;
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", official }), "exact official directory rejected");
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(official, "subfolder") }), "subfolder of official directory rejected");
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(official, "a", "b", "c") }), "nested subfolder of official directory rejected");
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", official.ToLowerInvariant() }), "case-insensitive official directory rejected");
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(official, "..", Path.GetFileName(official)) }), "relative traversal reaching official directory rejected");
+
+            // Similar prefix but NOT inside official directory must be permitted
+            string prefixSibling = official.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + "-custom";
+            Check(!UiTestOptions.IsInsideOrEqual(prefixSibling, official), "sibling with common prefix is not inside official");
+            var optSibling = UiTestOptions.Parse(new[] { "--ui-test-data", prefixSibling });
+            Check(optSibling is not null, "sibling directory permitted");
+
+            // 5. Mutex derivation and isolation
+            string mutex1 = UiTestOptions.DeriveMutexName(testDir);
+            Check(mutex1.StartsWith("Local\\NekoChat.WindowsLite.UiTest.", StringComparison.Ordinal), "mutex format starts with expected prefix");
+            Check(mutex1 != "Local\\NekoChat.WindowsLite.App", "mutex does not collide with official app mutex");
+
+            // Deterministic and case/separator invariant
+            string mutexCase = UiTestOptions.DeriveMutexName(testDir.ToUpperInvariant());
+            string mutexSlash = UiTestOptions.DeriveMutexName(testDir + Path.DirectorySeparatorChar);
+            Check(mutex1 == mutexCase, "mutex name is case invariant");
+            Check(mutex1 == mutexSlash, "mutex name is trailing separator invariant");
+
+            // Distinct directory produces distinct mutex
+            string testDir2 = Path.Combine(tempBase, "isolated-data-2");
+            string mutex2 = UiTestOptions.DeriveMutexName(testDir2);
+            Check(mutex1 != mutex2, "different directories produce distinct mutexes");
+
+            // 6. Fixed filenames without Guid
+            var uiSettings = Settings.ForUiTest(testDir);
+            Check(uiSettings.PersistencePath == Path.Combine(Path.GetFullPath(testDir), "settings.json"), "persistence path is settings.json");
+            Check(!uiSettings.AutoStartOnLogin, "AutoStartOnLogin is disabled for ui-test");
+            Check(uiSettings.PersistencePath is not null && !uiSettings.PersistencePath.Contains("fixture", StringComparison.OrdinalIgnoreCase), "no fixture prefix");
+            Check(uiSettings.PersistencePath is not null && !Guid.TryParse(Path.GetFileNameWithoutExtension(uiSettings.PersistencePath), out _), "no Guid in filename");
+
+            // Verify settings load and save to fixed filename
+            Check(uiSettings.Save(), "settings saved to fixed path");
+            Check(uiSettings.PersistencePath is not null && File.Exists(uiSettings.PersistencePath), "settings.json exists on disk");
+            var loaded = Settings.LoadWithStatus(uiSettings.PersistencePath);
+            Check(loaded.Status == SettingsSourceStatus.Loaded, "settings loaded from fixed path");
+
+            // Verify RootDirectory resolution for fixed settings.json
+            string root = UiTestOptions.ResolveRootDirectory(uiSettings, isolated: true);
+            Check(root == Path.GetFullPath(testDir), "RootDirectory resolves directly to testDir without extra settings-data level");
+            Check(Path.Combine(root, "data", "nekochat.db") == Path.Combine(Path.GetFullPath(testDir), "data", "nekochat.db"), "data file path is fixed");
+
+            Console.WriteLine($"UI test data entry checks: {checks} checks passed.");
+        }
+        finally
+        {
+            try { Directory.Delete(tempBase, recursive: true); } catch { }
+        }
+    }
+}
