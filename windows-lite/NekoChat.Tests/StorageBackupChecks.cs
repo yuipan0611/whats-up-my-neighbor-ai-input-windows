@@ -11,7 +11,13 @@ internal static class StorageBackupChecks
     public static bool RunChild(string[] args)
     {
         if (args.Length == 0 || args[0] != ChildMode) return false;
-        if (args.Length != 2) throw new ArgumentException("Invalid backup lease fixture.");
+        if (args.Length is not (2 or 3)) throw new ArgumentException("Invalid backup lease fixture.");
+        if (args.Length == 3)
+        {
+            if (!int.TryParse(args[2], out int delay) || delay is < 0 or > 10000) throw new ArgumentException("Invalid child startup delay.");
+            Thread.Sleep(delay); // A controlled process-start delay, before the product lease operation begins.
+        }
+        Console.Error.WriteLine("BACKUP-LEASE-READY"); Console.Error.Flush();
         using var store = ChatStore.Open(new(args[1]) { CommandTimeoutSeconds = 1 });
         try { _ = store.ListBackups(); Console.WriteLine("NOT-BUSY"); }
         catch (StoreException e) when (e.Kind == StoreErrorKind.StorageBusy) { Console.WriteLine("BUSY"); }
@@ -113,13 +119,8 @@ internal static class StorageBackupChecks
                 Check(result.Failed == 1 && clock.Elapsed >= TimeSpan.FromMilliseconds(800) && clock.Elapsed < TimeSpan.FromSeconds(4), "lease wait bounded and cleanup failure reported");
                 StoreException? error = null; try { store.ApplyRosterPreview(preview); } catch (StoreException e) { error = e; }
                 Check(error?.Kind == StoreErrorKind.StorageBusy && store.GetRosterSnapshot().Count == 0 && Directory.GetFiles(f.Backups).Length == 0, "busy backup lease aborts import without partial data or files");
-                using var child = StartLeaseChild(f.Data);
-                try
-                {
-                    if (!child.WaitForExit(6000)) throw new TimeoutException("Backup lease child timed out.");
-                    Check(child.ExitCode == 0 && child.StandardOutput.ReadToEnd().Trim() == "BUSY", "separate process cannot acquire the held filesystem lease");
-                }
-                finally { if (!child.HasExited) { child.Kill(entireProcessTree: true); if (!child.WaitForExit(5000)) throw new TimeoutException("Backup lease child did not exit."); } }
+                Check(LeaseChildBusy(f.Data), "separate process cannot acquire the held filesystem lease");
+                Check(LeaseChildBusy(f.Data, 7000), "slow process startup is separate from the unchanged six-second lease-operation deadline");
             }
             Check(store.MaintainBackups().Failed == 0 && store.ApplyRosterPreview(preview).Applied && diagnostic.All(d => d == "backup-maintenance failed=1"), "lease release allows work; diagnostics contain counts only");
         }
@@ -131,13 +132,38 @@ internal static class StorageBackupChecks
             Check(error?.Kind == StoreErrorKind.CannotOpen && Number(f.Db, "PRAGMA user_version") == 1 && Directory.GetFiles(external).Length == 0,
                 "upgrade refuses linked backup directory before migration or data export");
         }
-        Console.WriteLine($"Storage backup: {checks} retention, ownership, expiry and lease checks passed; 1 normal lease child."); return checks;
+        Console.WriteLine($"Storage backup: {checks} retention, ownership, expiry and lease checks passed; 1 normal + 1 deliberately slow-starting real lease child."); return checks;
     }
-    private static Process StartLeaseChild(string data)
+    private static bool LeaseChildBusy(string data, int startupDelayMs = 0)
+    {
+        using var child = StartLeaseChild(data, startupDelayMs);
+        var output = child.StandardOutput.ReadToEndAsync();
+        var clock = Stopwatch.StartNew();
+        try
+        {
+            // Runtime loading/scheduling is not the operation under test. Startup still has its own hard bound.
+            var ready = child.StandardError.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+            if (ready != "BACKUP-LEASE-READY") throw new InvalidOperationException("Backup lease child did not report ready.");
+            double startupMs = clock.Elapsed.TotalMilliseconds; clock.Restart();
+            if (!child.WaitForExit(6000)) throw new TimeoutException("Backup lease child operation timed out after ready.");
+            string errors = child.StandardError.ReadToEnd();
+            Console.WriteLine($"Backup lease child: startup={startupMs:0}ms, operation={clock.Elapsed.TotalMilliseconds:0}ms, controlledDelay={startupDelayMs}ms.");
+            return child.ExitCode == 0 && output.GetAwaiter().GetResult().Trim() == "BUSY" && errors.Length == 0;
+        }
+        finally
+        {
+            if (!child.HasExited)
+            {
+                child.Kill(entireProcessTree: true);
+                if (!child.WaitForExit(5000)) throw new TimeoutException("Backup lease child did not exit.");
+            }
+        }
+    }
+    private static Process StartLeaseChild(string data, int startupDelayMs)
     {
         string exe = Environment.ProcessPath!; var psi = new ProcessStartInfo(exe) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
         if (Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase)) psi.ArgumentList.Add(typeof(StorageBackupChecks).Assembly.Location);
-        psi.ArgumentList.Add(ChildMode); psi.ArgumentList.Add(data);
+        psi.ArgumentList.Add(ChildMode); psi.ArgumentList.Add(data); psi.ArgumentList.Add(startupDelayMs.ToString(System.Globalization.CultureInfo.InvariantCulture));
         return Process.Start(psi) ?? throw new InvalidOperationException("Backup lease child did not start.");
     }
     private static string Hash(string path) => File.Exists(path) ? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))) : "absent";

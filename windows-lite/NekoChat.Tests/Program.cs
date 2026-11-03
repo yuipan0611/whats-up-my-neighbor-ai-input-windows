@@ -15,6 +15,7 @@ if (NekoChat.Tests.StorageReadChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageLegacyRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageBackupChecks.RunChild(args)) return;
+if (args.SequenceEqual(new[] { "--storage-backups" })) { NekoChat.Tests.StorageBackupChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--shared-regression-guards" })) { Console.WriteLine($"Shared regression guards: {await RunSharedRegressionGuards()} checks."); return; }
 if (args.SequenceEqual(new[] { "--receipt-archived" })) { await NekoChat.Tests.ReceiptServiceChecks.RunArchivedProtocol(); return; }
 if (args.SequenceEqual(new[] { "--receipt-privacy" })) { await NekoChat.Tests.ReceiptServiceChecks.RunSharedPrivacy(); return; }
