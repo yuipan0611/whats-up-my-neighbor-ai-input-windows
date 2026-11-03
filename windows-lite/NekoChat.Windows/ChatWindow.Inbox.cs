@@ -99,28 +99,7 @@ public partial class ChatWindow
                 else
                 {
                     var crSnapshot = await _runtime.Worker.Run(s => s.GetClassroomInboxSnapshot());
-                    var entries = crSnapshot.Entries.Select(e => new InboxEntry(
-                        e.Principal.Value,
-                        e.RosterEntryId,
-                        e.Label,
-                        e.StudentNumber,
-                        e.IsTeacher,
-                        e.Endpoint,
-                        null,
-                        e.Principal.Value,
-                        null,
-                        e.ClassroomUnread,
-                        e.LegacyUnread,
-                        e.LatestText,
-                        e.LatestUtc,
-                        e.LatestIsLegacy,
-                        e.Draft,
-                        e.Attempt is null ? null : new PendingSendSummary(e.Attempt.MessageId, e.Attempt.State, e.Attempt.RawSnapshot, e.Attempt.TryCount, e.Attempt.DraftEpoch, e.Attempt.DraftRevision),
-                        e.LegacyScope,
-                        e.Removed,
-                        e.CanSend
-                    ));
-                    _snapshot = new InboxSnapshot(entries);
+                    _snapshot = crSnapshot.ToInboxSnapshot();
                 }
                 if (_stopping) return;
                 var previous = _selected; var current = previous?.Id;
@@ -253,7 +232,9 @@ public partial class ChatWindow
     {
         if (!_initializedInbox) return;
         var buffer = CurrentDraft(); bool attached = _runtime is not null; bool ready = attached && _runtime!.CanSend && (_runtime.ArchivedIdentityFixture ? _selected?.Pairing == PairingState.Paired : _selected?.CanSend == true);
-        Draft.IsEnabled = !_stopping && !_closingRequested && (attached ? buffer is { Clearing: false } : _receiverRunning);
+        bool isRemoved = _selected?.Removed == true;
+        Draft.IsReadOnly = isRemoved;
+        Draft.IsEnabled = !_stopping && !_closingRequested && (attached ? buffer is { Clearing: false } : _receiverRunning) && !isRemoved;
         bool valid = !string.IsNullOrWhiteSpace(Draft.Text) && (_runtime?.MaximumTextBytes is not { } limit || V2Text.Check(Draft.Text, limit) == V2TextProblem.None);
         SendButton.IsEnabled = !_closingRequested && !_sending && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
         TeacherReactions.IsEnabled = ScrollReaction.IsEnabled = CanSendReaction;
@@ -505,6 +486,7 @@ public partial class ChatWindow
     { for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) { var child = VisualTreeHelper.GetChild(root, i); if (child is T found) return found; if (FindVisual<T>(child) is { } nested) return nested; } return null; }
     internal string LegacyNotificationName(NekoChat.Core.LegacyDeliveryNotice notice) => _snapshot?.Entries.FirstOrDefault(e => e.LegacyScope == notice.Scope)?.NotificationName ?? "未驗證來源";
     internal string PeerNotificationName(string peerId) => _snapshot?.Entries.FirstOrDefault(e => e.PeerId == peerId)?.NotificationName ?? "未命名同學";
+    internal string ClassroomNotificationName(string sourceIp) => _snapshot?.Entries.FirstOrDefault(e => e.Endpoint == sourceIp)?.NotificationName ?? sourceIp;
     internal string? PeerReplyEndpoint(string peerId) => _snapshot?.Entries.FirstOrDefault(e => e.PeerId == peerId)?.Endpoint;
     internal bool CanSendReaction => !_closingRequested && _receiverRunning && !_sending;
     internal void AbortClosing() { IsEnabled = true; _closingRequested = false; _stopping = false; UpdateComposer(); }

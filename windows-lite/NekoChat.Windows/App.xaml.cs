@@ -410,6 +410,16 @@ public partial class App : Application
                 if (closingApp || !ReferenceEquals(directListener, listener)) return;
                 chat.DataChanged(); pet.NotifyChat("新訊息", "peer:" + notice.SenderId, chat.PeerNotificationName(notice.SenderId));
             }));
+            listener.ClassroomMessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
+                if (closingApp || !ReferenceEquals(directListener, listener)) return;
+                chat.DataChanged();
+                bool teacher = LanInvitation.LocalAddresses().Contains(settings.TeacherIp) || settings.TeacherIp == "127.0.0.1";
+                var reaction = notice.Reaction is { } id ? ClassroomReactions.Find(id) : null;
+                if (settings.ShowReactionPreviews && reaction is not null && (!reaction.TeacherOnly || teacher))
+                    pet.NotifyReaction(reaction, notice.SourceIp);
+                else
+                    pet.NotifyChat("新訊息", notice.SourceIp, chat.ClassroomNotificationName(notice.SourceIp));
+            }));
             listener.Diagnostic += code => { if (code is "receiver_not_ready" or "listener_failed") Dispatcher.BeginInvoke(new Action(() => { if (!closingApp && ReferenceEquals(directListener, listener)) chat.SetReceiverState(false, startupPort, listener.Error ?? "接收服務已停止"); })); };
             candidate.Start(); chatRuntime = candidate; candidate = null;
             chat.SetReceiverState(directListener.Running, directListener.Port, directListener.Error);

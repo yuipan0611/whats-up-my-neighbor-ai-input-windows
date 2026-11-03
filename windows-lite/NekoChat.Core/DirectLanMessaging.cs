@@ -65,6 +65,8 @@ public static class DirectLanMessaging
     }
 }
 
+public sealed record ClassroomDeliveryNotice(string SourceIp, string Text, string? Reaction);
+
 /// <summary>Compatibility facade: v1's two events are retained; verified v2 storage notices have a separate event.</summary>
 public sealed class DirectLanListener : IAsyncDisposable
 {
@@ -77,6 +79,7 @@ public sealed class DirectLanListener : IAsyncDisposable
     public event Action<string, DirectMessage>? DirectMessageReceived;
     public event Action<V2.V2DeliveryNotice>? V2MessageStored;
     public event Action<LegacyDeliveryNotice>? LegacyMessageStored;
+    public event Action<ClassroomDeliveryNotice>? ClassroomMessageStored;
     public event Action<string>? Diagnostic;
 
     public DirectLanListener(int port = DirectLanMessaging.DefaultPort) : this(null, new V2.V2ListenerOptions { Port = port }) { }
@@ -90,6 +93,7 @@ public sealed class DirectLanListener : IAsyncDisposable
             sink.MessageStored += (source, text, reaction) => {
                 DirectMessageReceived?.Invoke(source, new DirectMessage(text, reaction));
                 MessageReceived?.Invoke(source, text);
+                try { ClassroomMessageStored?.Invoke(new ClassroomDeliveryNotice(source, text, reaction)); } catch { }
             };
             sink.LegacyMessageStored += notice => LegacyMessageStored?.Invoke(notice);
         }

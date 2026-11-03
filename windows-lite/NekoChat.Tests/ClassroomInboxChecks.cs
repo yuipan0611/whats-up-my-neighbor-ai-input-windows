@@ -87,6 +87,28 @@ internal static class ClassroomInboxChecks
             var snapshot = store.GetClassroomInboxSnapshot();
             store.Dispose();
             Check(snapshot.Entries.Count > 0 && snapshot.Entries[0].Label.Length > 0, "the snapshot is fully materialized and usable after the store is closed");
+
+            // Pure function tests: ClassroomInboxSnapshot.ToInboxSnapshot() and ClassroomInboxEntry.StateDescription
+            var inboxSnapshot = snapshot.ToInboxSnapshot();
+            Check(inboxSnapshot.Entries.Count == snapshot.Entries.Count, "ToInboxSnapshot maps all entries");
+            Check(inboxSnapshot.TotalUnread == snapshot.TotalUnread, "ToInboxSnapshot preserves TotalUnread");
+            var firstMapped = inboxSnapshot.Entries[0];
+            var firstSource = snapshot.Entries[0];
+            Check(firstMapped.Id == firstSource.Principal.Value, "mapped Id equals principal value");
+            Check(firstMapped.DisplayName == firstSource.Label, "mapped DisplayName equals label");
+            Check(firstMapped.Removed == firstSource.Removed, "mapped Removed matches source");
+            Check(firstMapped.CanSend == firstSource.CanSend, "mapped CanSend matches source");
+
+            // StateDescription pure logic checks
+            var dummyKey = ClassroomPrincipalKey.ForSource("192.168.1.100")!.Value;
+            var removedEntry = new ClassroomInboxEntry(dummyKey, "r1", "同學A", "101", false, true, "192.168.1.100", false, 0, 0, null, null, false, new DraftState(null, 0, 0), null, null);
+            Check(removedEntry.StateDescription == "已從名單移除，不能發送，可查看對話", "StateDescription for removed entry");
+            var noEndpointEntry = new ClassroomInboxEntry(dummyKey, "r2", "同學B", "102", false, false, null, false, 0, 0, null, null, false, new DraftState(null, 0, 0), null, null);
+            Check(noEndpointEntry.StateDescription == "未設定位址", "StateDescription for missing endpoint");
+            var normalEntry = new ClassroomInboxEntry(dummyKey, "r3", "同學C", "103", false, false, "192.168.1.101", true, 0, 0, null, null, false, new DraftState(null, 0, 0), null, null);
+            Check(normalEntry.StateDescription == "在線狀態待確認", "StateDescription for normal entry");
+            var legacyUnreadEntry = new ClassroomInboxEntry(dummyKey, "r4", "同學D", "104", false, false, "192.168.1.102", true, 0, 2, null, null, false, new DraftState(null, 0, 0), null, null);
+            Check(legacyUnreadEntry.StateDescription == "舊版訊息・在線狀態待確認", "StateDescription with legacy unread");
         }
         Console.WriteLine($"Classroom inbox: {checks} roster-without-history, draft-only, attempt-only, restart, removed, unread de-duplication and read-only checks passed on real SQLite.");
         return checks;
