@@ -13,6 +13,7 @@ public sealed record ClassroomListenerOptions
     public int MaximumSources { get; init; } = 1024;
     public TimeSpan ConnectionTimeout { get; init; } = TimeSpan.FromSeconds(6);
     public TimeProvider Clock { get; init; } = TimeProvider.System;
+    internal Action<TcpClient>? AcceptedForTest { get; init; }
 }
 
 public sealed class ClassroomConnectionContext
@@ -48,10 +49,11 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
     private readonly Dictionary<Task, TcpClient> _workers = new();
     private readonly SourceQuota _classroom, _legacy;
     private Task? _loop, _disposal;
-    private long _generation;
+    private long _generation, _acceptFailures;
     private int _running, _port;
     public bool Running => Volatile.Read(ref _running) == 1;
     public int Port => Volatile.Read(ref _port);
+    public long AcceptFailures => Interlocked.Read(ref _acceptFailures);
     public int ActiveConnections { get { lock (_gate) return _workers.Count; } }
     public event Action<string>? Diagnostic;
     public ClassroomTcpListener(IClassroomRequestEndpoint endpoint, ClassroomListenerOptions? options = null)
@@ -95,39 +97,49 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
         {
             while (!_lifetime.IsCancellationRequested)
             {
-                var client = await _listener.AcceptTcpClientAsync(_lifetime.Token).ConfigureAwait(false);
-                var source = ((IPEndPoint)client.Client.RemoteEndPoint!).Address;
-                var local = ((IPEndPoint)client.Client.LocalEndPoint!).Address;
-                string? reject = !LanInvitation.PrivateIPv4(source.ToString()) ? "source_not_allowed" : null;
-                lock (_gate)
+                TcpClient? client = null; bool transferred = false;
+                try
                 {
-                    if (_workers.Count >= _options.MaximumConnections) reject = "rate_limited";
-                    if (reject is null && Running && !_lifetime.IsCancellationRequested)
+                    client = await _listener.AcceptTcpClientAsync(_lifetime.Token).ConfigureAwait(false);
+                    _options.AcceptedForTest?.Invoke(client);
+                    if (client.Client is not { RemoteEndPoint: IPEndPoint remote, LocalEndPoint: IPEndPoint local })
+                        throw new SocketException((int)SocketError.NotConnected);
+                    string source = remote.Address.ToString();
+                    string? reject = !LanInvitation.PrivateIPv4(source) ? "source_not_allowed" : null;
+                    lock (_gate)
                     {
-                        long generation = Volatile.Read(ref _generation);
-                        var context = new ClassroomConnectionContext(source.ToString(), local.ToString());
-                        var work = Task.Run(() => HandleAsync(client, context, generation)); _workers.Add(work, client);
-                        _ = work.ContinueWith(done => { lock (_gate) _workers.Remove(done); }, CancellationToken.None,
-                            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-                        continue;
+                        if (_workers.Count >= _options.MaximumConnections) reject = "rate_limited";
+                        if (reject is null && Running && !_lifetime.IsCancellationRequested)
+                        {
+                            long generation = Volatile.Read(ref _generation);
+                            var context = new ClassroomConnectionContext(source, local.Address.ToString());
+                            var owned = client;
+                            var work = Task.Run(() => HandleAsync(owned, context, generation)); _workers.Add(work, owned); transferred = true;
+                            _ = work.ContinueWith(done => {
+                                lock (_gate) _workers.Remove(done);
+                                if (done.IsFaulted) { _ = done.Exception; Report("request_failed"); }
+                            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                            continue;
+                        }
                     }
-                }
-                // Inline rejection has its own short budget; floods cannot create unbounded rejection workers.
-                using (client)
-                using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token))
-                {
+                    // Rejection stays inline and bounded; no extra rejection worker is spawned.
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
                     timeout.CancelAfter(TimeSpan.FromMilliseconds(200));
-                    try
-                    {
-                        var stream = client.GetStream(); await RespondAsync(stream, _endpoint.Error(reject ?? "receiver_not_ready"), timeout.Token).ConfigureAwait(false);
-                        await FinishAsync(client, stream, timeout.Token).ConfigureAwait(false);
-                    }
-                    catch (Exception e) when (e is IOException or SocketException or ObjectDisposedException or OperationCanceledException) { }
+                    var stream = client.GetStream();
+                    await RespondAsync(stream, _endpoint.Error(reject ?? "receiver_not_ready"), timeout.Token).ConfigureAwait(false);
+                    await FinishAsync(client, stream, timeout.Token).ConfigureAwait(false);
                 }
+                catch (Exception error) when (error is IOException or SocketException or ObjectDisposedException or InvalidOperationException or OperationCanceledException)
+                {
+                    if (_lifetime.IsCancellationRequested) return;
+                    Interlocked.Increment(ref _acceptFailures); Report("accept_retry");
+                    // Resource pressure must not turn into a hot accept/reject spin or stop healthy connections.
+                    try { await Task.Delay(TimeSpan.FromMilliseconds(100), _lifetime.Token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
+                }
+                finally { if (!transferred) client?.Dispose(); }
             }
         }
-        catch (Exception e) when (e is SocketException or ObjectDisposedException or OperationCanceledException)
-        { if (!_lifetime.IsCancellationRequested) Report("receiver_not_ready"); }
         finally { Volatile.Write(ref _running, 0); SetNotReady(); }
     }
     private async Task HandleAsync(TcpClient client, ClassroomConnectionContext connection, long generation)
@@ -201,11 +213,11 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
     private async Task StopAsync()
     {
         Interlocked.Increment(ref _generation); Volatile.Write(ref _running, 0); SetNotReady();
-        var cancel = _lifetime.CancelAsync(); _listener.Stop(); await cancel.ConfigureAwait(false);
-        if (_loop is not null) await _loop.ConfigureAwait(false);
+        var cancel = _lifetime.CancelAsync(); _listener.Stop();
+        // Running=false and cancellation are published before the snapshot, so no new worker can register.
         Task[] workers; lock (_gate) workers = _workers.Keys.ToArray();
-        await Task.WhenAll(workers).ConfigureAwait(false);
-        lock (_gate) _workers.Clear(); _lifetime.Dispose();
+        try { await Task.WhenAll(workers.Append(_loop ?? Task.CompletedTask).Append(cancel)).ConfigureAwait(false); }
+        finally { lock (_gate) _workers.Clear(); _lifetime.Dispose(); }
     }
     private sealed class SourceQuota(TimeProvider clock, int maximum, int capacity)
     {

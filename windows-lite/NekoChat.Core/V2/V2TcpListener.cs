@@ -17,6 +17,7 @@ public sealed record V2ListenerOptions
     public TimeSpan ConnectionTimeout { get; init; } = TimeSpan.FromSeconds(6);
     public TimeSpan PairingWireTimeout { get; init; } = TimeSpan.FromSeconds(2);
     public TimeProvider Clock { get; init; } = TimeProvider.System;
+    internal Action<TcpClient>? AcceptedForTest { get; init; }
 }
 
 /// <summary>Single-request HTTP/1.1 LAN transport. No URL ACL registration, proxy, TLS identity claim or firewall changes.</summary>
@@ -36,8 +37,10 @@ public sealed class V2TcpListener : IAsyncDisposable
     private readonly SourceRateLimit _rate;
     private Task? _loop, _disposal;
     private int _running, _boundPort;
+    private long _acceptFailures;
     public bool Running => Volatile.Read(ref _running) == 1;
     public int Port => Volatile.Read(ref _boundPort);
+    public long AcceptFailures => Interlocked.Read(ref _acceptFailures);
     public int ActiveConnections { get { lock (_gate) return _workers.Count; } }
     public event Action<V2DeliveryNotice>? MessageStored;
     /// <summary>Legacy source is the TCP IPv4 address. No sender identity, persisted delivery or read fact is asserted.</summary>
@@ -74,36 +77,43 @@ public sealed class V2TcpListener : IAsyncDisposable
         {
             while (!_lifetime.IsCancellationRequested)
             {
-                var client = await _listener.AcceptTcpClientAsync(_lifetime.Token).ConfigureAwait(false);
-                string source = ((IPEndPoint)client.Client.RemoteEndPoint!).Address.ToString();
-                string? rejected = !LanInvitation.PrivateIPv4(source) ? "unpaired_sender" : !_rate.Allow(source) ? "rate_limited" : null;
-                lock (_gate)
+                TcpClient? client = null; bool transferred = false;
+                try
                 {
-                    if (rejected is null && _workers.Count >= _options.MaxConnections) rejected = "rate_limited";
-                    if (rejected is null && !_lifetime.IsCancellationRequested)
+                    client = await _listener.AcceptTcpClientAsync(_lifetime.Token).ConfigureAwait(false);
+                    _options.AcceptedForTest?.Invoke(client);
+                    if (client.Client is not { RemoteEndPoint: IPEndPoint remote }) throw new SocketException((int)SocketError.NotConnected);
+                    string source = remote.Address.ToString();
+                    string? rejected = !LanInvitation.PrivateIPv4(source) ? "unpaired_sender" : !_rate.Allow(source) ? "rate_limited" : null;
+                    lock (_gate)
                     {
-                        var task = Task.Run(() => HandleAsync(client, source)); _workers.Add(task);
-                        _ = task.ContinueWith(t => { lock (_gate) _workers.Remove(t); }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-                        continue;
+                        if (rejected is null && _workers.Count >= _options.MaxConnections) rejected = "rate_limited";
+                        if (rejected is null && !_lifetime.IsCancellationRequested)
+                        {
+                            var owned = client; var task = Task.Run(() => HandleAsync(owned, source)); _workers.Add(task); transferred = true;
+                            _ = task.ContinueWith(done => {
+                                lock (_gate) _workers.Remove(done);
+                                if (done.IsFaulted) { _ = done.Exception; Report("request_failed"); }
+                            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                            continue;
+                        }
                     }
-                }
-                // Rejection work is awaited inline and bounded; connection floods cannot create rejection tasks without limit.
-                using (client)
-                using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token))
-                {
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
                     timeout.CancelAfter(TimeSpan.FromMilliseconds(200));
-                    try
-                    {
-                        var stream = client.GetStream();
-                        await RespondAsync(stream, V2HttpResponse.Error(rejected ?? "receiver_not_ready"), timeout.Token).ConfigureAwait(false);
-                        await FinishAsync(client, stream, _lifetime.Token).ConfigureAwait(false);
-                    }
-                    catch (Exception e) when (e is IOException or SocketException or OperationCanceledException or ObjectDisposedException) { }
+                    var stream = client.GetStream();
+                    await RespondAsync(stream, V2HttpResponse.Error(rejected ?? "receiver_not_ready"), timeout.Token).ConfigureAwait(false);
+                    await FinishAsync(client, stream, timeout.Token).ConfigureAwait(false);
                 }
+                catch (Exception error) when (error is IOException or SocketException or ObjectDisposedException or InvalidOperationException or OperationCanceledException)
+                {
+                    if (_lifetime.IsCancellationRequested) return;
+                    Interlocked.Increment(ref _acceptFailures); Report("accept_retry");
+                    try { await Task.Delay(TimeSpan.FromMilliseconds(100), _lifetime.Token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
+                }
+                finally { if (!transferred) client?.Dispose(); }
             }
         }
-        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException or SocketException or InvalidOperationException)
-        { if (!_lifetime.IsCancellationRequested) Report("receiver_not_ready"); }
         finally { Volatile.Write(ref _running, 0); _receiver?.SetReady(false); }
     }
     private async Task HandleAsync(TcpClient client, string source)
@@ -261,18 +271,24 @@ public sealed class V2TcpListener : IAsyncDisposable
     {
         Task pairStop;
         try { pairStop = _pairing?.StopAsync() ?? Task.CompletedTask; } catch { pairStop = Task.CompletedTask; Report("pairing_stop_failed"); }
-        _receiver?.SetReady(false); _lifetime.Cancel(); _listener.Stop(); Volatile.Write(ref _running, 0);
-        if (_loop is not null) await _loop.ConfigureAwait(false);
-        Task[] tasks; lock (_gate) tasks = _workers.ToArray();
-        await Task.WhenAll(tasks).ConfigureAwait(false);
-        // Worker completion can resume WhenAll before its removal continuation takes the gate.
-        // The accept loop has drained, so no new registrations can race this final accounting.
-        lock (_gate) _workers.Clear();
-        Task pairWork, pairDrain; lock (_gate) { pairWork = _pairWork; pairDrain = _pairDrain; }
-        try { await pairWork.ConfigureAwait(false); } catch { Report("pairing_request_failed"); }
-        try { await pairDrain.ConfigureAwait(false); await pairStop.ConfigureAwait(false); }
-        catch { Report("pairing_stop_failed"); }
-        finally { _lifetime.Dispose(); }
+        _receiver?.SetReady(false); var cancel = _lifetime.CancelAsync(); _listener.Stop(); Volatile.Write(ref _running, 0);
+        Exception? transportFailure = null;
+        try
+        {
+            try { await Task.WhenAll(_loop ?? Task.CompletedTask, cancel).ConfigureAwait(false); }
+            catch (Exception error) { transportFailure = error; }
+            Task[] workers; lock (_gate) workers = _workers.ToArray();
+            try { await Task.WhenAll(workers).ConfigureAwait(false); }
+            catch (Exception error) { transportFailure ??= error; }
+            finally { lock (_gate) _workers.Clear(); }
+            // Pair work can be registered by a worker just before cancellation; snapshot only after all workers finished.
+            Task pairWork, pairDrain; lock (_gate) { pairWork = _pairWork; pairDrain = _pairDrain; }
+            try { await pairWork.ConfigureAwait(false); } catch { Report("pairing_request_failed"); }
+            try { await pairDrain.ConfigureAwait(false); await pairStop.ConfigureAwait(false); }
+            catch { Report("pairing_stop_failed"); }
+        }
+        finally { _pairSlot.Dispose(); _lifetime.Dispose(); }
+        if (transportFailure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(transportFailure).Throw();
     }
     internal sealed class SourceRateLimit(TimeProvider clock, int limit, int capacity)
     {
