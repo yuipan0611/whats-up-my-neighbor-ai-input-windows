@@ -9,6 +9,7 @@ using NekoChat.Core.Presentation;
 using NekoChat.Core.Roster;
 using NekoChat.Core.Storage;
 using NekoChat.Core.V2;
+using NekoChat.Core.Classroom.Transport;
 
 namespace NekoChat.Windows;
 
