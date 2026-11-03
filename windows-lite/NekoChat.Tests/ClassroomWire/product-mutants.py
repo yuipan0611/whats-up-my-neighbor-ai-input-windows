@@ -20,7 +20,7 @@ M = [
  ("ClassroomWire.cs", "httpStatus == 400 && ", "", "legacy probe accepts any HTTP status"),
  ("ClassroomWire.cs", "ip.AddressFamily == AddressFamily.InterNetworkV6 && ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4().ToString() : null", "ip.AddressFamily == AddressFamily.InterNetworkV6 ? ip.ToString() : null", "any IPv6 accepted as a source"),
  ("ClassroomWire.cs", "if (len > 1 && s[start] == '0') return false;", "", "IPv4 accepts leading zeros"),
- ("ClassroomHead.cs", "head.Length > ClassroomWire.HeadMaxBytes", "false", "head block unbounded"),
+ ("ClassroomHead.cs", "head.Length > ClassroomWire.HeadMaxBytes", "head.Length > 100000000", "head block unbounded"),
  ("ClassroomHead.cs", 'headers.ContainsKey("Transfer-Encoding") ||', "false ||", "chunked tolerated"),
  ("ClassroomHead.cs", 'case "/nekochat/v2/hello": route = ClassroomRoute.SignedV2Hello;', 'case "/nekochat/v2/hello": route = ClassroomRoute.Hello;', "signed V2 hello routed as classroom"),
  ("ClassroomRequests.cs", "if (protocol != ClassroomWire.Protocol || version != \"1\") return Fail(ClassroomCodes.UnsupportedVersion);", "if (protocol != ClassroomWire.Protocol || version != \"1\") return Fail(ClassroomCodes.InvalidPayload);", "foreign protocol reported as malformed"),
@@ -29,18 +29,19 @@ M = [
  ("ClassroomRequests.cs", "!string.Equals(state.SourceIp, sourceIp, StringComparison.Ordinal) ||", "", "session not bound to its source"),
  ("ClassroomRequests.cs", '!o.TryGetString("receipt_kind", out var receiptKind) || receiptKind != "read"', '!o.TryGetString("receipt_kind", out var receiptKind)', "receipt_kind not pinned to read"),
  ("ClassroomRequests.cs", "case V2TextProblem.TooLarge: return Fail(ClassroomCodes.PayloadTooLarge);", "case V2TextProblem.TooLarge: return Fail(ClassroomCodes.InvalidPayload);", "oversize text reported as malformed"),
- ("ClassroomRequests.cs", "if (body.Length > limit) return Fail(ClassroomCodes.PayloadTooLarge);", "", "size gate before parsing removed"),
+# Not a mutant: removing the early `body.Length > limit` check is EQUIVALENT because V2Json.TryParseObject enforces the same byte limit and maps it to payload_too_large;
+# the early check is kept as defense in depth (nothing is parsed or allocated for an oversize body).
  ("ClassroomResponses.cs", "if (id != sent.MessageId || ", "if (", "ACK message_id echo not checked"),
  ("ClassroomResponses.cs", "session != sent.Session || receiver != context.TargetIp || observed != context.OwnIp", "session != sent.Session || receiver != context.TargetIp", "ACK source binding not checked"),
- ("ClassroomResponses.cs", "kind == ClassroomResponseKind.MessageAck && hash != ClassroomWire.ContentSha256(sent.MessageId, sent.Reaction, sent.Text)", "false", "ACK content hash not checked"),
+ ("ClassroomResponses.cs", "kind == ClassroomResponseKind.MessageAck && hash != ClassroomWire.ContentSha256(sent.MessageId, sent.Reaction, sent.Text)", "kind == ClassroomResponseKind.MessageAck && hash is null", "ACK content hash not checked"),
  ("ClassroomResponses.cs", "!ClassroomWire.TryErrorStatus(code, out int expected) || expected != httpStatus", "!ClassroomWire.TryErrorStatus(code, out int expected)", "error envelope accepted with any HTTP status"),
  ("ClassroomResponses.cs", 'if (httpStatus != 200 || kindText != KindText(kind)) return Invalid();', 'if (kindText != KindText(kind)) return Invalid();', "ACK accepted on non-200"),
- ("ClassroomResponses.cs", "max != ClassroomWire.MaxTextBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)", "false", "hello accepts any max_text_bytes"),
+ ("ClassroomResponses.cs", "max != ClassroomWire.MaxTextBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)", "max is null", "hello accepts any max_text_bytes"),
  ("ClassroomResponses.cs", "if (nonce != sent.ClientNonce || ", "if (", "hello nonce echo not checked"),
  ("ClassroomSessionTable.cs", "_clock.GetElapsedTime(e.Issued, now) >= _ttl", "_clock.GetElapsedTime(e.Issued, now) > _ttl", "TTL boundary inclusive"),
  ("ClassroomSessionTable.cs", "e.Id == id && e.Source == source", "e.Id == id", "consume ignores the source"),
  ("ClassroomSessionTable.cs", "_entries.RemoveAt(index); return true;", "return true;", "session reusable"),
- ("ClassroomSessionTable.cs", "while (_entries.Count(e => e.Source == source) >= _perSource)", "while (false)", "per-source cap ignored"),
+ ("ClassroomSessionTable.cs", "while (_entries.Count(e => e.Source == source) >= _perSource)", "while (_entries.Count < 0)", "per-source cap ignored"),
  ("ClassroomSessionTable.cs", "public void Clear() { lock (_gate) _entries.Clear(); }", "public void Clear() { }", "Clear does nothing"),
  ("ClassroomSessionTable.cs", "if (_entries.Any(e => e.Id == id)) return ClassroomSessionAdd.Collision;", "", "collision overwrites"),
  ("ClassroomPacketWriter.cs", 'p["receipt_kind"] = "read"', 'p["receipt_kind"] = "seen"', "writer emits another receipt_kind"),
@@ -69,7 +70,7 @@ def main():
     code, out = run()
     print("baseline (unmutated product):", "PASS" if code == 0 else "FAIL", flush=True)
     if code != 0: print(out[-1500:]); sys.exit(2)
-    caught = escaped = 0
+    caught = escaped = invalid = 0
     for i, (f, old, new, name) in enumerate(M, 1):
         if ONLY and i not in ONLY: continue
         path = os.path.join(core, "Classroom/Wire", f); src = open(path, encoding="utf-8").read()
@@ -79,8 +80,9 @@ def main():
         finally: open(path, "w", encoding="utf-8").write(src)
         built = "error CS" not in out
         if code != 0 and built: caught += 1; print(f"{i:2d} CAUGHT   {name}", flush=True)
-        elif code != 0: print(f"{i:2d} DID NOT BUILD (invalid mutant): {name}"); sys.exit(4)
+        elif code != 0: invalid += 1; print(f"{i:2d} DID NOT BUILD (invalid mutant): {name}\n{out[-600:]}", flush=True)
         else: escaped += 1; print(f"{i:2d} ESCAPED  {name}", flush=True)
     print(f"product negative control: {caught}/{caught + escaped} mutants caught")
-    sys.exit(1 if escaped else 0)
+    if invalid: print(f"{invalid} mutant definitions did not build")
+    sys.exit(1 if escaped or invalid else 0)
 main()
