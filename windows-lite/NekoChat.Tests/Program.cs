@@ -15,6 +15,7 @@ if (NekoChat.Tests.StorageReadChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageLegacyRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageBackupChecks.RunChild(args)) return;
+if (args.SequenceEqual(new[] { "--classroom-listener" })) { await NekoChat.Tests.ClassroomListenerChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--archived-superseded" })) { await NekoChat.Tests.ArchivedSupersededChecks.Run(); return; }
 if (args.Length == 1 && NekoChat.Tests.ArchivedSupersededChecks.IsFocusedArgument(args[0]))
@@ -181,6 +182,7 @@ checks += await NekoChat.Tests.InboxWorkspaceChecks.Run();
 checks += NekoChat.Tests.StorageFixChecks.Run();
 checks += await NekoChat.Tests.Limit64kChecks.Run();
 checks += await NekoChat.Tests.ClassroomFramingChecks.Run();
+checks += await NekoChat.Tests.ClassroomListenerChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
 
 Console.WriteLine("Current/shared count excludes archived-superseded signed/P1 suites; classroom runtime acceptance is a separate gate.");
