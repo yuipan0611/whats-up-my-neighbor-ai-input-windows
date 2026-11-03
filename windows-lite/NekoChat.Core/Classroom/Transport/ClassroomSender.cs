@@ -35,6 +35,8 @@ public sealed class ClassroomSender
             AllowAutoRedirect = false,
             UseProxy = false,
             ConnectTimeout = TimeSpan.FromSeconds(3),
+            PooledConnectionLifetime = TimeSpan.Zero,
+            PooledConnectionIdleTimeout = TimeSpan.Zero,
             ConnectCallback = async (context, cancellationToken) =>
             {
                 if (connectCallback is not null)
@@ -126,6 +128,7 @@ public sealed class ClassroomSender
         try
         {
             using var helloRequest = new HttpRequestMessage(HttpMethod.Post, $"http://{targetIp}:{port}/nekochat/classroom/v1/hello");
+            helloRequest.Headers.ConnectionClose = true;
             helloRequest.Content = new ByteArrayContent(helloBytes);
             helloRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
 
@@ -215,6 +218,7 @@ public sealed class ClassroomSender
             {
                 byte[] messageBytes = ClassroomPacketWriter.MessageSend(prepared.MessageId, session, targetIp, prepared.RawText, prepared.Reaction);
                 using var msgRequest = new HttpRequestMessage(HttpMethod.Post, $"http://{targetIp}:{port}/nekochat/classroom/v1/message");
+                msgRequest.Headers.ConnectionClose = true;
                 msgRequest.Content = new ByteArrayContent(messageBytes);
                 msgRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
 
@@ -287,6 +291,7 @@ public sealed class ClassroomSender
                 });
 
                 using var legacyReq = new HttpRequestMessage(HttpMethod.Post, $"http://{targetIp}:{port}/nekochat/v1/direct");
+                legacyReq.Headers.ConnectionClose = true;
                 legacyReq.Content = new StringContent(legacyPayload, Encoding.UTF8, "application/json");
 
                 using var legacyResp = await _http.SendAsync(legacyReq, cancellation).ConfigureAwait(false);
@@ -386,6 +391,7 @@ public sealed class ClassroomSender
         try
         {
             using var helloRequest = new HttpRequestMessage(HttpMethod.Post, $"http://{targetIp}:{port}/nekochat/classroom/v1/hello");
+            helloRequest.Headers.ConnectionClose = true;
             helloRequest.Content = new ByteArrayContent(helloBytes);
             helloRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
 
@@ -449,6 +455,7 @@ public sealed class ClassroomSender
         try
         {
             using var receiptRequest = new HttpRequestMessage(HttpMethod.Post, $"http://{targetIp}:{port}/nekochat/classroom/v1/receipt");
+            receiptRequest.Headers.ConnectionClose = true;
             receiptRequest.Content = new ByteArrayContent(receiptBytes);
             receiptRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
 

@@ -163,6 +163,14 @@ public partial class ChatWindow
             UpdateComposer();
             outcome = await transmission;
         }
+        catch (LocalEndpointResolutionException ex)
+        {
+            await runtime.Worker.Run(s => s.CompleteClassroomAttempt(started.MessageId, new FailedOutcome("local_endpoint_unknown"), null, started.TryCount));
+            SetStatus($"傳送失敗（local_endpoint_unknown：{ex.Message}）；草稿仍在本機，未傳送。");
+            UpdateComposer();
+            await RefreshInboxAsync();
+            return;
+        }
         catch (Exception ex)
         {
             await runtime.Worker.Run(s => s.CompleteClassroomAttempt(started.MessageId, new FailedOutcome("local_endpoint_unknown"), null, started.TryCount));

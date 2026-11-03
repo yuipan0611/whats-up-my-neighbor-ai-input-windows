@@ -23,12 +23,15 @@ public static class ClassroomSendChecks
         public List<string> PathSequence { get; } = new();
         public bool SimulateLegacy { get; set; }
         public bool SetLocalEndpointOption { get; set; } = true;
+        public bool ForceKeepAliveHeader { get; set; }
+        public List<bool?> RequestConnectionCloseSequence { get; } = new();
         public string SessionId { get; set; } = ClassroomPacketWriter.NewToken();
         public string TargetIp { get; set; } = "192.168.1.50";
         public string OwnIp { get; set; } = "192.168.1.10";
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            RequestConnectionCloseSequence.Add(request.Headers.ConnectionClose);
             if (SetLocalEndpointOption)
             {
                 request.Options.Set(ClassroomSender.LocalEndpointOptionKey, OwnIp);
@@ -64,6 +67,7 @@ public static class ClassroomSendChecks
                     Content = new ByteArrayContent(helloOk)
                 };
                 resp.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+                if (ForceKeepAliveHeader) { resp.Headers.Connection.Add("keep-alive"); }
                 return resp;
             }
 
@@ -90,6 +94,7 @@ public static class ClassroomSendChecks
                     Content = new ByteArrayContent(ack)
                 };
                 resp.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+                if (ForceKeepAliveHeader) { resp.Headers.Connection.Add("keep-alive"); }
                 return resp;
             }
 
@@ -121,6 +126,7 @@ public static class ClassroomSendChecks
                     Content = new ByteArrayContent(ack)
                 };
                 resp.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+                if (ForceKeepAliveHeader) { resp.Headers.Connection.Add("keep-alive"); }
                 return resp;
             }
 
@@ -287,6 +293,48 @@ public static class ClassroomSendChecks
             var receiptNegOutcome = await senderNoOption.SendReceiptAsync(dummyReceipt, 8768, ownIp, () => true);
             Check(!receiptNegOutcome.Completed, "SendReceiptAsync without endpoint option is NOT Completed");
             Check(receiptNegOutcome.Status == "local_endpoint_unknown", "SendReceiptAsync status is local_endpoint_unknown");
+
+            // -----------------------------------------------------------------------------------------
+            // Check 6: Peer responds with Connection: keep-alive -> sender must still complete successfully
+            // -----------------------------------------------------------------------------------------
+            string kaPeerIp = "192.168.1.98";
+            var handlerKeepAlive = new TraceHttpMessageHandler
+            {
+                OwnIp = ownIp,
+                TargetIp = kaPeerIp,
+                SetLocalEndpointOption = true,
+                ForceKeepAliveHeader = true
+            };
+            using var httpKeepAlive = new HttpClient(handlerKeepAlive);
+            var senderKeepAlive = new ClassroomSender(store, httpKeepAlive);
+
+            var kaPrincipal = ClassroomPrincipalKey.ForSource(kaPeerIp)!.Value;
+            var startKa = store.BeginClassroomSend(kaPrincipal, "對端 keep-alive 測試", 0, 1);
+            var startedKa = (AttemptStarted)startKa;
+            var prepKa = store.GetClassroomPreparedSend(startedKa.MessageId)!;
+
+            var sendKaOutcome = await senderKeepAlive.SendPreparedAsync(prepKa, 8768, ownIp, () => true);
+            Check(sendKaOutcome.Success, "SendPreparedAsync with peer keep-alive succeeded");
+            Check(sendKaOutcome.Completion is Confirmed, "SendPreparedAsync with peer keep-alive is Confirmed");
+            Check(sendKaOutcome.Route == ClassroomRoute.Classroom, "SendPreparedAsync with peer keep-alive routed to Classroom");
+            Check(handlerKeepAlive.RequestConnectionCloseSequence.Count >= 2, "Sender made both hello and message requests");
+            Check(handlerKeepAlive.RequestConnectionCloseSequence.All(c => c == true), "All outgoing sender requests have ConnectionClose = true");
+
+            // -----------------------------------------------------------------------------------------
+            // Check 7: LocalEndpointResolver resolver tests & LocalEndpointResolutionException
+            // -----------------------------------------------------------------------------------------
+            Check(LocalEndpointResolver.Resolve("127.0.0.1", 8768) == "127.0.0.1", "LocalEndpointResolver 127.0.0.1 returns 127.0.0.1");
+            Check(LocalEndpointResolver.Resolve("127.0.0.8", 8768) == "127.0.0.1", "LocalEndpointResolver loopback range returns 127.0.0.1");
+            bool caughtSpecificEx = false;
+            try
+            {
+                LocalEndpointResolver.Resolve("256.256.256.256", 8768);
+            }
+            catch (LocalEndpointResolutionException)
+            {
+                caughtSpecificEx = true;
+            }
+            Check(caughtSpecificEx, "LocalEndpointResolver throws LocalEndpointResolutionException on unresolvable target (fail closed)");
 
             Console.WriteLine($"Classroom send and store wiring: {checks} checks passed.");
         }

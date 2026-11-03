@@ -106,28 +106,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
         ClassroomReceipts.ReceiptsChanged += () => DataChanged?.Invoke();
         _maintenance = Task.Run(MaintainBackups);
     }
-    internal static string ResolveLocalEndpointIp(string targetIp, int port)
-    {
-        if (IPAddress.TryParse(targetIp, out var ip) && IPAddress.IsLoopback(ip))
-        {
-            return "127.0.0.1";
-        }
-        try
-        {
-            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0);
-            socket.Connect(targetIp, port > 0 ? port : 8768);
-            if (socket.LocalEndPoint is IPEndPoint ep)
-            {
-                var addr = ep.Address;
-                return addr.IsIPv4MappedToIPv6 ? addr.MapToIPv4().ToString() : addr.ToString();
-            }
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"無法解析本機網路端點位址（fail closed）：{ex.Message}", ex);
-        }
-        throw new InvalidOperationException("無法解析本機網路端點位址（fail closed）。");
-    }
+    internal static string ResolveLocalEndpointIp(string targetIp, int port) =>
+        LocalEndpointResolver.Resolve(targetIp, port);
     internal static string RootDirectory(Settings source, bool isolated) => UiTestOptions.ResolveRootDirectory(source, isolated);
     internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null, ChatPairingConfiguration? pairingConfiguration = null) => Task.Run(() => {
         if (!isolated && (configuration is not null || pairingConfiguration is not null))
