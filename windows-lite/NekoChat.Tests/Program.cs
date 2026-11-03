@@ -191,6 +191,7 @@ checks += await NekoChat.Tests.ClassroomFramingChecks.Run();
 checks += await NekoChat.Tests.ClassroomListenerChecks.Run();
 checks += await NekoChat.Tests.ListenerAcceptRecoveryChecks.Run();
 checks += await NekoChat.Tests.ListenerFailurePolicyChecks.Run();
+checks += await NekoChat.Tests.ClassroomWireVectorChecks.Run();
 // M1: shared storage/security, presence and D-10 guards remain mandatory even when their fixtures use signed V2.
 checks += await RunSharedRegressionGuards();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
