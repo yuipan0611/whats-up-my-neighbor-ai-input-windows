@@ -68,7 +68,7 @@ public partial class ChatWindow
             var cancellation = runtime.CancelAttemptAsync(attempt.MessageId, attempt.TryCount); UpdateComposer();
             SetStatus("已要求取消當次網路操作；等待工作結束，對方可能已收到。");
             var result = await cancellation;
-            SetStatus(result.Cancelled || result.Reason == "already-cancelled" ? "已記錄取消當次嘗試；若已有有效確認，仍會保留送達事實。請查看對話與草稿。" : result.Reason == "terminal" ? "這次傳送可能已確認或被取代；取消不能撤回，請查看對話狀態。" : "當次嘗試已改變，未取消新的嘗試。請重新讀取。");
+            SetStatus(result.Cancelled ? "已取消，訊息未送出" : result.Reason == "unconfirmed" ? "已取消，但對方可能已收到；不會自動重送" : result.Reason == "terminal" ? "這次傳送可能已確認或被取代；取消不能撤回，請查看對話狀態。" : "當次嘗試已改變，未取消新的嘗試。請重新讀取。");
             await RefreshInboxAsync();
         }
         catch (Exception ex) { ShowStorageError(ex); }
@@ -163,18 +163,18 @@ public partial class ChatWindow
             UpdateComposer();
             outcome = await transmission;
         }
-        catch (LocalEndpointResolutionException ex)
+        catch (LocalEndpointResolutionException)
         {
             await runtime.Worker.Run(s => s.CompleteClassroomAttempt(started.MessageId, new FailedOutcome("local_endpoint_unknown"), null, started.TryCount));
-            SetStatus($"傳送失敗（local_endpoint_unknown：{ex.Message}）；草稿仍在本機，未傳送。");
+            SetStatus("傳送失敗（本機端點未知）；草稿仍在本機，未傳送。");
             UpdateComposer();
             await RefreshInboxAsync();
             return;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            await runtime.Worker.Run(s => s.CompleteClassroomAttempt(started.MessageId, new FailedOutcome("local_endpoint_unknown"), null, started.TryCount));
-            SetStatus($"傳送失敗（local_endpoint_unknown：{ex.Message}）；草稿仍在本機，未傳送。");
+            // 其他例外一律不動 attempt，UI 顯示「傳送中斷，結果未確認；不會自動重送，要再送請按重送」，然後 RefreshInbox
+            SetStatus("傳送中斷，結果未確認；不會自動重送，要再送請按重送。");
             UpdateComposer();
             await RefreshInboxAsync();
             return;
@@ -182,7 +182,7 @@ public partial class ChatWindow
         if (outcome.Completion is Confirmed { DraftCleared: true } && _selected?.ConversationId == conversation) SetDraftText(buffer.Text);
         SetStatus(outcome.Code == "ok" ? (outcome.Route == NekoChat.Core.Storage.ClassroomRoute.Classroom ? "已驗證對方的儲存確認。" : "已送達（舊版同學）。") : outcome.Code switch {
             "classroom-may-have-delivered" => "先前嘗試可能已送達教室，不降級為舊版重送；請確認後再試。",
-            "cancelled" => "已取消當次網路操作；取消不會清除草稿，對方可能已收到。不會自動重送。",
+            "cancelled" => outcome.Completion is null ? "已取消，訊息未送出" : "已取消，但對方可能已收到；不會自動重送",
             "payload_too_large" => "訊息超過對方可接受的上限，請修改後手動傳送。",
             "storage_unavailable" => "本機無法儲存確認；對方可能已收到，請檢查後手動重送。",
             _ => "尚未確認送達；不會自動重送。要再送請按重送。"

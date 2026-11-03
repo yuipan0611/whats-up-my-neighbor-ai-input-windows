@@ -27,7 +27,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly HashSet<Task> _network = [];
     private readonly Dictionary<(string Id, int Try), ManualSendOperation> _manualSends = [];
-    private readonly Dictionary<(string Id, int Try), CancellationTokenSource> _classroomSends = [];
+    private readonly Dictionary<(string Id, int Try), (CancellationTokenSource Cts, Task<ClassroomSendResult> Task)> _classroomSends = [];
     private readonly V2PacketWriter? _writer;
     private readonly V2LanClient? _client;
     private Task? _disposal;
@@ -171,7 +171,6 @@ internal sealed class ChatRuntime : IAsyncDisposable
             string ownIp = ResolveLocalEndpointIp(prepared.TargetIp, port);
             var key = (prepared.MessageId, prepared.TryCount);
             var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-            _classroomSends[key] = cts;
             var task = Task.Run(async () =>
             {
                 try
@@ -190,6 +189,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
                     cts.Dispose();
                 }
             });
+            _classroomSends.TryAdd(key, (cts, task));
             _network.Add(task);
             return Finish(task);
         }
@@ -198,7 +198,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (_classroomSends.TryGetValue((messageId, tryCount), out var cts)) return !cts.IsCancellationRequested;
+            if (_classroomSends.TryGetValue((messageId, tryCount), out var pair)) return !pair.Cts.IsCancellationRequested;
             return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.CanCancel;
         }
     }
@@ -206,20 +206,50 @@ internal sealed class ChatRuntime : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (_classroomSends.TryGetValue((messageId, tryCount), out var cts)) return cts.IsCancellationRequested;
+            if (_classroomSends.TryGetValue((messageId, tryCount), out var pair)) return pair.Cts.IsCancellationRequested;
             return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.UserCancellationRequested;
         }
     }
-    internal Task<CancelResult> CancelAttemptAsync(string messageId, int tryCount)
+    internal async Task<CancelResult> CancelAttemptAsync(string messageId, int tryCount)
     {
+        CancellationTokenSource? cts = null;
+        Task<ClassroomSendResult>? sendTask = null;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
-            if (_classroomSends.TryGetValue((messageId, tryCount), out var cts))
+            if (_classroomSends.TryGetValue((messageId, tryCount), out var pair))
             {
-                cts.Cancel();
-                // 依 PM 指示：不再呼叫 v1 的 CancelAttempt，由 sender 依 message 位元組是否已寫出自行結束
-                return Task.FromResult<CancelResult>(new Cancelled(messageId, tryCount));
+                cts = pair.Cts;
+                sendTask = pair.Task;
+            }
+        }
+
+        if (cts is not null && sendTask is not null)
+        {
+            cts.Cancel();
+            try
+            {
+                var outcome = await sendTask.ConfigureAwait(false);
+                if (outcome.Completion is Confirmed)
+                {
+                    return new CancelResult(false, "terminal");
+                }
+                else if (outcome.Completion is StateUpdated { State: "unconfirmed" })
+                {
+                    return new CancelResult(false, "unconfirmed");
+                }
+                else
+                {
+                    return new CancelResult(true, "cancelled");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return new CancelResult(true, "cancelled");
+            }
+            catch (Exception)
+            {
+                return new CancelResult(false, "unconfirmed");
             }
         }
 
@@ -231,7 +261,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
         }
         // Do not wait for transport callbacks before persisting the exact user intent off the dispatcher.
         var stored = Worker.Run(s => s.CancelAttempt(messageId, tryCount), CancellationToken.None);
-        return FinishCancellation(cancel, stored);
+        return await FinishCancellation(cancel, stored).ConfigureAwait(false);
     }
     private static async Task<CancelResult> FinishCancellation(Task<bool>? cancellation, Task<CancelResult> stored)
     {

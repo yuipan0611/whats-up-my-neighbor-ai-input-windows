@@ -181,19 +181,30 @@ public sealed class ClassroomSender
                 }
                 else
                 {
-                    string? errCode = null;
-                    try
-                    {
-                        using var doc = JsonDocument.Parse(helloRespBytes);
-                        if (doc.RootElement.TryGetProperty("code", out var c) && c.ValueKind == JsonValueKind.String)
-                            errCode = c.GetString();
-                        else if (doc.RootElement.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String)
-                            errCode = e.GetString();
-                    }
-                    catch { }
+                    var helloContext = new ClassroomResponseContext(
+                        targetIp,
+                        actualLocalIp,
+                        new ClassroomSentRequest(clientNonce, "", "", null, ""),
+                        "msg.plain");
+                    var valResult = ClassroomResponseValidator.Validate(ClassroomResponseKind.HelloOk, helloStatus, helloRespBytes, helloContext);
 
-                    bool isTransient = errCode == "transient" || (errCode is null && helloStatus == 503);
-                    return (false, null, null, errCode ?? (helloStatus == 400 ? "hello_rejected" : $"http_{helloStatus}"), isTransient);
+                    bool isTransient = false;
+                    string errCode;
+                    if (valResult.Code == ClassroomCodes.RemoteError && valResult.RemoteCode == "transient")
+                    {
+                        isTransient = true;
+                        errCode = "transient";
+                    }
+                    else if (valResult.Code == ClassroomCodes.RemoteError)
+                    {
+                        errCode = valResult.RemoteCode!;
+                    }
+                    else
+                    {
+                        errCode = helloStatus == 400 ? "hello_rejected" : $"http_{helloStatus}";
+                    }
+
+                    return (false, null, null, errCode, isTransient);
                 }
             }
         }
@@ -235,8 +246,8 @@ public sealed class ClassroomSender
             int scalarCount = prepared.RawText.EnumerateRunes().Count();
             if (scalarCount > MessageLimitPolicy.LegacyMaxScalars) // 2000
             {
-                var unconfirmed = _store.CompleteClassroomAttempt(prepared.MessageId, new UnconfirmedOutcome(), targetIp, prepared.TryCount);
-                return new ClassroomSendResult(false, "legacy_payload_too_large", unconfirmed, ClassroomRoute.Legacy);
+                var failed = _store.CompleteClassroomAttempt(prepared.MessageId, new FailedOutcome("legacy_payload_too_large"), targetIp, prepared.TryCount);
+                return new ClassroomSendResult(false, "legacy_payload_too_large", failed, ClassroomRoute.Legacy);
             }
         }
 
@@ -267,8 +278,16 @@ public sealed class ClassroomSender
             {
                 if (cancellation.IsCancellationRequested)
                 {
-                    var comp = _store.CompleteClassroomAttempt(prepared.MessageId, new UnconfirmedOutcome(), targetIp, prepared.TryCount);
-                    return new ClassroomSendResult(false, "cancelled", comp, ClassroomRoute.Classroom);
+                    if (sessionTry == 0)
+                    {
+                        _store.CancelClassroomAttempt(prepared.MessageId, prepared.TryCount);
+                        return new ClassroomSendResult(false, "cancelled", null, ClassroomRoute.Classroom);
+                    }
+                    else
+                    {
+                        var comp = _store.CompleteClassroomAttempt(prepared.MessageId, new UnconfirmedOutcome(), targetIp, prepared.TryCount);
+                        return new ClassroomSendResult(false, "cancelled", comp, ClassroomRoute.Classroom);
+                    }
                 }
 
                 try
@@ -433,20 +452,6 @@ public sealed class ClassroomSender
         }
     }
 
-    private static bool IsStaleSessionPayload(byte[] body)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("code", out var c) && c.GetString() == ClassroomCodes.StaleSession)
-                return true;
-            if (doc.RootElement.TryGetProperty("error", out var e) && e.GetString() == ClassroomCodes.StaleSession)
-                return true;
-        }
-        catch { }
-        return false;
-    }
-
     private static string? ExtractActualLocalIp(HttpRequestMessage request)
     {
         if (request.Options.TryGetValue(LocalEndpointOptionKey, out var optIp) && !string.IsNullOrWhiteSpace(optIp))
@@ -578,14 +583,15 @@ public sealed class ClassroomSender
                 }
                 byte[] respBytes = await receiptResponse.Content.ReadAsByteArrayAsync(cancellation).ConfigureAwait(false);
 
+                var ackContext = new ClassroomResponseContext(
+                    targetIp,
+                    actualReceiptLocalIp,
+                    new ClassroomSentRequest(clientNonce, session!, receipt.MessageId, null, ""),
+                    null);
+                var ackResult = ClassroomResponseValidator.Validate(ClassroomResponseKind.ReceiptAck, statusCode, respBytes, ackContext);
+
                 if (statusCode == 200)
                 {
-                    var ackContext = new ClassroomResponseContext(
-                        targetIp,
-                        actualReceiptLocalIp,
-                        new ClassroomSentRequest(clientNonce, session!, receipt.MessageId, null, ""),
-                        null);
-                    var ackResult = ClassroomResponseValidator.Validate(ClassroomResponseKind.ReceiptAck, 200, respBytes, ackContext);
                     if (ackResult.Ok && ackResult.Status is not null)
                     {
                         string ackStatus = ackResult.Status;
@@ -597,9 +603,9 @@ public sealed class ClassroomSender
                     }
                     return new ClassroomReceiptSendResult(false, "invalid_response", "invalid_ack_payload");
                 }
-                else if (statusCode == 409 || statusCode == 400 && IsStaleSessionPayload(respBytes))
+                else if (statusCode == 409 && ackResult.Code == ClassroomCodes.RemoteError && ackResult.RemoteCode == ClassroomCodes.StaleSession)
                 {
-                    // §9 第 3 點: 收到 stale_session，重新 hello 重發一次
+                    // §9 第 3 點: 收到合法的 409 stale_session，重新 hello 重發一次
                     if (receiptTry == 0)
                     {
                         var reProbe = await ProbeReceiptHelloAsync().ConfigureAwait(false);
@@ -617,7 +623,7 @@ public sealed class ClassroomSender
                 }
                 else
                 {
-                    return new ClassroomReceiptSendResult(false, "transient", $"http_{statusCode}");
+                    return new ClassroomReceiptSendResult(false, "transient", ackResult.RemoteCode ?? $"http_{statusCode}");
                 }
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)

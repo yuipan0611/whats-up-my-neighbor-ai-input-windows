@@ -18,6 +18,20 @@ namespace NekoChat.Tests;
 
 public static class ClassroomSendChecks
 {
+    private sealed class Check7TimeProvider : TimeProvider
+    {
+        private DateTimeOffset _utcNow = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
+        private long _timestamp = 1000;
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+        public override long GetTimestamp() => _timestamp;
+        public override long TimestampFrequency => 1000;
+        public void Advance(TimeSpan span)
+        {
+            _utcNow += span;
+            _timestamp += (long)(span.TotalSeconds * TimestampFrequency);
+        }
+    }
+
     private sealed class TraceHttpMessageHandler : HttpMessageHandler
     {
         public List<string> PathSequence { get; } = new();
@@ -335,6 +349,54 @@ public static class ClassroomSendChecks
                 caughtSpecificEx = true;
             }
             Check(caughtSpecificEx, "LocalEndpointResolver throws LocalEndpointResolutionException on unresolvable target (fail closed)");
+
+            // Check 7b: ReceiptService catches LocalEndpointResolutionException, fails closed (TotalCompleted=0, outbox retained),
+            // backs off exponentially up to 8 attempts, and ceases attempts after the 8th try (catching completed=true mutant)
+            store.SetReadReceiptPolicy(true);
+            var rxRes7 = store.ReceiveClassroomMessage(peerIp, new ClassroomIncoming(Guid.NewGuid().ToString(), "Check 7 message"), () => true);
+            long rxSeq7 = ((ClassroomStored)rxRes7).LocalSeq;
+            store.MarkClassroomVisibleRead(principal, new[] { rxSeq7 }, new VisibleReadContext(principal.Value, true, true, false, true));
+            Check(store.ListPendingClassroomReceipts(10).Count == 1, "Check 7b: outbox has 1 queued receipt before processing");
+
+            var fakeClock7 = new Check7TimeProvider();
+            var failingResolver = new Func<string, string>(target => throw new LocalEndpointResolutionException("Check 7 injected failure"));
+            await using var failingReceiptService = new ClassroomReceiptService(
+                store,
+                sender1,
+                port: 8768,
+                ownIp: ownIp,
+                clock: fakeClock7,
+                ownIpResolver: failingResolver);
+
+            await failingReceiptService.ProcessOutboxBatchAsync();
+            Check(store.ListPendingClassroomReceipts(10).Count == 1, "Check 7b: outbox still retains 1 receipt on resolution failure");
+            Check(failingReceiptService.TotalCompleted == 0, "Check 7b: TotalCompleted is 0 on resolution failure");
+            Check(failingReceiptService.TotalAttempts == 1, "Check 7b: TotalAttempts is 1 after first try");
+
+            TimeSpan[] backoffs = [
+                TimeSpan.FromSeconds(31),
+                TimeSpan.FromSeconds(61),
+                TimeSpan.FromSeconds(121),
+                TimeSpan.FromSeconds(241),
+                TimeSpan.FromSeconds(481),
+                TimeSpan.FromSeconds(961),
+                TimeSpan.FromSeconds(1921)
+            ];
+
+            for (int attempt = 2; attempt <= 8; attempt++)
+            {
+                fakeClock7.Advance(backoffs[attempt - 2]);
+                await failingReceiptService.ProcessOutboxBatchAsync();
+                Check(failingReceiptService.TotalAttempts == attempt, $"Check 7b: TotalAttempts is {attempt} after backoff");
+                Check(failingReceiptService.TotalCompleted == 0, $"Check 7b: TotalCompleted is still 0 at attempt {attempt}");
+                Check(store.ListPendingClassroomReceipts(10).Count == 1, $"Check 7b: outbox retains 1 receipt at attempt {attempt}");
+            }
+
+            fakeClock7.Advance(TimeSpan.FromHours(1));
+            await failingReceiptService.ProcessOutboxBatchAsync();
+            Check(failingReceiptService.TotalAttempts == 8, "Check 7b: attempts bounded at 8; no 9th attempt");
+            Check(failingReceiptService.TotalCompleted == 0, "Check 7b: TotalCompleted remains 0 after 8 attempts");
+            Check(store.ListPendingClassroomReceipts(10).Count == 1, "Check 7b: outbox still retains 1 receipt after budget exhausted");
 
             Console.WriteLine($"Classroom send and store wiring: {checks} checks passed.");
         }
