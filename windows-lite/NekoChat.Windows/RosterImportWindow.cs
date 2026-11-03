@@ -121,6 +121,6 @@ public partial class ChatWindow
     {
         if (_runtime is null) { SetStatus("本機資料尚未就緒，請先重新讀取。"); return; }
         var preview = new RosterImportWindow(_runtime) { Owner = this };
-        if (preview.ShowDialog() == true) { _runtime.Presence?.Refresh(); DataChanged(); SetStatus("已套用名單；不會自動配對身分。"); }
+        if (preview.ShowDialog() == true) { _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); DataChanged(); SetStatus("已套用名單；不會自動配對身分。"); }
     }
 }

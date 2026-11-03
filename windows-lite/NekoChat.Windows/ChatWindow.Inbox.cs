@@ -92,7 +92,36 @@ public partial class ChatWindow
             do
             {
                 _refreshAgain = false;
-                _snapshot = await _runtime.Worker.Run(s => s.GetInboxSnapshot());
+                if (_runtime.ArchivedIdentityFixture)
+                {
+                    _snapshot = await _runtime.Worker.Run(s => s.GetInboxSnapshot());
+                }
+                else
+                {
+                    var crSnapshot = await _runtime.Worker.Run(s => s.GetClassroomInboxSnapshot());
+                    var entries = crSnapshot.Entries.Select(e => new InboxEntry(
+                        e.Principal.Value,
+                        e.RosterEntryId,
+                        e.Label,
+                        e.StudentNumber,
+                        e.IsTeacher,
+                        e.Endpoint,
+                        null,
+                        e.Principal.Value,
+                        null,
+                        e.ClassroomUnread,
+                        e.LegacyUnread,
+                        e.LatestText,
+                        e.LatestUtc,
+                        e.LatestIsLegacy,
+                        e.Draft,
+                        e.Attempt is null ? null : new PendingSendSummary(e.Attempt.MessageId, e.Attempt.State, e.Attempt.RawSnapshot, e.Attempt.TryCount, e.Attempt.DraftEpoch, e.Attempt.DraftRevision),
+                        e.LegacyScope,
+                        e.Removed,
+                        e.CanSend
+                    ));
+                    _snapshot = new InboxSnapshot(entries);
+                }
                 if (_stopping) return;
                 var previous = _selected; var current = previous?.Id;
                 _selected = current is null ? _replyLookupPending ? null : _snapshot.Entries.FirstOrDefault() : _snapshot.Entries.FirstOrDefault(e => e.Id == current);
@@ -114,7 +143,11 @@ public partial class ChatWindow
     private string StateOf(InboxEntry entry)
     {
         if (_runtime?.ArchivedIdentityFixture != true)
-            return entry.Endpoint is null ? "未設定位址" : entry.LegacyUnread > 0 ? "舊版訊息・在線狀態待確認" : "在線狀態待確認";
+        {
+            if (entry.Removed) return "已從名單移除，不能發送，可查看對話";
+            if (entry.Endpoint is null) return "未設定位址";
+            return entry.LegacyUnread > 0 ? "舊版訊息・在線狀態待確認" : "在線狀態待確認";
+        }
         if (entry.Pairing is PairingState.Suspended) return "配對已暫停，請重新核對身分";
         if (entry.Pairing is PairingState.Revoked) return "配對已撤銷";
         var presence = entry.RosterId is { } row ? _runtime?.Presence?.GetSnapshot(row) : null;
@@ -198,7 +231,20 @@ public partial class ChatWindow
         foreach (var pair in _drafts.Where(p => p.Value.Dirty && !p.Value.Clearing).ToArray())
         {
             var ticket = pair.Value.Capture();
-            try { var result = await _runtime.Worker.Run(s => ticket.Persist(s, pair.Key)); pair.Value.CompleteWrite(ticket, result); if (!result.Saved && pair.Value.IsCurrent(ticket) && pair.Value.Dirty) StorageStatus.Text = "草稿尚未儲存，請重新讀取或保留目前文字後重試。"; }
+            try
+            {
+                var result = await _runtime.Worker.Run(s => {
+                    if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(pair.Key, out var principal))
+                    {
+                        var cr = s.SaveClassroomDraft(principal, ticket.Text, ticket.Epoch, ticket.Revision);
+                        return new DraftSaveResult(cr.Saved, cr.Reason, cr.CurrentEpoch, cr.CurrentRevision);
+                    }
+                    return ticket.Persist(s, pair.Key);
+                });
+                pair.Value.CompleteWrite(ticket, result);
+                if (!result.Saved && pair.Value.IsCurrent(ticket) && pair.Value.Dirty)
+                    StorageStatus.Text = result.Reason == "draft-too-large" ? "草稿太長無法保存，請縮短。" : "草稿尚未儲存，請重新讀取或保留目前文字後重試。";
+            }
             catch (Exception ex) { ShowStorageError(ex); }
         }
         UpdateComposer();
@@ -206,7 +252,7 @@ public partial class ChatWindow
     private void UpdateComposer()
     {
         if (!_initializedInbox) return;
-        var buffer = CurrentDraft(); bool attached = _runtime is not null; bool ready = attached && _runtime!.CanSend && (_runtime.ArchivedIdentityFixture ? _selected?.Pairing == PairingState.Paired : _selected?.Endpoint is not null);
+        var buffer = CurrentDraft(); bool attached = _runtime is not null; bool ready = attached && _runtime!.CanSend && (_runtime.ArchivedIdentityFixture ? _selected?.Pairing == PairingState.Paired : _selected?.CanSend == true);
         Draft.IsEnabled = !_stopping && !_closingRequested && (attached ? buffer is { Clearing: false } : _receiverRunning);
         bool valid = !string.IsNullOrWhiteSpace(Draft.Text) && (_runtime?.MaximumTextBytes is not { } limit || V2Text.Check(Draft.Text, limit) == V2TextProblem.None);
         SendButton.IsEnabled = !_closingRequested && !_sending && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
@@ -221,8 +267,14 @@ public partial class ChatWindow
         CheckIdentityButton.IsEnabled = _runtime?.ArchivedIdentityFixture == true && !_identityRecoveryBusy && !_closingRequested;
         string count = CurrentRecipientIsLegacy ? $"{Draft.Text.EnumerateRunes().Count()} / {MessageLimitPolicy.LegacyMaxScalars:N0} 字（舊版） · " :
             _runtime?.MaximumTextBytes is { } maximum ? $"{Encoding.UTF8.GetByteCount(Draft.Text)} / {maximum} UTF-8 位元組 · " : "";
-        DraftStatus.Text = (buffer?.Dirty == true ? "草稿尚未儲存 · " : "") + count + (!attached ? "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出" :
-            buffer is null ? "選擇一位同學後編輯草稿。" : !_runtime!.CanSend ? "教室傳送服務尚未就緒；可編輯及儲存既有草稿。" : !valid && Draft.Text.Length > 0 ? "內容不符合訊息格式或超過上限。" : "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出");
+        string prompt = !attached ? "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出" :
+            buffer is null ? "選擇一位同學後編輯草稿。" :
+            _selected?.Removed == true ? "已從名單移除，不能發送；可查看對話與既有草稿。" :
+            _selected?.Endpoint is null ? "未設定位址，不能發送；可編輯及儲存既有草稿。" :
+            !_runtime!.CanSend ? "教室傳送服務尚未就緒；可編輯及儲存既有草稿。" :
+            !valid && Draft.Text.Length > 0 ? "內容不符合訊息格式或超過上限。" :
+            "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出";
+        DraftStatus.Text = (buffer?.Dirty == true ? "草稿尚未儲存 · " : "") + count + prompt;
         if (CurrentRecipientIsLegacy && MessageLimitPolicy.Check(Draft.Text, true) == MessageLimitVerdict.LegacyTooLarge)
             DraftStatus.Text += " · 草稿超過舊版上限；傳送前會重新確認版本，不會截斷原文。";
     }
@@ -244,22 +296,33 @@ public partial class ChatWindow
         try
         {
             long? before = older ? _beforeMessage : null, legacyBefore = older ? _beforeLegacy : null;
-            var page = await _runtime.Worker.Run(s => (Message: entry.ConversationId is { } conv && (!older || before is not null) ? s.ListMessages(conv, before) : null,
-                Legacy: entry.LegacyScope is { } scope && (!older || legacyBefore is not null) ? s.ListLegacyMessages(scope, legacyBefore) : null));
+            var page = await _runtime.Worker.Run(s => {
+                if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(entry.ConversationId, out var principal))
+                {
+                    var crPage = (!older || before is not null) ? s.ListClassroomMessages(principal, before) : null;
+                    var legPage = entry.LegacyScope is { } scope && (!older || legacyBefore is not null) ? s.ListLegacyMessages(scope, legacyBefore) : null;
+                    return (Classroom: crPage, Message: (MessagePage?)null, Legacy: legPage);
+                }
+                return (Classroom: (ClassroomMessagePage?)null,
+                    Message: entry.ConversationId is { } conv && (!older || before is not null) ? s.ListMessages(conv, before) : null,
+                    Legacy: entry.LegacyScope is { } legScope && (!older || legacyBefore is not null) ? s.ListLegacyMessages(legScope, legacyBefore) : null);
+            });
             if (_stopping || generation != Volatile.Read(ref _viewGeneration) || entry.Id != _selected?.Id) return;
             if (reset) History.Rows.Clear();
+            var crRows = page.Classroom?.Items.Select(m => new MessageView("cr:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
+                m.Direction == "outgoing" ? (m.DeliveryLabel ?? (m.RemoteReadAt is not null ? "已讀" : m.RemoteStoredAt is not null ? "對方已儲存" : "")) : (m.LocalReadAt is not null ? "本機已讀" : ""))) ?? [];
             var rows = page.Message?.Items.Select(m => new MessageView("v2:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
                 m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "")) ?? [];
             var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""))) ?? [];
             var existing = History.Rows.ToDictionary(m => m.Key, StringComparer.Ordinal); int oldCount = existing.Count;
-            foreach (var row in rows.Concat(legacy)) { if (existing.TryGetValue(row.Key, out var old)) old.Delivery = row.Delivery; else existing.Add(row.Key, row); }
+            foreach (var row in crRows.Concat(rows).Concat(legacy)) { if (existing.TryGetValue(row.Key, out var old)) old.Delivery = row.Delivery; else existing.Add(row.Key, row); }
             var sorted = existing.Values.OrderBy(m => m.Utc, StringComparer.Ordinal).ThenBy(m => m.Legacy).ThenBy(m => m.Sequence).ToArray();
             for (int i = 0; i < sorted.Length; i++)
             {
                 if (i < History.Rows.Count && ReferenceEquals(History.Rows[i], sorted[i])) continue;
                 int index = History.Rows.IndexOf(sorted[i]); if (index >= 0) History.Rows.Move(index, i); else History.Rows.Insert(i, sorted[i]);
             }
-            if (older || reset) { _beforeMessage = page.Message?.NextBeforeLocalSeq; _beforeLegacy = page.Legacy?.NextBeforeLegacySeq; }
+            if (older || reset) { _beforeMessage = page.Classroom?.NextBeforeLocalSeq ?? page.Message?.NextBeforeLocalSeq; _beforeLegacy = page.Legacy?.NextBeforeLegacySeq; }
             OlderMessages.Visibility = _beforeMessage is not null || _beforeLegacy is not null ? Visibility.Visible : Visibility.Collapsed;
             _historyLoaded = true; HistoryState.Text = History.Rows.Count == 0 ? "還沒有訊息" : ""; HistoryState.Visibility = History.Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             if (!older && (reset || wasAtEnd)) ScrollLatest(); else if (!older && History.Rows.Count > oldCount) NewMessages.Visibility = Visibility.Visible;
@@ -298,9 +361,15 @@ public partial class ChatWindow
             var context = VisibleContext(entry.ConversationId); long readGeneration = _runtime.Reads.Update(context);
             bool StillCurrent() => !_stopping && generation == Volatile.Read(ref _viewGeneration);
             int marked = 0;
-            if (entry.ConversationId is { } conv && signed.Length > 0) marked += (await _runtime.Worker.Run(_ => StillCurrent() ? _runtime.Reads.Mark(conv, readGeneration, signed) : new(0, 0, "stale-view"))).Marked;
+            if (entry.ConversationId is { } conv && signed.Length > 0)
+            {
+                if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(conv, out var principal))
+                    marked += (await _runtime.Worker.Run(s => StillCurrent() ? s.MarkClassroomVisibleRead(principal, signed, context, StillCurrent) : new VisibleReadResult(0, 0, "stale-view"))).Marked;
+                else
+                    marked += (await _runtime.Worker.Run(_ => StillCurrent() ? _runtime.Reads.Mark(conv, readGeneration, signed) : new(0, 0, "stale-view"))).Marked;
+            }
             if (entry.LegacyScope is { } scope && legacy.Length > 0) marked += (await _runtime.Worker.Run(s => s.MarkLegacyVisibleRead(scope, legacy, context with { ActiveConversationId = scope.ContextId }, StillCurrent))).Marked;
-            if (marked > 0) { _runtime.Receipts?.Pulse(); await RefreshInboxAsync(); }
+            if (marked > 0) { _runtime.Receipts?.Pulse(); _runtime.ClassroomReceipts?.Pulse(); await RefreshInboxAsync(); }
         }
         catch (Exception ex) { ShowStorageError(ex); }
         finally { _readBusy = false; }
@@ -374,7 +443,7 @@ public partial class ChatWindow
             {
                 if (generation == _manualFormGeneration) { _editingRosterId = result.EntryId; _manualFormSnapshot = result.SnapshotToken; SaveContactButton.Content = "儲存這位同學"; DeleteContactButton.IsEnabled = true; }
                 if (generation == _manualFormGeneration) await LoadManualFormAsync(result.EntryId);
-                SetStatus(result.Changed ? "名單已儲存。" : "名單沒有變動。"); _runtime.Presence?.Refresh(); await RefreshInboxAsync();
+                SetStatus(result.Changed ? "名單已儲存。" : "名單沒有變動。"); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync();
             }
             else StorageStatus.Text = RosterFailure(result.Reason);
         }
@@ -382,19 +451,23 @@ public partial class ChatWindow
     }
     private async void DeleteRosterClick(object sender, RoutedEventArgs e)
     {
-        if (_runtime is null || _editingRosterId is not { } id || _manualFormSnapshot is not { } token) return;
-        if (MessageBox.Show(this, "移除此名單標籤？\n已確認對話保留；舊版訊息改為匿名，不會刪除內容。", "移除名單標籤", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        if (_runtime is null || _editingRosterId is not { } id) return;
         try
         {
+            var preview = await _runtime.Worker.Run(s => s.PreviewRosterDelete(id));
+            if (!preview.CanDelete) { StorageStatus.Text = RosterFailure(preview.Reason); return; }
+            if (MessageBox.Show(this, preview.Notice, "移除名單標籤", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
             await _runtime.InvalidatePairingAsync("roster_delete");
-            var result = await _runtime.Worker.Run(s => s.DeleteRosterEntry(id, token));
+            var result = await _runtime.Worker.Run(s => s.DeleteRosterEntry(id, preview.SnapshotToken, preview.ToConfirmation()));
             if (!result.Changed) { StorageStatus.Text = RosterFailure(result.Reason); return; }
-            await LoadManualFormAsync(null); _runtime.Presence?.Refresh(); await RefreshInboxAsync(true); SetStatus("名單標籤已移除，對話仍保留。");
+            await LoadManualFormAsync(null); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync(true); SetStatus("名單標籤已移除，對話仍保留。");
         }
         catch (Exception ex) { ShowStorageError(ex); }
     }
     private static string RosterFailure(string reason) => reason switch {
         "roster_changed" => "名單已變動，尚未儲存。請保留目前輸入，重新開啟設定後再檢查。",
+        "confirmation_mismatch" => "名單已被修改，請重新開啟設定後再確認刪除。",
+        "not-found" => "這筆名單已不存在。",
         "duplicate-endpoint" => "這個 IP 已在名單中，請編輯原本那位同學。",
         "duplicate-student-number" => "學號已存在，請檢查原本的名單。",
         "invalid-endpoint" => "請填寫可用的同網段 IPv4；不能填自己、廣播或回送位址。",

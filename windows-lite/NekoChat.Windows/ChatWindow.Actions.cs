@@ -82,6 +82,12 @@ public partial class ChatWindow
         try
         {
             var fresh = await _runtime.Worker.Run(s => {
+                if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(entry.ConversationId, out var principal))
+                {
+                    s.ClearClassroomConversation(principal);
+                    if (entry.LegacyScope is { } legacyScope) s.ClearLegacyHistory(legacyScope);
+                    return s.GetClassroomDraftState(principal);
+                }
                 if (entry.ConversationId is { } conv) { s.ClearConversation(conv); return s.GetDraftState(conv); }
                 if (entry.LegacyScope is { } scope) s.ClearLegacyHistory(scope); return null;
             });
@@ -110,8 +116,20 @@ public partial class ChatWindow
         var runtime = _runtime;
         var writes = _drafts.Where(p => p.Value.Dirty && !p.Value.Clearing).Select(p => (p.Key, Buffer: p.Value, Ticket: p.Value.Capture())).ToArray();
         return Task.WhenAll(writes.Select(write => runtime.Worker.Run(s => {
-            var saved = write.Ticket.Persist(s, write.Key); write.Buffer.CompleteWrite(write.Ticket, saved);
-            if (!saved.Saved && write.Buffer.IsCurrent(write.Ticket) && write.Buffer.Dirty) throw new InvalidOperationException("Draft could not be saved before exit."); return saved;
+            DraftSaveResult saved;
+            if (!runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(write.Key, out var principal))
+            {
+                var cr = s.SaveClassroomDraft(principal, write.Ticket.Text, write.Ticket.Epoch, write.Ticket.Revision);
+                saved = new DraftSaveResult(cr.Saved, cr.Reason, cr.CurrentEpoch, cr.CurrentRevision);
+            }
+            else
+            {
+                saved = write.Ticket.Persist(s, write.Key);
+            }
+            write.Buffer.CompleteWrite(write.Ticket, saved);
+            if (!saved.Saved && write.Buffer.IsCurrent(write.Ticket) && write.Buffer.Dirty && saved.Reason != "draft-too-large")
+                throw new InvalidOperationException("Draft could not be saved before exit.");
+            return saved;
         }, CancellationToken.None)));
     }
 
