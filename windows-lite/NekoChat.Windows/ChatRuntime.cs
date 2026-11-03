@@ -170,6 +170,10 @@ internal sealed class ChatRuntime : IAsyncDisposable
             _lifetime.Token.ThrowIfCancellationRequested();
             string ownIp = ResolveLocalEndpointIp(prepared.TargetIp, port);
             var key = (prepared.MessageId, prepared.TryCount);
+            if (_classroomSends.ContainsKey(key))
+            {
+                throw new InvalidOperationException($"Classroom send already in progress for message {prepared.MessageId} try {prepared.TryCount}.");
+            }
             var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             var task = Task.Run(async () =>
             {
@@ -189,7 +193,11 @@ internal sealed class ChatRuntime : IAsyncDisposable
                     cts.Dispose();
                 }
             });
-            _classroomSends.TryAdd(key, (cts, task));
+            if (!_classroomSends.TryAdd(key, (cts, task)))
+            {
+                cts.Dispose();
+                throw new InvalidOperationException($"Classroom send already in progress for message {prepared.MessageId} try {prepared.TryCount}.");
+            }
             _network.Add(task);
             return Finish(task);
         }
@@ -226,7 +234,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
 
         if (cts is not null && sendTask is not null)
         {
-            cts.Cancel();
+            ClassroomSendUiPolicy.SafeCancel(cts);
             try
             {
                 var outcome = await sendTask.ConfigureAwait(false);
@@ -236,9 +244,10 @@ internal sealed class ChatRuntime : IAsyncDisposable
             {
                 return new CancelResult(true, "cancelled");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return new CancelResult(false, "unconfirmed");
+                await Worker.Run(s => s.CompleteClassroomAttempt(messageId, new UnconfirmedOutcome(), null, tryCount)).ConfigureAwait(false);
+                return ClassroomSendUiPolicy.DecideCancelResultFromException(ex);
             }
         }
 

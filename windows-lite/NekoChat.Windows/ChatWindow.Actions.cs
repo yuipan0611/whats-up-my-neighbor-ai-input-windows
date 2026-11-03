@@ -66,7 +66,7 @@ public partial class ChatWindow
         try
         {
             var cancellation = runtime.CancelAttemptAsync(attempt.MessageId, attempt.TryCount); UpdateComposer();
-            SetStatus("已要求取消當次網路操作；等待工作結束，對方可能已收到。");
+            SetStatus(ClassroomSendUiPolicy.CancelInitiatedStatusText);
             var result = await cancellation;
             SetStatus(ClassroomSendUiPolicy.DecideCancelClickResult(result));
             await RefreshInboxAsync();
@@ -169,6 +169,10 @@ public partial class ChatWindow
             if (decision.Action == AttemptActionKind.MarkFailed)
             {
                 await runtime.Worker.Run(s => s.CompleteClassroomAttempt(started.MessageId, new FailedOutcome(decision.FailedReason!), null, started.TryCount));
+            }
+            else if (decision.Action == AttemptActionKind.MarkUnconfirmed)
+            {
+                await runtime.Worker.Run(s => s.CompleteClassroomAttempt(started.MessageId, new UnconfirmedOutcome(), null, started.TryCount));
             }
             SetStatus(decision.StatusText);
             UpdateComposer();
