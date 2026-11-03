@@ -230,18 +230,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             try
             {
                 var outcome = await sendTask.ConfigureAwait(false);
-                if (outcome.Completion is Confirmed)
-                {
-                    return new CancelResult(false, "terminal");
-                }
-                else if (outcome.Completion is StateUpdated { State: "unconfirmed" })
-                {
-                    return new CancelResult(false, "unconfirmed");
-                }
-                else
-                {
-                    return new CancelResult(true, "cancelled");
-                }
+                return ClassroomSendUiPolicy.DecideCancelResultFromOutcome(outcome);
             }
             catch (OperationCanceledException)
             {

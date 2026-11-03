@@ -25,51 +25,55 @@ if (args.SequenceEqual(new[] { "--listener-accept-recovery" })) { await NekoChat
 if (args.SequenceEqual(new[] { "--classroom-listener" })) { await NekoChat.Tests.ClassroomListenerChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-inbox" })) { NekoChat.Tests.ClassroomInboxChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--classroom-ui-policy" })) { NekoChat.Tests.ClassroomSendUiPolicyChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-all" }))
 {
-    Console.WriteLine("=== Running all classroom focused test suites (13 suites total) ===");
+    Console.WriteLine("=== Running all classroom focused test suites (14 suites total) ===");
     try
     {
-        Console.WriteLine("[1/13] Running ClassroomAdapterIndependentChecks...");
+        Console.WriteLine("[1/14] Running ClassroomAdapterIndependentChecks...");
         await NekoChat.Tests.ClassroomAdapterIndependentChecks.RunAsync();
 
-        Console.WriteLine("[2/13] Running ClassroomSenderIndependentChecks...");
+        Console.WriteLine("[2/14] Running ClassroomSenderIndependentChecks...");
         await NekoChat.Tests.ClassroomSenderIndependentChecks.RunAsync();
 
-        Console.WriteLine("[3/13] Running ClassroomSenderOutcomeIndependentChecks...");
+        Console.WriteLine("[3/14] Running ClassroomSenderOutcomeIndependentChecks...");
         await NekoChat.Tests.ClassroomSenderOutcomeIndependentChecks.RunAsync();
 
-        Console.WriteLine("[4/13] Running ClassroomSendChecks...");
+        Console.WriteLine("[4/14] Running ClassroomSendChecks...");
         await NekoChat.Tests.ClassroomSendChecks.RunAsync();
 
-        Console.WriteLine("[5/13] Running ClassroomEndpointAdapterChecks...");
+        Console.WriteLine("[5/14] Running ClassroomEndpointAdapterChecks...");
         await NekoChat.Tests.ClassroomEndpointAdapterChecks.Run();
 
-        Console.WriteLine("[6/13] Running ClassroomStoreSinkTcpChecks...");
+        Console.WriteLine("[6/14] Running ClassroomStoreSinkTcpChecks...");
         await NekoChat.Tests.ClassroomStoreSinkTcpChecks.RunAsync();
 
-        Console.WriteLine("[7/13] Running ClassroomReceiptChecks...");
+        Console.WriteLine("[7/14] Running ClassroomReceiptChecks...");
         await NekoChat.Tests.ClassroomReceiptChecks.RunAsync();
 
-        Console.WriteLine("[8/13] Running ClassroomStoreChecks...");
+        Console.WriteLine("[8/14] Running ClassroomStoreChecks...");
         NekoChat.Tests.ClassroomStoreChecks.Run();
 
-        Console.WriteLine("[9/13] Running ClassroomListenerChecks...");
+        Console.WriteLine("[9/14] Running ClassroomListenerChecks...");
         await NekoChat.Tests.ClassroomListenerChecks.Run();
 
-        Console.WriteLine("[10/13] Running ClassroomFramingChecks...");
+        Console.WriteLine("[10/14] Running ClassroomFramingChecks...");
         await NekoChat.Tests.ClassroomFramingChecks.Run();
 
-        Console.WriteLine("[11/13] Running StorageBackupChecks...");
+        Console.WriteLine("[11/14] Running StorageBackupChecks...");
         NekoChat.Tests.StorageBackupChecks.Run();
 
-        Console.WriteLine("[12/13] Running ClassroomInboxChecks...");
+        Console.WriteLine("[12/14] Running ClassroomInboxChecks...");
         NekoChat.Tests.ClassroomInboxChecks.Run();
 
-        Console.WriteLine("[13/13] Running UiTestDataChecks...");
+        Console.WriteLine("[13/14] Running UiTestDataChecks...");
         NekoChat.Tests.UiTestDataChecks.Run();
 
-        Console.WriteLine("All 13 classroom focused test suites: ALL PASSED.");
+        Console.WriteLine("[14/14] Running ClassroomSendUiPolicyChecks...");
+        NekoChat.Tests.ClassroomSendUiPolicyChecks.Run();
+
+        Console.WriteLine("All 14 classroom focused test suites: ALL PASSED.");
     }
     catch (Exception e)
     {
