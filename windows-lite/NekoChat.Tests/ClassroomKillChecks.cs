@@ -318,8 +318,9 @@ internal static class ClassroomKillChecks
                 {
                     string scope = $"{sc.Name} / {(phase == "none" ? "no kill (control)" : "kill -9 at " + phase)}";
                     string dir = Path.Combine(root, $"s{i}-{phase}"); Directory.CreateDirectory(dir);
-                    using (var seedStore = ChatStore.Open(Options(dir, null))) sc.Seed(new Env { Store = seedStore, Db = Path.Combine(dir, "nekochat.db") });
                     var c = new Checker(scope, failures);
+                    try { using var seedStore = ChatStore.Open(Options(dir, null)); sc.Seed(new Env { Store = seedStore, Db = Path.Combine(dir, "nekochat.db") }); }
+                    catch (Exception e) when (e is not OutOfMemoryException) { c.That(false, "the scenario could be seeded", e.GetType().Name + ": " + e.Message); total += c.Count; continue; }
                     using (var child = Child.Start("store", i.ToString(), dir, phase))
                     {
                         string? line = child.Next();
@@ -330,7 +331,8 @@ internal static class ClassroomKillChecks
                     using var store = ChatStore.Open(Options(dir, null));
                     var env = new Env { Store = store, Db = Path.Combine(dir, "nekochat.db") };
                     c.That(Text(env.Db, "PRAGMA integrity_check") == "ok", "SQLite integrity_check is ok after the kill");
-                    (BeforePhases.Contains(phase) ? sc.Before : sc.After)(env, c);
+                    try { (BeforePhases.Contains(phase) ? sc.Before : sc.After)(env, c); }
+                    catch (Exception e) when (e is not OutOfMemoryException) { c.That(false, "the checks ran to the end", e.GetType().Name + ": " + e.Message); }
                     total += c.Count;
                 }
             }
