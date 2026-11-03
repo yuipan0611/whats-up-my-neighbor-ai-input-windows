@@ -47,20 +47,22 @@ internal static class ClassroomSenderOutcomeIndependentChecks
     };
     private static WireReply Loopback_Json(byte[] body, int status = 200) => NekoChat.Tests.Loopback.Json(status, body);
 
-    private static async Task<Run> Exercise(Func<WireReq, WireReply>? script, string ownIpParameter, int? cancelAfterMs = null, bool cancelBefore = false, Func<int?, HttpClient>? clientFactory = null)
+    private static async Task<Run> Exercise(Func<WireReq, WireReply>? script, string ownIpParameter, int? cancelAfterMs = null, bool cancelBefore = false, Func<int?, HttpClient>? clientFactory = null, string? textOverride = null, string? cancelAfterStoreCall = null)
     {
         string dir = NekoChat.Tests.Loopback.TempDir("classroom-outcome-indep-");
         try
         {
             using var store = NekoChat.Tests.Loopback.OpenStore(dir);
             var principal = ClassroomPrincipalKey.ForSource(PeerIp)!.Value;
-            var started = (AttemptStarted)store.BeginClassroomSend(principal, Text, 0, 1);
+            string text = textOverride ?? Text;
+            var started = (AttemptStarted)store.BeginClassroomSend(principal, text, 0, 1);
             var prepared = store.GetClassroomPreparedSend(started.MessageId) ?? throw new InvalidOperationException("no prepared send");
             var (proxy, recorder) = RecordingStore.Wrap(store);
             await using var peer = script is null ? null : new LoopbackPeer(script);
             using var http = clientFactory is not null ? clientFactory(peer?.Port) : NekoChat.Tests.Loopback.Client(peer?.Port);
             var sender = new ClassroomSender(proxy, http);
             using var cancel = new CancellationTokenSource();
+            if (cancelAfterStoreCall is not null) recorder.AfterCall = name => { if (name == cancelAfterStoreCall) cancel.Cancel(); };
             if (cancelBefore) cancel.Cancel(); else if (cancelAfterMs is { } ms) cancel.CancelAfter(ms);
             ClassroomSendResult? result = null; string? thrown = null;
             try { result = await sender.SendPreparedAsync(prepared, 8768, ownIpParameter, () => true, cancel.Token); }
@@ -69,7 +71,7 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             string draft = store.GetClassroomDraftState(principal).RawText ?? "";
             string state = AttemptStateOf(dir, started.MessageId);
             string rows = AttemptTryOf(dir, started.MessageId);
-            bool? mayHave = store.BeginClassroomRetry(started.MessageId, principal, Text, 0, 1) is AttemptStarted retry ? retry.PreviousAttemptMayHaveDelivered : null;
+            bool? mayHave = store.BeginClassroomRetry(started.MessageId, principal, text, 0, 1) is AttemptStarted retry ? retry.PreviousAttemptMayHaveDelivered : null;
             return new Run(result, thrown, peer?.Seen ?? Array.Empty<WireReq>(), draft, recorder.Calls, state, mayHave, rows);
         }
         finally { NekoChat.Tests.Loopback.Cleanup(dir); }
@@ -457,6 +459,42 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             var o = await ExerciseReceipt(ReceiptPeer(_ => NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.StaleSession)));
             Check(string.Join(",", o.Seen.Select(r => r.IsHello ? "hello" : "receipt")) == "hello,receipt,hello,receipt", "RS stale_session twice: exactly one retry, no third try", Describe2(o));
             Check(o.Thrown is null && o.Result is { Completed: false } && o.PendingAfter == 1, "RS stale_session twice: the outbox event is kept", Describe2(o));
+        }
+
+        // ---- L (CM-18c ruling 3): the hello answered with the exact legacy signal, but the text is over the legacy 2,000-scalar limit (CM-07). No message byte is written, so the
+        // attempt is `failed` (not unconfirmed) and a manual retry must not warn "may have been delivered". Text and route stay off the wire. ----
+        foreach (var (label, bigText) in new[] { ("2,001 ASCII scalars", new string('a', 2001)), ("2,001 CJK scalars (3 bytes each)", new string('語', 2001)) })
+        {
+            var o = await Exercise(_ => NekoChat.Tests.Loopback.Json(400, Bytes("{\"error\":\"empty_text\"}")), Loopback, textOverride: bigText);
+            Check(o.Thrown is null && !o.Confirmed && !o.TextOnWire && o.Seen.All(r => r.IsHello), $"L legacy peer, {label}: only the hello went out, the text was not sent", Describe(o));
+            Check(o.AttemptState == "failed", $"L legacy peer, {label}: the attempt is failed (nothing was written)", Describe(o) + " state=" + o.AttemptState);
+            Check(o.RetryMayHave == false, $"L legacy peer, {label}: a manual retry does not claim the previous try may have been delivered", "retryMayHave=" + o.RetryMayHave);
+            Check(o.DraftText == bigText, $"L legacy peer, {label}: the draft is kept", "draftLength=" + o.DraftText?.Length);
+        }
+
+        // ---- RS2 (CM-18c ruling 5a): on the receipt route ONLY a well-formed classroom envelope with code stale_session (HTTP 409) triggers the single retry. Any other answer keeps the
+        // outbox event and does NOT retry (CM-13 §9 item 3): wrong_recipient and conflict are also 409; a 409 that is not an envelope is not stale_session; HTTP 400 is never stale_session. ----
+        var noRetryReplies = new (string Name, WireReply Reply)[]
+        {
+            ("409 wrong_recipient", NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.WrongRecipient)),
+            ("409 conflict", NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.Conflict)),
+            ("409 with an HTML body (not an envelope)", new WireRaw(409, "text/html", Bytes("<html>conflict</html>"))),
+            ("400 with a body naming stale_session (HTTP 400 is not stale_session)", new WireRaw(400, "application/json", Bytes("{\"code\":\"stale_session\"}"))),
+        };
+        foreach (var (name, reply) in noRetryReplies)
+        {
+            var o = await ExerciseReceipt(ReceiptPeer(_ => reply));
+            Check(string.Join(",", o.Seen.Select(r => r.IsHello ? "hello" : "receipt")) == "hello,receipt", $"RS2 receipt answered {name}: no retry (exactly one hello and one receipt)", Describe2(o));
+            Check(o.Thrown is null && o.Result is { Completed: false } && o.PendingAfter == 1, $"RS2 receipt answered {name}: the outbox event is kept", Describe2(o));
+        }
+
+        // ---- X (CM-18c ruling 5b): the user cancels in the instant after the route was recorded and before the message request is written (deterministic: the cancel fires inside the
+        // RecordClassroomRoute store call). No message byte was written, so the attempt is `cancelled` (§11.1), not unconfirmed, and the text never goes out. ----
+        {
+            var o = await Exercise(Peer(), Loopback, cancelAfterStoreCall: "RecordClassroomRoute");
+            Check(o.Thrown is null && !o.Confirmed && !o.TextOnWire && o.Seen.Count(r => r.IsClassroomMessage) == 0, "X cancelled right after the route was recorded: the message request is never written", Describe(o));
+            Check(o.AttemptState == "cancelled", "X cancelled right after the route was recorded: the attempt is cancelled (§11.1), not unconfirmed", Describe(o) + " state=" + o.AttemptState);
+            Check(o.RetryMayHave == false, "X cancelled before any byte was written: a manual retry does not warn", "retryMayHave=" + o.RetryMayHave);
         }
 
         // ---- F5: cancellation never records a route and never sends the text (contract §11: cancelled is unconfirmed, nothing is retried). ----

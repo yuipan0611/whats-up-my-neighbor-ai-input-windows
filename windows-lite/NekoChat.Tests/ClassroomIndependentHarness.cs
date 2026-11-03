@@ -160,10 +160,12 @@ public class RecordingStore : DispatchProxy
         var proxy = Create<IChatStore, RecordingStore>(); var recorder = (RecordingStore)(object)proxy; recorder._inner = inner; return (proxy, recorder);
     }
     public IReadOnlyList<(string Method, object?[] Args)> Calls { get { lock (_calls) return _calls.ToArray(); } }
+    /// <summary>Called with the member name right after the real store call returned (used to cancel at an exact point). Never throws into the product.</summary>
+    public Action<string>? AfterCall { get; set; }
     protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
     {
         lock (_calls) _calls.Add((targetMethod!.Name, args ?? Array.Empty<object?>()));
-        try { return targetMethod.Invoke(_inner, args); }
+        try { var result = targetMethod.Invoke(_inner, args); AfterCall?.Invoke(targetMethod.Name); return result; }
         catch (TargetInvocationException e) when (e.InnerException is not null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw(); throw; }
     }
 }
