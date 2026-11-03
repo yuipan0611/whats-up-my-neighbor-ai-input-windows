@@ -47,6 +47,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal string DataDirectory { get; }
     internal bool CanSend => _writer is not null && Listener.Running && !_lifetime.IsCancellationRequested;
     internal CancellationToken Lifetime => _lifetime.Token;
+    internal bool IsStopping => _lifetime.IsCancellationRequested;
+    internal long WireGeneration => Volatile.Read(ref _wireGeneration);
     private ChatRuntime(ChatStore store, string dataDirectory, string identityDirectory, int port, ChatWireConfiguration? configuration, ChatPairingConfiguration? pairingConfiguration, bool isolated, string? warning)
     {
         _store = store; IsolatedData = isolated; DataDirectory = dataDirectory; StartupWarning = warning; Reads = new(store);

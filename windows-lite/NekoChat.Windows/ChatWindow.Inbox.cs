@@ -72,14 +72,14 @@ public partial class ChatWindow
     }
     internal async Task AttachRuntimeAsync(ChatRuntime runtime, int peerPort)
     {
-        _runtime = runtime; ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
+        _runtime = runtime; ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
         var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy()); ReadReceiptToggle.IsChecked = policy.Enabled;
         if (runtime.Presence is { } presence) presence.StateChanged += PresenceChanged;
         await RefreshInboxAsync();
     }
     internal void ShowDataFailure(string message)
     { StorageStatus.Text = message; ReloadData.Visibility = Visibility.Visible; UpdateComposer(); }
-    internal void DetachRuntime() { _pairingWindow?.CloseSafely(); _pairingSelection = null; if (_runtime?.Presence is { } presence) presence.StateChanged -= PresenceChanged; _runtime = null; ArchivedIdentityPanel.Visibility = Visibility.Collapsed; _receiverRunning = false; ReceiverStatus.Text = "接收暫停，等待本機資料就緒。"; RefreshPairingControls(); UpdateComposer(); }
+    internal void DetachRuntime() { _pairingWindow?.CloseSafely(); _pairingSelection = null; if (_runtime?.Presence is { } presence) presence.StateChanged -= PresenceChanged; _runtime = null; ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = Visibility.Collapsed; _receiverRunning = false; ReceiverStatus.Text = "接收暫停，等待本機資料就緒。"; RefreshPairingControls(); UpdateComposer(); }
     internal void DataChanged() { if (!_stopping) _ = RefreshInboxAsync(refreshHistory: true); }
     private void PresenceChanged() => Dispatcher.BeginInvoke(new Action(() => { if (!_stopping) { ApplyInboxFilter(); UpdateHeader(); } }));
     private async Task RefreshInboxAsync(bool refreshHistory = false)
@@ -219,15 +219,21 @@ public partial class ChatWindow
             (attempt.State != "sending" || _runtime!.CanCancelAttempt(attempt.MessageId, attempt.TryCount));
         ClearConversationButton.IsEnabled = attached && _selected is not null && buffer?.Clearing != true;
         CheckIdentityButton.IsEnabled = _runtime?.ArchivedIdentityFixture == true && !_identityRecoveryBusy && !_closingRequested;
-        string count = _runtime?.MaximumTextBytes is { } maximum ? $"{Encoding.UTF8.GetByteCount(Draft.Text)} / {maximum} UTF-8 位元組 · " : "";
+        string count = CurrentRecipientIsLegacy ? $"{Draft.Text.EnumerateRunes().Count()} / {MessageLimitPolicy.LegacyMaxScalars:N0} 字（舊版） · " :
+            _runtime?.MaximumTextBytes is { } maximum ? $"{Encoding.UTF8.GetByteCount(Draft.Text)} / {maximum} UTF-8 位元組 · " : "";
         DraftStatus.Text = (buffer?.Dirty == true ? "草稿尚未儲存 · " : "") + count + (!attached ? "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出" :
             buffer is null ? "選擇一位同學後編輯草稿。" : !_runtime!.CanSend ? "教室傳送服務尚未就緒；可編輯及儲存既有草稿。" : !valid && Draft.Text.Length > 0 ? "內容不符合訊息格式或超過上限。" : "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出");
+        if (CurrentRecipientIsLegacy && MessageLimitPolicy.Check(Draft.Text, true) == MessageLimitVerdict.LegacyTooLarge)
+            DraftStatus.Text += " · 草稿超過舊版上限；傳送前會重新確認版本，不會截斷原文。";
     }
     private void UpdateHeader()
     {
         ConversationTitle.Text = _selected?.DisplayName ?? "選擇一位同學";
         ConversationMeta.Text = _selected is { } entry ? StateOf(entry) + (entry.Endpoint is { } ip ? (entry.RosterId is null ? " · 最近位址 " : " · 名單 IP ") + ip : "") : "對話紀錄保存在本機";
-        TrustBanner.Visibility = History.Rows.Any(r => r.Legacy) ? Visibility.Visible : Visibility.Collapsed;
+        bool legacy = CurrentRecipientIsLegacy;
+        TrustBanner.Visibility = legacy || History.Rows.Any(r => r.Legacy) ? Visibility.Visible : Visibility.Collapsed;
+        TrustBannerText.Text = legacy ? MessageLimitPolicy.LegacyTooLargeNotice + "。傳送前會重新確認版本；舊版確認不代表已儲存或已讀。" :
+            _runtime?.ArchivedIdentityFixture == true ? "含舊版・未驗證訊息；位址或名單名稱不代表身分。" : "含舊版訊息；舊版確認不代表對方已儲存或已讀。";
     }
     private async Task LoadHistoryAsync(bool older, bool reset)
     {
@@ -244,7 +250,7 @@ public partial class ChatWindow
             if (reset) History.Rows.Clear();
             var rows = page.Message?.Items.Select(m => new MessageView("v2:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
                 m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "")) ?? [];
-            var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, "舊版・未驗證" + (m.LocalReadAt is not null ? " · 本機已讀" : ""))) ?? [];
+            var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""))) ?? [];
             var existing = History.Rows.ToDictionary(m => m.Key, StringComparer.Ordinal); int oldCount = existing.Count;
             foreach (var row in rows.Concat(legacy)) { if (existing.TryGetValue(row.Key, out var old)) old.Delivery = row.Delivery; else existing.Add(row.Key, row); }
             var sorted = existing.Values.OrderBy(m => m.Utc, StringComparer.Ordinal).ThenBy(m => m.Legacy).ThenBy(m => m.Sequence).ToArray();

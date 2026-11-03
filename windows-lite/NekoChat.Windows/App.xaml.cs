@@ -234,7 +234,7 @@ public partial class App : Application
     private async Task SendLegacyReactionCoreAsync(string targetIp, string text, ClassroomReaction? reaction, bool preserveDraft)
     {
         if (reaction is null)
-        { chat.SetStatus("一般私訊需要已配對身分與訊息上限設定；不使用舊版直接傳送。"); return; }
+        { chat.SetStatus("教室傳送服務尚未就緒；未傳送，草稿保留。"); return; }
         if (directListener?.Running != true)
         {
             chat.SetStatus("接收服務未啟動，請先處理下方提示後重開 NekoChat。（草稿保留）");
@@ -256,7 +256,7 @@ public partial class App : Application
         try
         {
             await DirectLanMessaging.SendDirectAsync(targetIp, text, directSendPort, reaction: reaction?.Id);
-            chat.SetStatus($"課堂反應已送出，對方回覆舊版確認；身分未驗證。");
+            chat.ShowLegacyDeliveredStatus();
         }
         catch (Exception ex)
         {
@@ -359,7 +359,7 @@ public partial class App : Application
         base.OnExit(e);
     }
     private void AppPowerModeChanged(object sender, PowerModeChangedEventArgs e)
-    { if (e.Mode == PowerModes.Resume) _ = Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) { chatRuntime?.ResetAfterResume(); chat.DataChanged(); } })); }
+    { if (e.Mode == PowerModes.Resume) _ = Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) { chatRuntime?.ResetAfterResume(); chat.ResetRecipientProtocolHints(); chat.DataChanged(); } })); }
 
     private async Task StartDataAsync()
     {

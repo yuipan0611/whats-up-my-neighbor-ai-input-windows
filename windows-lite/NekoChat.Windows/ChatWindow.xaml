@@ -44,7 +44,7 @@
      <Button x:Name="ClearConversationButton" Content="清除對話…" Click="ClearConversationClick" DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Top"/>
      <StackPanel><TextBlock x:Name="ConversationTitle" Text="選擇一位同學" FontSize="16" FontWeight="Bold" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="ConversationMeta" Text="對話紀錄保存在本機" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/></StackPanel>
     </DockPanel></Border>
-    <Border x:Name="TrustBanner" Grid.Row="1" Background="#FFF8E8" Padding="16,6" Visibility="Collapsed"><TextBlock Text="含舊版・未驗證訊息；位址或名單名稱不代表身分。" Foreground="#916015" FontSize="12" TextWrapping="Wrap"/></Border>
+    <Border x:Name="TrustBanner" Grid.Row="1" Background="#FFF8E8" Padding="16,6" Visibility="Collapsed"><TextBlock x:Name="TrustBannerText" Text="含舊版訊息；舊版確認不代表對方已儲存或已讀。" Foreground="#916015" FontSize="12" TextWrapping="Wrap"/></Border>
     <Grid Grid.Row="2"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <Button x:Name="OlderMessages" Content="載入更早訊息" Click="OlderMessagesClick" HorizontalAlignment="Center" Margin="8" Visibility="Collapsed"/>
      <local:MessageHistoryView x:Name="History" Grid.Row="1" BorderThickness="0" Padding="16,8" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" VirtualizingPanel.ScrollUnit="Pixel" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" ScrollViewer.ScrollChanged="HistoryScrolled">

@@ -142,7 +142,7 @@ public partial class App
             : chat.ScrollReaction;
         button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await UntilAsync(() => chat.SmokeSendIdle, cancellation);
-        Require(chat.CanSendReaction && chat.Status.Text.Contains("課堂反應已送出") && !chat.History.Rows.Any(r => r.Outgoing && r.RawText == reaction.Text), "Reaction courtesy ACK failed or invented an outgoing signed message");
+        Require(chat.CanSendReaction && chat.Status.Text.Contains("舊版・已送出") && !chat.History.Rows.Any(r => r.Outgoing && r.RawText == reaction.Text), "Reaction courtesy ACK failed or invented an outgoing signed message");
         Require(chat.Draft.Text == "這份草稿要保留", "Reaction shortcut changed the draft");
     }
 }
