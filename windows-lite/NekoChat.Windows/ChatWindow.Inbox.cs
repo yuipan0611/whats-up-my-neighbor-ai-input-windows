@@ -486,7 +486,11 @@ public partial class ChatWindow
     { for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) { var child = VisualTreeHelper.GetChild(root, i); if (child is T found) return found; if (FindVisual<T>(child) is { } nested) return nested; } return null; }
     internal string LegacyNotificationName(NekoChat.Core.LegacyDeliveryNotice notice) => _snapshot?.Entries.FirstOrDefault(e => e.LegacyScope == notice.Scope)?.NotificationName ?? "未驗證來源";
     internal string PeerNotificationName(string peerId) => _snapshot?.Entries.FirstOrDefault(e => e.PeerId == peerId)?.NotificationName ?? "未命名同學";
-    internal string ClassroomNotificationName(string sourceIp) => _snapshot?.Entries.FirstOrDefault(e => e.Endpoint == sourceIp)?.NotificationName ?? sourceIp;
+    internal string ClassroomNotificationName(string sourceIp)
+    {
+        var entry = _snapshot?.Entries.FirstOrDefault(e => e.Endpoint == sourceIp);
+        return ClassroomNotificationNames.Format(sourceIp, entry?.DisplayName, entry?.Removed == true);
+    }
     internal string? PeerReplyEndpoint(string peerId) => _snapshot?.Entries.FirstOrDefault(e => e.PeerId == peerId)?.Endpoint;
     internal bool CanSendReaction => !_closingRequested && _receiverRunning && !_sending;
     internal void AbortClosing() { IsEnabled = true; _closingRequested = false; _stopping = false; UpdateComposer(); }

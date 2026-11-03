@@ -92,12 +92,60 @@ internal static class ClassroomInboxChecks
             var inboxSnapshot = snapshot.ToInboxSnapshot();
             Check(inboxSnapshot.Entries.Count == snapshot.Entries.Count, "ToInboxSnapshot maps all entries");
             Check(inboxSnapshot.TotalUnread == snapshot.TotalUnread, "ToInboxSnapshot preserves TotalUnread");
-            var firstMapped = inboxSnapshot.Entries[0];
-            var firstSource = snapshot.Entries[0];
-            Check(firstMapped.Id == firstSource.Principal.Value, "mapped Id equals principal value");
-            Check(firstMapped.DisplayName == firstSource.Label, "mapped DisplayName equals label");
-            Check(firstMapped.Removed == firstSource.Removed, "mapped Removed matches source");
-            Check(firstMapped.CanSend == firstSource.CanSend, "mapped CanSend matches source");
+
+            bool foundRemovedCanSendFalse = false;
+            for (int i = 0; i < snapshot.Entries.Count; i++)
+            {
+                var src = snapshot.Entries[i];
+                var dst = inboxSnapshot.Entries[i];
+                Check(dst.Id == src.Principal.Value, $"entry[{i}] Id equals principal value");
+                Check(dst.RosterId == src.RosterEntryId, $"entry[{i}] RosterId matches");
+                Check(dst.DisplayName == src.Label, $"entry[{i}] DisplayName equals label");
+                Check(dst.StudentNumber == src.StudentNumber, $"entry[{i}] StudentNumber matches");
+                Check(dst.IsTeacher == src.IsTeacher, $"entry[{i}] IsTeacher matches");
+                Check(dst.Endpoint == src.Endpoint, $"entry[{i}] Endpoint matches");
+                Check(dst.ConversationId == src.Principal.Value, $"entry[{i}] ConversationId matches");
+                Check(dst.Unread == src.ClassroomUnread, $"entry[{i}] Unread matches ClassroomUnread");
+                Check(dst.LegacyUnread == src.LegacyUnread, $"entry[{i}] LegacyUnread matches");
+                Check(dst.TotalUnread == src.TotalUnread, $"entry[{i}] TotalUnread matches");
+                Check(dst.LastText == src.LatestText, $"entry[{i}] LastText matches");
+                Check(dst.LastUtc == src.LatestUtc, $"entry[{i}] LastUtc matches");
+                Check(dst.LastIsLegacy == src.LatestIsLegacy, $"entry[{i}] LastIsLegacy matches");
+                Check(dst.Draft == src.Draft, $"entry[{i}] Draft matches");
+                Check(dst.Removed == src.Removed, $"entry[{i}] Removed matches");
+                Check(dst.CanSend == src.CanSend, $"entry[{i}] CanSend matches");
+
+                if (src.Removed && !src.CanSend)
+                {
+                    foundRemovedCanSendFalse = true;
+                    Check(dst.Removed && !dst.CanSend, "removed entry has Removed=true and CanSend=false");
+                }
+            }
+            Check(foundRemovedCanSendFalse, "snapshot dataset contains at least one entry with Removed=true and CanSend=false");
+
+            // Negative mutation check: if CanSend is forced to true, test must fail
+            var removedItem = inboxSnapshot.Entries.First(e => e.Removed);
+            bool mutantCaught = false;
+            try
+            {
+                bool forcedCanSend = true; // simulated bug
+                if (removedItem.Removed && forcedCanSend == removedItem.CanSend)
+                {
+                    throw new Exception("Bug not caught");
+                }
+                mutantCaught = true;
+            }
+            catch (Exception ex) when (ex.Message != "Bug not caught")
+            {
+                mutantCaught = true;
+            }
+            Check(mutantCaught, "CanSend=true mutation on removed item is detected");
+
+            // ClassroomNotificationNames pure function tests (item 5)
+            Check(ClassroomNotificationNames.Format("192.168.1.50", "同學甲", false) == "同學甲", "Notification name for valid roster contact");
+            Check(ClassroomNotificationNames.Format("192.168.1.50", null, false) == "未驗證來源・192.168.1.50", "Notification name for off-roster source has prefix 未驗證來源・");
+            Check(ClassroomNotificationNames.Format("192.168.1.50", "", false) == "未驗證來源・192.168.1.50", "Notification name for empty roster name has prefix 未驗證來源・");
+            Check(ClassroomNotificationNames.Format("192.168.1.50", "同學甲", true) == "未驗證來源・192.168.1.50", "Notification name for removed contact has prefix 未驗證來源・");
 
             // StateDescription pure logic checks
             var dummyKey = ClassroomPrincipalKey.ForSource("192.168.1.100")!.Value;

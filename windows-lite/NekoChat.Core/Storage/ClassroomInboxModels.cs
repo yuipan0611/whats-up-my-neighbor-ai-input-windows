@@ -25,6 +25,18 @@ public sealed record ClassroomInboxEntry(ClassroomPrincipalKey Principal, string
     }
 }
 
+public static class ClassroomNotificationNames
+{
+    public static string Format(string sourceIp, string? rosterDisplayName, bool isRemoved = false)
+    {
+        if (!string.IsNullOrWhiteSpace(rosterDisplayName) && !isRemoved)
+        {
+            return rosterDisplayName;
+        }
+        return "未驗證來源・" + sourceIp;
+    }
+}
+
 public sealed class ClassroomInboxSnapshot
 {
     public IReadOnlyList<ClassroomInboxEntry> Entries { get; }

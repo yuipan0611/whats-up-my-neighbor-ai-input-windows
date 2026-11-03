@@ -164,9 +164,20 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
             if (di.LinkTarget is not null) return true;
             var fi = new FileInfo(path);
             if (fi.LinkTarget is not null) return true;
+            return false;
         }
-        catch { }
-        return false;
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"檢查符號連結失敗（fail closed）：'{path}' - {ex.Message}", ex);
+        }
     }
 
     private static string ResolveExistingPathViaOs(string path)
@@ -222,44 +233,44 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
 
     private static string ResolveWindowsFinalPath(string path)
     {
-        try
+        const uint FILE_READ_ATTRIBUTES = 0x0080;
+        const uint FILE_SHARE_ALL = 1 | 2 | 4; // READ | WRITE | DELETE
+        const uint OPEN_EXISTING = 3;
+        const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+
+        using var handle = CreateFile(
+            path,
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_ALL,
+            IntPtr.Zero,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            IntPtr.Zero);
+
+        if (handle.IsInvalid)
         {
-            const uint FILE_READ_ATTRIBUTES = 0x0080;
-            const uint FILE_SHARE_ALL = 1 | 2 | 4; // READ | WRITE | DELETE
-            const uint OPEN_EXISTING = 3;
-            const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
-
-            using var handle = CreateFile(
-                path,
-                FILE_READ_ATTRIBUTES,
-                FILE_SHARE_ALL,
-                IntPtr.Zero,
-                OPEN_EXISTING,
-                FILE_FLAG_BACKUP_SEMANTICS,
-                IntPtr.Zero);
-
-            if (!handle.IsInvalid)
-            {
-                var sb = new StringBuilder(1024);
-                uint res = GetFinalPathNameByHandle(handle, sb, (uint)sb.Capacity, 0);
-                if (res > 0 && res < sb.Capacity)
-                {
-                    string winPath = sb.ToString();
-                    if (winPath.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return @"\\" + winPath[8..];
-                    }
-                    if (winPath.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return winPath[4..];
-                    }
-                    return winPath;
-                }
-            }
+            int err = Marshal.GetLastPInvokeError();
+            throw new InvalidOperationException($"無法開啟路徑以解析 Windows 最終路徑（fail closed，error {err}）：'{path}'。");
         }
-        catch { }
 
-        return ResolveViaDotNetLinkTarget(path);
+        var sb = new StringBuilder(1024);
+        uint res = GetFinalPathNameByHandle(handle, sb, (uint)sb.Capacity, 0);
+        if (res == 0 || res >= sb.Capacity)
+        {
+            int err = Marshal.GetLastPInvokeError();
+            throw new InvalidOperationException($"GetFinalPathNameByHandle 失敗（fail closed，error {err}）：'{path}'。");
+        }
+
+        string winPath = sb.ToString();
+        if (winPath.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+        {
+            return @"\\" + winPath[8..];
+        }
+        if (winPath.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
+        {
+            return winPath[4..];
+        }
+        return winPath;
     }
 
     private static string ResolveViaDotNetLinkTarget(string path)
@@ -300,17 +311,14 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
             return path;
         }
 
-        try
+        var sb = new StringBuilder(1024);
+        uint res = GetLongPathName(path, sb, (uint)sb.Capacity);
+        if (res == 0)
         {
-            var sb = new StringBuilder(1024);
-            uint res = GetLongPathName(path, sb, (uint)sb.Capacity);
-            if (res > 0 && res < sb.Capacity)
-            {
-                return sb.ToString();
-            }
+            int err = Marshal.GetLastPInvokeError();
+            throw new InvalidOperationException($"展開 Windows 8.3 短名失敗（fail closed，error {err}）：'{path}'。");
         }
-        catch { }
-        return path;
+        return sb.ToString();
     }
 
     [DllImport("kernel32.dll", EntryPoint = "GetLongPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]

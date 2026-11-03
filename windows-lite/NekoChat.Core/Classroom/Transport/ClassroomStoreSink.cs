@@ -99,11 +99,17 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
             {
                 try { LegacyMessageStored?.Invoke(new(sourceIp, captured.Scope, seq, message.Reaction ?? ClassroomReactions.MatchText(message.Text)?.Id)); } catch { }
             }
-            try { MessageStored?.Invoke(sourceIp, message.Text, message.Reaction); } catch { }
             byte[] response = "{\"status\":\"delivered\"}"u8.ToArray();
             return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(200, response));
         }
-        var (status, body) = ClassroomPacketWriter.Error(ClassroomCodes.ReceiverNotReady);
+        string errorCode = result.Reason switch
+        {
+            "offroster-limit" => ClassroomCodes.RateLimited,
+            "stale-legacy-scope" => ClassroomCodes.ReceiverNotReady,
+            "invalid-text" or "invalid-reaction" or "invalid-unicode" => ClassroomCodes.InvalidPayload,
+            _ => ClassroomCodes.ReceiverNotReady // fail closed
+        };
+        var (status, body) = ClassroomPacketWriter.Error(errorCode);
         return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(status, body));
     }
 }

@@ -82,6 +82,16 @@ public static class UiTestDataChecks
             var optTilde = UiTestOptions.Parse(new[] { "--ui-test-data", tildeDir });
             Check(optTilde is not null, "directory containing '~' is permitted (global reject removed)");
 
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+            {
+                string shortPath = @"C:\PROGRA~1";
+                if (Directory.Exists(shortPath))
+                {
+                    string expanded = UiTestOptions.ResolveRealPath(shortPath);
+                    Check(!expanded.Contains('~'), "Windows 8.3 short name PROGRA~1 expanded without tilde");
+                }
+            }
+
             // Dangling symlink rejection (fail-closed)
             string nonExistentTarget = Path.Combine(tempBase, "does-not-exist-" + Guid.NewGuid().ToString("N"));
             string danglingSymlink = Path.Combine(tempBase, "dangling-link");

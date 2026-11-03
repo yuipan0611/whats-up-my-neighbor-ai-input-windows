@@ -123,7 +123,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             }
         }
         catch { }
-        return LanInvitation.PrimaryLocalIP() ?? "127.0.0.1";
+        return LanInvitation.PrimaryLocalIP() ?? throw new InvalidOperationException("無法解析本機網路端點位址（fail closed）。");
     }
     internal static string RootDirectory(Settings source, bool isolated) => UiTestOptions.ResolveRootDirectory(source, isolated);
     internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null, ChatPairingConfiguration? pairingConfiguration = null) => Task.Run(() => {

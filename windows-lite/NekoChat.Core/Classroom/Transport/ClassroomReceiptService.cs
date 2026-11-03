@@ -26,8 +26,8 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
     private readonly IChatStore _store;
     private readonly ClassroomSender _sender;
     private readonly int _port;
-    private readonly string _ownIp;
-    private readonly Func<string, string>? _ownIpResolver;
+    private readonly string? _ownIp;
+    private readonly Func<string, string?>? _ownIpResolver;
     private readonly TimeProvider _clock;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Channel<bool> _wake = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { SingleReader = true, FullMode = BoundedChannelFullMode.DropWrite });
@@ -57,15 +57,15 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
         IChatStore store,
         ClassroomSender sender,
         int port = DirectLanMessaging.DefaultPort,
-        string ownIp = "127.0.0.1",
+        string? ownIp = null,
         TimeProvider? clock = null,
-        Func<string, string>? ownIpResolver = null)
+        Func<string, string?>? ownIpResolver = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _sender = sender ?? throw new ArgumentNullException(nameof(sender));
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
         _port = port;
-        _ownIp = ownIp ?? "127.0.0.1";
+        _ownIp = ownIp;
         _clock = clock ?? TimeProvider.System;
         _ownIpResolver = ownIpResolver;
     }
@@ -218,7 +218,12 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
                 state.Attempts++;
                 Interlocked.Increment(ref TotalAttempts);
 
-                string targetOwnIp = _ownIpResolver?.Invoke(receipt.TargetIp) ?? _ownIp;
+                string? targetOwnIp = _ownIpResolver?.Invoke(receipt.TargetIp) ?? _ownIp;
+                if (string.IsNullOrWhiteSpace(targetOwnIp))
+                {
+                    Report("local_endpoint_unknown");
+                    continue;
+                }
                 var result = await _sender.SendReceiptAsync(
                     receipt,
                     _port,
