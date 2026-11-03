@@ -1,31 +1,53 @@
-# 本機整合候選交付 — 2026-11-03
+# NekoChat Windows Lite 本機交叉建置候選交付
 
-本批是本機交叉產物，供後續 Windows 驗收；未安裝、簽章驗證、上傳或發布。以同批 `delivery-manifest.json` 的來源 SHA／實際檢查與每檔 SHA-256 為準。`build/final-delivery-20261103/` 中的53b983c是較早快照，缺當次取消修正，且 portable 尚是資料夾包，不代表目前來源。新產物由下方可重做流程產生至全新輸出目錄，不覆寫舊證據。
+本批是本機交叉建置產物，供後續 Windows 驗收使用；未經 Authenticode 簽章、未執行安裝、未上傳且未公開發布。
 
-## 三種產物
+## 1. 交付產物
 
-| 檔名 | 使用與驗證界線 |
+交付包含三種執行產物，各自的 SHA-256 雜湊值與完整檔案清單見同目錄的 `.sha256` 與 `delivery-manifest.json`：
+
+| 檔名 | 類型與驗證界線 |
 |---|---|
-| `NekoChat-Windows-Lite-win-x64.zip` | 完整 self-contained 套件；整包解壓後使用 NekoChat.Windows.exe。 |
-| `NekoChat-Lite.exe` | 真正單檔免安裝候選；內含原素材／花色／runtime，使用.NET all-content extraction 模式。靜態與 Mac content-load proof 不代替 Windows WPF／解壓權限驗收。 |
-| `NekoChat-Setup-win-x64.exe` | 嵌入同一完整 ZIP 與 SHA-256；離線讀 metadata 核對，未執行安裝／更新／防火牆。 |
+| `NekoChat-Windows-Lite-win-x64.zip` | 完整 self-contained 套件；解壓後直接執行 `NekoChat.Windows.exe`。包含完整 runtime 與素材。 |
+| `NekoChat-Lite.exe` | 真正單檔免安裝候選檔；採用 .NET all-content extraction 模式打包，內建完整素材與花色。Mac 上的靜態分析與 probe 不代替 Windows 實機的 WPF 與解壓權限驗收。 |
+| `NekoChat-Setup-win-x64.exe` | 簡易安裝候選檔；內嵌同一完整 ZIP 套件並附校驗碼。僅進行離線 PE metadata 與 checksum 核對，未在 Windows 實機執行安裝或系統註冊。 |
 
-另附 `.sha256`、DELIVERY、`delivery-manifest.json`、`portable-bundle.json` 與 logs。真正需要跟 EXE 放一起的 runtime sidecars 不得靠資料夾包掩蓋；portable verifier 必須驗到 all-content flag 及各原始檔 bytes。保留的完整 publish 子目錄只是中間證據。
+隨附文件包含本說明、[README.md](README.md)、[BACKUP-RESTORE.md](BACKUP-RESTORE.md)、[SEND-CANCELLATION.md](SEND-CANCELLATION.md)、[THIRD-PARTY.md](THIRD-PARTY.md)、`tools/README.md`、驗證報告及完整建置日誌。
 
-## 他人可重做
+## 2. 交付範圍與教室模式
 
-從乾淨、已 commit 的整合 checkout，使用 Python、Git 與 .NET10 SDK：
+### 2.1 已整合功能
+- **聊天視窗與資料庫**：持久對話歷史、草稿保存、訊息清除、SQLite attempt 與 ACK 紀錄。
+- **UI 與外觀**：核准的 themeA、黑貓圖示素材、貓咪花色切換與 reaction 圖片顯示。
+- **手動傳送取消**：TC-05 / SDS API-02 當次傳送取消接線，支援取消進行中的網路 I/O，保護草稿與狀態，詳見 [SEND-CANCELLATION.md](SEND-CANCELLATION.md)。
+- **教室模式傳輸**：已整合 CM-01 至 CM-18c 工程預設（ClassroomTransport），支援局域網廣播探索、固定通訊埠傳輸、TCP 訊息收發與送達確認。
+
+### 2.2 裁定 D-04 與 D-15 執行說明
+- **D-04（身分與舊版交換撤除）**：依專案決策，Windows Lite 移除非對稱金鑰身分系統、金鑰交換與相關流程，回歸教室模式輕量通訊。相關核心封存程式碼不啟用，一般啟動不會要求或建立金鑰。
+- **D-15（移除交付包中的廢棄文件與測試入口）**：
+  1. 交付包已移除過去的身分與交換驗證文件，僅保留教室模式、備份還原與取消傳送說明。
+  2. 應用程式已移除過時的 UI 與身分保管測試命令列入口，僅保留 `--manual-send-cancel-smoke-test` 作為傳送取消的合成隔離驗證。
+
+## 3. 已知限制與環境說明
+
+1. **安裝器限制（N008）**：
+   `NekoChat-Setup-win-x64.exe` 為單純解壓縮與捷徑建立的簡易安裝工具，依規格定義目前不提供解除安裝（Uninstall）功能。此為已知規格範圍，不列為待修缺陷。
+2. **VM 測試環境說明**：
+   根據 Microsoft 官方生命週期清單，Windows 10 21H2 家用版與專業版已於 2023 年終止支援；測試環境若使用 21H2 VM，僅作為最低相容性 smoke 參考，不代表官方主流支援基準。
+
+## 4. 未在 Windows 實機執行項目
+
+本批產物由 macOS 交叉編譯產生，以下項目尚未在 Windows 實體機或完整環境進行端到端驗收，維持未執行狀態：
+- **UI 與輸入**：WPF 原生渲染、高 DPI 多螢幕縮放、中文 IME 輸入法組字、Tab / 焦點導覽與輔助技術（Accessibility）。
+- **系統整合**：實際 Windows 檔案系統 ACL、Windows 電源管理（睡眠、喚醒、休眠）對 socket 的影響、實際網路中斷與重連。
+- **雙機通訊**：真實兩台 Windows 實機在實體區域網路的教室模式雙向通訊驗收。
+
+## 5. 重做建置步驟
+
+任何人員於具備 Python 3.11+、Git 與 .NET 10 SDK 的乾淨工作樹上均可重現建置產物：
 
 ```sh
 python3 windows-lite/tools/build_delivery.py --dotnet /完整路徑/dotnet --output build/delivery-new
 ```
 
-環境／分項命令見 [工具說明](tools/README.md)。腳本執行實際 Core／動畫 tests，記錄精確來源與 SDK，再建三種包裝及核對。不預填成功數或拿較早 log 當本次執行；來源在過程中改變即失敗。Windows PE App／Setup 不在 Mac 執行。
-
-## 來源範圍與待決
-
-已實作持久對話／草稿／清除、簽章可靠收發與 presence、選擇性已讀與隱私預設、WPF 接線，以及條件式 P1 的選定列同交易綁定／SAS／host lifecycle。當次傳送取消修正見 [SEND-CANCELLATION.md](SEND-CANCELLATION.md)，配對設計與有限證據見 [PAIRING-IMPLEMENTATION.md](PAIRING-IMPLEMENTATION.md)。核准的 themeA／貓／反應保留；先前 SAS source/browser finding resolved，**native disposition仍fix/unexecuted**。
-
-身分模式 P1／P2／P3 與 L 尚未選定，普通 App 不自行建立金鑰或啟用配對／V2 私訊。synthetic fixture 的明確設定不代表產品決策；原 N002P-v2 的退回與有限密碼學論證不改成通過。教材依使用者暫緩、另訂規則。
-
-Windows WPF／字型／焦點／鍵盤／assistive／IME／DPI／多螢幕、DPAPI／CNG／ACL、OS生命週期、安裝／更新／防火牆、真雙機／教室仍未執行。操作單：[PAIRING-VERIFICATION.md](PAIRING-VERIFICATION.md)、[SEND-CANCELLATION.md](SEND-CANCELLATION.md)、[IDENTITY-VERIFICATION.md](IDENTITY-VERIFICATION.md)、[BACKUP-RESTORE.md](BACKUP-RESTORE.md)。完整N002B／N008與產品啟用不由交叉包裝或Mac tests自動通過。
+詳細參數與驗證工具請參閱 [tools/README.md](tools/README.md)。
