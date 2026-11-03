@@ -27,7 +27,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly HashSet<Task> _network = [];
     private readonly Dictionary<(string Id, int Try), ManualSendOperation> _manualSends = [];
-    private readonly Dictionary<(string Id, int Try), (CancellationTokenSource Cts, Task<ClassroomSendResult> Task)> _classroomSends = [];
+    private readonly ClassroomSendRegistry _classroomSends = new();
     private readonly V2PacketWriter? _writer;
     private readonly V2LanClient? _client;
     private Task? _disposal;
@@ -169,11 +169,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
             _lifetime.Token.ThrowIfCancellationRequested();
             string ownIp = ResolveLocalEndpointIp(prepared.TargetIp, port);
-            var key = (prepared.MessageId, prepared.TryCount);
-            if (_classroomSends.ContainsKey(key))
-            {
-                throw new InvalidOperationException($"Classroom send already in progress for message {prepared.MessageId} try {prepared.TryCount}.");
-            }
+            _classroomSends.CheckNotRunning(prepared.MessageId, prepared.TryCount);
             var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             var task = Task.Run(async () =>
             {
@@ -189,15 +185,11 @@ internal sealed class ChatRuntime : IAsyncDisposable
                 }
                 finally
                 {
-                    lock (_gate) _classroomSends.Remove(key);
+                    _classroomSends.TryRemove(prepared.MessageId, prepared.TryCount);
                     cts.Dispose();
                 }
             });
-            if (!_classroomSends.TryAdd(key, (cts, task)))
-            {
-                cts.Dispose();
-                throw new InvalidOperationException($"Classroom send already in progress for message {prepared.MessageId} try {prepared.TryCount}.");
-            }
+            _classroomSends.Register(prepared.MessageId, prepared.TryCount, cts, task);
             _network.Add(task);
             return Finish(task);
         }
@@ -206,7 +198,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (_classroomSends.TryGetValue((messageId, tryCount), out var pair)) return !pair.Cts.IsCancellationRequested;
+            if (_classroomSends.CanCancel(messageId, tryCount)) return true;
             return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.CanCancel;
         }
     }
@@ -214,7 +206,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (_classroomSends.TryGetValue((messageId, tryCount), out var pair)) return pair.Cts.IsCancellationRequested;
+            if (_classroomSends.IsCancellationRequested(messageId, tryCount)) return true;
             return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.UserCancellationRequested;
         }
     }
@@ -225,11 +217,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
-            if (_classroomSends.TryGetValue((messageId, tryCount), out var pair))
-            {
-                cts = pair.Cts;
-                sendTask = pair.Task;
-            }
+            _classroomSends.TryBeginCancel(messageId, tryCount, out cts, out sendTask);
         }
 
         if (cts is not null && sendTask is not null)

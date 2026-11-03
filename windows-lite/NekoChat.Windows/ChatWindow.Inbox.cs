@@ -240,7 +240,7 @@ public partial class ChatWindow
         TeacherReactions.IsEnabled = ScrollReaction.IsEnabled = CanSendReaction;
         var attempt = _selected?.Attempt; AttemptBanner.Visibility = attempt is null ? Visibility.Collapsed : Visibility.Visible;
         bool cancelling = attempt is not null && _runtime?.IsAttemptCancellationRequested(attempt.MessageId, attempt.TryCount) == true;
-        AttemptText.Text = cancelling ? "已要求取消，等待當次工作結束；對方可能已收到。" : attempt?.State == "cancelled" ? "當次嘗試已取消；對方可能已收到。不會自動重送。" : attempt?.State == "sending" ? "手動傳送中，等待對方儲存確認。" : "上一次嘗試尚未確認送達（對方可能已收到，也可能沒收到）。不會自動重送。";
+        AttemptText.Text = ClassroomSendUiPolicy.DecideAttemptBanner(attempt?.State, cancelling);
         RetryAttempt.IsEnabled = ready && !_sending && attempt is { State: not "sending" } && attempt.RawSnapshot == Draft.Text;
         CancelAttemptButton.IsEnabled = !_closingRequested && attached && !cancelling && attempt is { State: not ("cancelled" or "confirmed" or "superseded") } &&
             (attempt.State != "sending" || _runtime!.CanCancelAttempt(attempt.MessageId, attempt.TryCount));

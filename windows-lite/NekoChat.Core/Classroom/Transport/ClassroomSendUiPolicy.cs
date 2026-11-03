@@ -29,6 +29,17 @@ public static class ClassroomSendUiPolicy
     public static ClassroomSendDecision DecideException(Exception ex)
     {
         ArgumentNullException.ThrowIfNull(ex);
+
+        // 重複登記：進行中的嘗試維持進行中，嚴禁將其狀態改成 unconfirmed
+        if (ex is ClassroomSendAlreadyRunningException)
+        {
+            return new ClassroomSendDecision(
+                AttemptActionKind.None,
+                null,
+                "該次傳送嘗試已在進行中，請等待完成。",
+                false);
+        }
+
         if (ex is LocalEndpointResolutionException)
         {
             return new ClassroomSendDecision(
@@ -47,75 +58,110 @@ public static class ClassroomSendUiPolicy
             false);
     }
 
+    /// <summary>
+    /// PM 裁定：主依據為 attempt 終態（Completion：StateUpdated failed/unconfirmed/cancelled、Confirmed、AlreadyConfirmed、AckMismatch、Discarded）
+    /// 決定是「未送出」「可能已收到」「已取消，未送出」還是「已送達」；Code 與 RemoteCode 僅用來補充原因文字。
+    /// 絕不使用白名單判斷 hello 失敗，避免把 message 階段失敗誤報為「未送出」。
+    /// </summary>
     public static ClassroomSendDecision DecideOutcome(ClassroomSendResult outcome)
     {
         ArgumentNullException.ThrowIfNull(outcome);
-        bool draftCleared = outcome.Completion is Confirmed { DraftCleared: true };
-        if (outcome.Code == "ok")
+
+        // 1. 成功確認送達（Confirmed、AlreadyConfirmed 或 outcome.Success）
+        if (outcome.Success || outcome.Completion is Confirmed or AlreadyConfirmed)
         {
+            bool draftCleared = outcome.Completion is Confirmed { DraftCleared: true };
             string text = outcome.Route == ClassroomRoute.Classroom ? "已驗證對方的儲存確認。" : "已送達（舊版同學）。";
             return new ClassroomSendDecision(AttemptActionKind.None, null, text, draftCleared);
         }
 
-        if (outcome.Code == "cancelled")
+        // 2. 取消（cancelled-before-write，位元組寫出前取消）
+        if (outcome.Completion is StateUpdated { NewState: "cancelled" } || (outcome.Code == "cancelled" && outcome.Completion is null))
         {
-            string text = outcome.Completion is null
-                ? "已取消，訊息未送出"
-                : "已取消，但對方可能已收到；不會自動重送";
+            return new ClassroomSendDecision(AttemptActionKind.None, null, "已取消，訊息未送出", false);
+        }
+
+        // 原因文字萃取：優先使用對端回傳的 RemoteCode，若無則使用 Code
+        string? reasonCode = !string.IsNullOrWhiteSpace(outcome.RemoteCode) ? outcome.RemoteCode : outcome.Code;
+
+        // 3. 終態為 failed（明確未送出 / 對端確定未儲存）
+        // 規則：絕不能出現「尚未確認」「可能已送達」「可能已收到」，必須明確說「未送出」
+        if (outcome.Completion is StateUpdated { NewState: "failed" })
+        {
+            // CM-07 legacy 超限文字特殊文案
+            if (outcome.Code == "legacy_payload_too_large" || reasonCode == "payload_too_large" && outcome.Route == ClassroomRoute.Legacy)
+            {
+                return new ClassroomSendDecision(
+                    AttemptActionKind.None,
+                    null,
+                    $"{MessageLimitPolicy.LegacyTooLargeNotice}。訊息未送出，草稿保留。",
+                    false);
+            }
+
+            if (outcome.Code == "payload_too_large" || reasonCode == "payload_too_large")
+            {
+                return new ClassroomSendDecision(
+                    AttemptActionKind.None,
+                    null,
+                    "訊息超過對方可接受的上限，未送出；請修改後手動傳送。",
+                    false);
+            }
+
+            string text = !string.IsNullOrWhiteSpace(reasonCode) && reasonCode != "failed"
+                ? $"未送出（{reasonCode}）；草稿仍在本機。"
+                : "未送出；草稿仍在本機。";
+
             return new ClassroomSendDecision(AttemptActionKind.None, null, text, false);
         }
 
-        // CM-07: legacy_payload_too_large 顯示 MessageLimitPolicy.LegacyTooLargeNotice 且保留草稿
-        if (outcome.Code == "legacy_payload_too_large")
+        // 4. 終態為 unconfirmed（位元組已寫出或 transient，對方可能已收到；或者 AckMismatch / Discarded 等）
+        // 規則：絕不能出現「未送出」「未傳送」，必須包含「尚未確認」或「可能已收到」或「可能已送達」
+        if (outcome.Code == "cancelled")
+        {
+            return new ClassroomSendDecision(AttemptActionKind.None, null, "已取消，但對方可能已收到；不會自動重送。", false);
+        }
+
+        // 對方的儲存失敗（storage_unavailable），文案不得怪罪「本機」
+        if (outcome.Code == "storage_unavailable" || reasonCode == "storage_unavailable")
         {
             return new ClassroomSendDecision(
                 AttemptActionKind.None,
                 null,
-                $"{MessageLimitPolicy.LegacyTooLargeNotice}。訊息未送出，草稿保留。",
+                "對方無法儲存確認；對方可能已收到，請檢查後手動重送。",
                 false);
         }
 
         if (outcome.Code == "classroom-may-have-delivered")
         {
-            return new ClassroomSendDecision(AttemptActionKind.None, null, "先前嘗試可能已送達教室，不降級為舊版重送；請確認後再試。", false);
-        }
-
-        if (outcome.Code == "payload_too_large")
-        {
-            return new ClassroomSendDecision(AttemptActionKind.None, null, "訊息超過對方可接受的上限，請修改後手動傳送。", false);
-        }
-
-        if (outcome.Code == "storage_unavailable")
-        {
-            return new ClassroomSendDecision(AttemptActionKind.None, null, "本機無法儲存確認；對方可能已收到，請檢查後手動重送。", false);
-        }
-
-        // hello 階段失敗（http_503, rate_limited, capability_missing, hello_failed, connect_refused 等）
-        // 顯示「未送出；草稿仍在本機」並附帶原因代碼，不能說「尚未確認送達」
-        if (IsHelloFailure(outcome.Code))
-        {
             return new ClassroomSendDecision(
                 AttemptActionKind.None,
                 null,
-                $"未送出（{outcome.Code}）；草稿仍在本機。",
+                "先前嘗試可能已送達教室，不降級為舊版重送；請確認後再試。",
                 false);
         }
 
-        return new ClassroomSendDecision(AttemptActionKind.None, null, "尚未確認送達；不會自動重送。要再送請按重送。", false);
+        string unconfirmedText = !string.IsNullOrWhiteSpace(reasonCode) && reasonCode != "unconfirmed"
+            ? $"尚未確認送達（{reasonCode}）；對方可能已收到，不會自動重送。要再送請按重送。"
+            : "尚未確認送達；對方可能已收到，不會自動重送。要再送請按重送。";
+
+        return new ClassroomSendDecision(AttemptActionKind.None, null, unconfirmedText, false);
     }
 
-    public static bool IsHelloFailure(string code) =>
-        code is "http_503"
-            or "rate_limited"
-            or "capability_missing"
-            or "hello_failed"
-            or "connect_refused"
-            or "connect_timeout"
-            or "invalid_response"
-            or "ack_mismatch"
-            or "local_endpoint_unknown"
-            or "peer_unreachable"
-            || code.StartsWith("hello_", StringComparison.Ordinal);
+    /// <summary>
+    /// 對應 ChatWindow.Inbox.cs:243 橫幅狀態文字
+    /// </summary>
+    public static string DecideAttemptBanner(string? state, bool cancelling)
+    {
+        if (cancelling) return "已要求取消，等待當次工作結束；對方可能已收到。";
+        return state switch
+        {
+            "sending" => "手動傳送中，等待對方儲存確認。",
+            "cancelled" => "當次嘗試已取消，訊息未送出；草稿仍在本機。",
+            "failed" => "上一次嘗試未送出；草稿仍在本機，可以重新手動傳送。",
+            "unconfirmed" => "上一次嘗試尚未確認送達（對方可能已收到，也可能沒收到）；不會自動重送，要再送請按重送。",
+            _ => "尚未確認送達；不會自動重送。要再送請按重送。"
+        };
+    }
 
     public static CancelResult DecideCancelResultFromOutcome(ClassroomSendResult outcome)
     {
