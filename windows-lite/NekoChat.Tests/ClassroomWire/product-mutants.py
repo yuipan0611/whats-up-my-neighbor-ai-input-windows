@@ -21,6 +21,8 @@ M = [
  ("ClassroomWire.cs", "ip.AddressFamily == AddressFamily.InterNetworkV6 && ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4().ToString() : null", "ip.AddressFamily == AddressFamily.InterNetworkV6 ? ip.ToString() : null", "any IPv6 accepted as a source"),
  ("ClassroomWire.cs", "if (len > 1 && s[start] == '0') return false;", "", "IPv4 accepts leading zeros"),
  ("ClassroomHead.cs", "head.Length > ClassroomWire.HeadMaxBytes", "head.Length > 100000000", "head block unbounded"),
+ ("ClassroomHead.cs", "!long.TryParse(rawLength, NumberStyles.None, CultureInfo.InvariantCulture, out long declared) || declared <= 0 ||", "!long.TryParse(rawLength, NumberStyles.None, CultureInfo.InvariantCulture, out long declared) || declared > int.MaxValue || declared <= 0 ||", "Content-Length above int.MaxValue reported as a malformed head (the VCMWC finding)"),
+ ("ClassroomHead.cs", "(int)declared", "(int)Math.Min(declared, 1)", "declared length truncated"),
  ("ClassroomHead.cs", 'headers.ContainsKey("Transfer-Encoding") ||', "false ||", "chunked tolerated"),
  ("ClassroomHead.cs", 'case "/nekochat/v2/hello": route = ClassroomRoute.SignedV2Hello;', 'case "/nekochat/v2/hello": route = ClassroomRoute.Hello;', "signed V2 hello routed as classroom"),
  ("ClassroomRequests.cs", "if (protocol != ClassroomWire.Protocol || version != \"1\") return Fail(ClassroomCodes.UnsupportedVersion);", "if (protocol != ClassroomWire.Protocol || version != \"1\") return Fail(ClassroomCodes.InvalidPayload);", "foreign protocol reported as malformed"),

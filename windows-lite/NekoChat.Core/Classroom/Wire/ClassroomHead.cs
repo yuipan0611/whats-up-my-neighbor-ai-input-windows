@@ -64,15 +64,17 @@ public static class ClassroomHead
         }
         if (!headers.TryGetValue("Host", out var host) || host.Length == 0 || headers.ContainsKey("Transfer-Encoding") || headers.ContainsKey("Expect") ||
             !headers.TryGetValue("Content-Length", out var rawLength) || rawLength.Length is < 1 or > 10 || !rawLength.All(char.IsAsciiDigit) ||
-            !int.TryParse(rawLength, NumberStyles.None, CultureInfo.InvariantCulture, out int length) || length <= 0 ||
+            !long.TryParse(rawLength, NumberStyles.None, CultureInfo.InvariantCulture, out long declared) || declared <= 0 ||
             !headers.TryGetValue("Content-Type", out var media)) return Fail(ClassroomCodes.InvalidPayload);
         string[] parts = media.Split(';', StringSplitOptions.TrimEntries);
         bool jsonType = parts[0].Equals("application/json", StringComparison.OrdinalIgnoreCase) &&
             (parts.Length == 1 || parts.Length == 2 && (parts[1].Equals("charset=utf-8", StringComparison.OrdinalIgnoreCase) || parts[1].Equals("charset=\"utf-8\"", StringComparison.OrdinalIgnoreCase)));
         if (!jsonType) return Fail(ClassroomCodes.InvalidPayload);
-        int? limit = route switch { ClassroomRoute.Message => ClassroomWire.MessageBodyMaxBytes, ClassroomRoute.Hello or ClassroomRoute.Receipt => ClassroomWire.ControlBodyMaxBytes, _ => null };
-        if (limit is { } max && length > max) return Fail(ClassroomCodes.PayloadTooLarge);
-        return new(ClassroomCodes.Ok, route, length);
+        // Up to 10 digits is a legal Content-Length (contract §3.3); it can exceed int.MaxValue, so it is compared as a long and only
+        // narrowed after the route limit has accepted it. A too-large value is payload_too_large, never a malformed head.
+        long limit = route switch { ClassroomRoute.Message => ClassroomWire.MessageBodyMaxBytes, ClassroomRoute.Hello or ClassroomRoute.Receipt => ClassroomWire.ControlBodyMaxBytes, _ => int.MaxValue };
+        if (declared > limit) return Fail(ClassroomCodes.PayloadTooLarge);
+        return new(ClassroomCodes.Ok, route, (int)declared);
     }
 
     public static ClassroomHeadResult Check(string head) => Check(Encoding.UTF8.GetBytes(head));

@@ -169,7 +169,45 @@ internal static class ClassroomWireVectorChecks
         }
         var cleared = new ClassroomSessionTable(); string kept = cleared.Issue("10.0.0.1"); cleared.Clear();
         Check(!cleared.TryGet(kept, out _) && cleared.Count == 0, "Clear drops every session");
+        checks += HeadBoundaryChecks();
         return Task.FromResult(checks);
+    }
+
+    /// <summary>VCMWC: Content-Length of 1–10 digits is legal and may exceed int.MaxValue; above the route limit it is payload_too_large, never invalid_payload.</summary>
+    private static int HeadBoundaryChecks()
+    {
+        int checks = 0;
+        static string Head(string path, string length) => $"POST {path} HTTP/1.1\r\nHost: h\r\nContent-Type: application/json\r\nContent-Length: {length}\r\n\r\n";
+        var routes = new (string Path, long Limit, bool Classroom)[]
+        {
+            ("/nekochat/classroom/v1/hello", 8192, true), ("/nekochat/classroom/v1/receipt", 8192, true), ("/nekochat/classroom/v1/message", ClassroomWire.MessageBodyMaxBytes, true)
+        };
+        foreach (var (path, limit, _) in routes)
+        {
+            foreach (string over in new[] { (limit + 1).ToString(), "2147483647", "2147483648", "2147483649", "4294967295", "4294967296", "9999999999", "0009999999", "1000000000" })
+            {
+                var r = ClassroomHead.Check(Head(path, over)); checks++;
+                if (long.Parse(over) > limit ? r.Code != ClassroomCodes.PayloadTooLarge : !r.Ok) throw new Exception($"Classroom wire head boundary: {path} Content-Length {over} → {r.Code}");
+            }
+            foreach (string fine in new[] { "1", limit.ToString(), (limit - 1).ToString(), "0000000001" })
+            {
+                var r = ClassroomHead.Check(Head(path, fine)); checks++;
+                if (!r.Ok || r.Length != long.Parse(fine)) throw new Exception($"Classroom wire head boundary: {path} Content-Length {fine} → {r.Code}/{r.Length}");
+            }
+            foreach (string bad in new[] { "0", "0000000000", "-1", "+5", "12345678901", "99999999999", "", "1 2", "0x10" })
+            {
+                var r = ClassroomHead.Check(Head(path, bad)); checks++;
+                if (r.Code != ClassroomCodes.InvalidPayload) throw new Exception($"Classroom wire head boundary: {path} Content-Length '{bad}' must be malformed, got {r.Code}");
+            }
+        }
+        // Routes without a classroom limit: still never a malformed head for a legal 10-digit value; the value is simply too large for an int.
+        foreach (string over in new[] { "2147483648", "9999999999" })
+        {
+            checks += 2;
+            if (ClassroomHead.Check(Head("/nekochat/v1/direct", over)).Code != ClassroomCodes.PayloadTooLarge || ClassroomHead.Check(Head("/nekochat/v2/message", over)).Code != ClassroomCodes.PayloadTooLarge)
+                throw new Exception("Classroom wire head boundary: oversize Content-Length on a non-classroom route");
+        }
+        return checks;
     }
 
     private static bool Throws(Action action) { try { action(); return false; } catch (ArgumentException) { return true; } }
