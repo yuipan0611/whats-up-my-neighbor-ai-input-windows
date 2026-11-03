@@ -47,7 +47,7 @@ internal static class ClassroomSenderOutcomeIndependentChecks
     };
     private static WireReply Loopback_Json(byte[] body, int status = 200) => NekoChat.Tests.Loopback.Json(status, body);
 
-    private static async Task<Run> Exercise(Func<WireReq, WireReply>? script, string ownIpParameter, int? cancelAfterMs = null, bool cancelBefore = false, Func<int?, HttpClient>? clientFactory = null, string? textOverride = null, string? cancelAfterStoreCall = null)
+    private static async Task<Run> Exercise(Func<WireReq, WireReply>? script, string ownIpParameter, int? cancelAfterMs = null, bool cancelBefore = false, Func<int?, HttpClient>? clientFactory = null, string? textOverride = null, string? cancelAfterStoreCall = null, Func<bool>? stillCurrent = null)
     {
         string dir = NekoChat.Tests.Loopback.TempDir("classroom-outcome-indep-");
         try
@@ -65,7 +65,7 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             if (cancelAfterStoreCall is not null) recorder.AfterCall = name => { if (name == cancelAfterStoreCall) cancel.Cancel(); };
             if (cancelBefore) cancel.Cancel(); else if (cancelAfterMs is { } ms) cancel.CancelAfter(ms);
             ClassroomSendResult? result = null; string? thrown = null;
-            try { result = await sender.SendPreparedAsync(prepared, 8768, ownIpParameter, () => true, cancel.Token); }
+            try { result = await sender.SendPreparedAsync(prepared, 8768, ownIpParameter, stillCurrent ?? (() => true), cancel.Token); }
             catch (OperationCanceledException) { thrown = "OperationCanceledException"; }
             catch (Exception e) { thrown = e.GetType().Name + ": " + e.Message; }
             string draft = store.GetClassroomDraftState(principal).RawText ?? "";
@@ -526,6 +526,38 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             Check(o.RetryMayHave == false, "X cancelled before any byte was written: a manual retry does not warn", "retryMayHave=" + o.RetryMayHave);
             UiCheck("X cancelled right after the route record", o);
             Check(o.Result is not null && ClassroomSendUiPolicy.DecideCancelResultFromOutcome(o.Result) is { Cancelled: true, Reason: "cancelled" } cr && ClassroomSendUiPolicy.DecideCancelClickResult(cr).Contains("未送出"), "UI X the cancel button's answer for a cancelled-before-write attempt is cancelled / not sent", "");
+        }
+
+        // ---- UI-S (honesty when the runtime goes away): stillCurrent turns false BEFORE the hello, or between the hello and the message write. No message byte was written in either
+        // case, so the screen must not say "maybe delivered". ----
+        {
+            var o = await Exercise(Peer(), Loopback, stillCurrent: () => false);
+            Check(o.Result is not null && !o.TextOnWire && !o.Seen.Any(), "UI-S stillCurrent false before the hello: nothing at all went out", Describe(o));
+            string t = o.Result is null ? "" : UiText(o);
+            Check(o.Result is not null && !(t.Contains("尚未確認") || t.Contains("可能已送達") || t.Contains("可能已收到")) && t.Contains("未送出"), "UI-S stillCurrent false before the hello: the screen says not sent, never maybe-delivered", "text='" + t + "' " + Describe(o));
+        }
+        {
+            int calls = 0;
+            var o = await Exercise(Peer(), Loopback, stillCurrent: () => ++calls <= 1); // true at the start, false right after the hello
+            Check(o.Result is not null && !o.TextOnWire && o.Seen.All(r => r.IsHello), "UI-S stillCurrent false after the hello: the message was not written", Describe(o));
+            string t = o.Result is null ? "" : UiText(o);
+            Check(o.Result is not null && !(t.Contains("尚未確認") || t.Contains("可能已送達") || t.Contains("可能已收到")) && t.Contains("未送出"), "UI-S stillCurrent false after the hello: the screen says not sent, never maybe-delivered", "text='" + t + "' " + Describe(o));
+        }
+
+        // ---- UI-B (DecideAttemptBanner, pure function): the persistent attempt banner must match the stored state. ----
+        {
+            static bool Maybe(string t) => t.Contains("尚未確認") || t.Contains("可能已送達") || t.Contains("可能已收到");
+            string cancelling = ClassroomSendUiPolicy.DecideAttemptBanner("sending", true);
+            Check(!Maybe(cancelling), "UI-B banner while a cancel is pending: no claim about delivery either way (until the hello stage is over nobody knows; a hello-stage cancel can never have been delivered)", "text='" + cancelling + "'");
+            string cancelled = ClassroomSendUiPolicy.DecideAttemptBanner("cancelled", false);
+            Check(cancelled.Contains("未送出") && !Maybe(cancelled), "UI-B banner for a cancelled attempt: not sent, never maybe-delivered (§11.1)", "text='" + cancelled + "'");
+            string failed = ClassroomSendUiPolicy.DecideAttemptBanner("failed", false);
+            Check(failed.Contains("未送出") && !Maybe(failed), "UI-B banner for a failed attempt: not sent, never maybe-delivered (CM-18)", "text='" + failed + "'");
+            string unconfirmed = ClassroomSendUiPolicy.DecideAttemptBanner("unconfirmed", false);
+            Check(unconfirmed.Contains("尚未確認") && unconfirmed.Contains("可能已收到") && !unconfirmed.Contains("未送出"), "UI-B banner for an unconfirmed attempt: unconfirmed, maybe received, never not-sent", "text='" + unconfirmed + "'");
+            string sending = ClassroomSendUiPolicy.DecideAttemptBanner("sending", false);
+            Check(!Maybe(sending) && !sending.Contains("未送出"), "UI-B banner while sending: neutral (still waiting for the other side's storage confirmation)", "text='" + sending + "'");
+            Check(ClassroomSendUiPolicy.DecideAttemptBanner(null, false).Length > 0, "UI-B banner for an unknown state still says something", "");
         }
 
         // ---- F5: cancellation never records a route and never sends the text (contract §11: cancelled is unconfirmed, nothing is retried). ----
