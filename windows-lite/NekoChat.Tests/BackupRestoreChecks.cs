@@ -88,6 +88,25 @@ internal static class BackupRestoreChecks
             Reject(() => OfflineBackupRestore.Prepare("//server/share/backup.db", Path.Combine(f.Root, "new")), "network source rejected before access");
             Reject(() => OfflineBackupRestore.Prepare(backup, "//server/share/output"), "network destination rejected before access");
         }
+        using (var f = new Fixture())
+        {
+            string backup = f.Seed(6), before = Hash(backup);
+            var original = new IOException("Synthetic preparation failure."); Exception? observed = null;
+            try
+            {
+                OfflineBackupRestore.Prepare(backup, f.Target, default, point => {
+                    if (point != "copied") return;
+                    string stage = f.Stages().Single();
+                    Directory.Move(stage, Path.Combine(f.Root, "held-stage"));
+                    File.WriteAllText(stage, "synthetic cleanup obstruction");
+                    throw original;
+                });
+            }
+            catch (IOException error) { observed = error; }
+            Check(ReferenceEquals(original, observed), "cleanup failure preserves the original exception");
+            Check(observed?.Data["NekoChat.RestoreCleanupFailed"] is true, "incomplete staging cleanup is observable without private paths");
+            Check(!Directory.Exists(f.Target) && Hash(backup) == before, "cleanup obstruction never publishes or changes the original backup");
+        }
         foreach (string checkpoint in new[] { "copied", "prepared", "before-publish" })
         {
             using var f = new Fixture(); string backup = f.Seed(6), before = Hash(backup);

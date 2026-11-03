@@ -37,6 +37,7 @@ if (args.SequenceEqual(new[] { "--pairing-responder" })) { await NekoChat.Tests.
 if (args.SequenceEqual(new[] { "--pairing-primitives" })) { NekoChat.Tests.PairingWireChecks.Run(); await NekoChat.Tests.PairingCandidateChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--identity-recovery" })) { await NekoChat.Tests.IdentityRecoveryChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--identity-vault" })) { await NekoChat.Tests.IdentityVaultChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--storage-fixes" })) { NekoChat.Tests.StorageFixChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--settings-source" })) { NekoChat.Tests.SettingsSourceChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--inbox-workspace" })) { await NekoChat.Tests.InboxWorkspaceChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--backup-restore" })) { await NekoChat.Tests.BackupRestoreChecks.Run(); return; }

@@ -19,7 +19,10 @@ internal static class OfflineRestoreCommand
         catch (Exception error)
         {
             // Fixed metadata only. Never print raw SQL, message bodies, credential references or key material.
-            Console.Error.WriteLine(JsonSerializer.Serialize(new { Error = error is StoreException store ? store.Kind.ToString() : error.GetType().Name }));
+            Console.Error.WriteLine(JsonSerializer.Serialize(new {
+                Error = error is StoreException store ? store.Kind.ToString() : error.GetType().Name,
+                CleanupIncomplete = error.Data["NekoChat.RestoreCleanupFailed"] is true
+            }));
             return 1;
         }
     }

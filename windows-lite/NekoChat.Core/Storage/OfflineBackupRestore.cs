@@ -80,10 +80,14 @@ public static class OfflineBackupRestore
             checkpoint?.Invoke("published");
             return result;
         }
-        finally
+        catch (Exception failure)
         {
             if (ownsStage)
-                try { Directory.Delete(stage, recursive: true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+                try { Directory.Delete(stage, recursive: true); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                { failure.Data["NekoChat.RestoreCleanupFailed"] = true; }
+            // Keep the original failure/cancellation, but make incomplete cleanup observable without exposing a path.
+            throw;
         }
     }
 
