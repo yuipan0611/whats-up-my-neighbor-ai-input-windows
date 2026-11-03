@@ -580,7 +580,8 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             {
                 string id = "reg-" + i;
                 var t = registry.Start(id, 1, async ct => { if ((i & 1) == 0) await Task.Yield(); return okResult; }, CancellationToken.None);
-                await t;
+                if ((i % 4) < 2) await t;                       // the usual way a caller observes completion
+                else { var spin = new SpinWait(); while (!t.IsCompleted) spin.SpinOnce(-1); }   // the tightest observer: look the instant the task reports completion
                 if (registry.TryGet(id, 1).HasValue) stillRegistered++;
                 if (registry.CanCancel(id, 1)) canCancelAfter++;
             }
