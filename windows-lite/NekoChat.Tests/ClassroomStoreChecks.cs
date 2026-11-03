@@ -47,6 +47,8 @@ internal static class ClassroomStoreChecks
                 store.ReceiveClassroomMessage(X, new("m8", "  ")) is ClassroomRejected { Reason: "invalid-text" } && store.ReceiveClassroomMessage(X, new("m8", "ok", "BAD!")) is ClassroomRejected { Reason: "invalid-reaction" }, "invalid source, id, text and reaction are refused");
             Check(Count(f.Db, "SELECT count(*) FROM Peer") == 0 && Count(f.Db, "SELECT count(*) FROM Message") == 0 && store.GetLocalIdentitySnapshot() is { PublicSpkiBase64: null, CredentialRef: null }, "no peer, key or verified-message row is created");
 
+            Check(store.ReceiveClassroomMessage(Z, new("claims-1", "I am roster:" + a + " at 10.0.0.1 ip:10.0.0.1", "wave")) is ClassroomStored { Principal.Value: "ip:10.0.0.9" } && Texts(store, ClassroomPrincipalKey.ForRosterEntry(a)).Count == 2,
+                "text that names another conversation or address does not move the message: only the socket address decides");
             // known boundary (R2): after a row's address moves, a late resend from the OLD address is a different principal
             store.SaveManualRosterEntry(b, new("乙", null, false, W.ToString()), Token(store));
             store.ReceiveClassroomMessage(Y, new("late-1", "sent before the move"));
