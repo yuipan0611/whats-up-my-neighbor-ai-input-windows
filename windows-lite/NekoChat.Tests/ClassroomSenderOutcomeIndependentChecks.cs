@@ -200,6 +200,24 @@ internal static class ClassroomSenderOutcomeIndependentChecks
         int checks = 0; var failures = new List<string>();
         void Check(bool ok, string label, string detail = "") { checks++; if (!ok) failures.Add(label + (detail.Length > 0 ? " — " + detail : "")); }
 
+        // ---- UI: feed the REAL sender's result (not a hand-made one) to the product's UI policy (ClassroomSendUiPolicy). What the user reads must match the stored state:
+        // failed => never "maybe delivered"; unconfirmed => never "not sent"; cancelled-before-write => "not sent". ----
+        string UiText(Run o) => ClassroomSendUiPolicy.DecideOutcome(o.Result!).StatusText;
+        void UiCheck(string label, Run o)
+        {
+            if (o.Result is null) { Check(false, $"UI {label}: the sender returned a result", o.Thrown ?? "no result"); return; }
+            string t = UiText(o);
+            bool maybeDelivered = t.Contains("尚未確認") || t.Contains("可能已送達") || t.Contains("可能已收到");
+            bool notSent = t.Contains("未送出") || t.Contains("未傳送");
+            string detail = $"text='{t}' code={o.Result.Code} remote={o.Result.RemoteCode} state={o.AttemptState}";
+            switch (o.AttemptState)
+            {
+                case "failed": Check(!maybeDelivered, $"UI {label}: a failed attempt is never shown as maybe-delivered", detail); break;
+                case "unconfirmed": Check(maybeDelivered && !notSent, $"UI {label}: an unconfirmed attempt is shown as maybe-delivered and never as not-sent", detail); break;
+                case "cancelled": Check(notSent && !maybeDelivered, $"UI {label}: a cancelled-before-write attempt is shown as not sent", detail); break;
+            }
+        }
+
         // ---- F3: definitive "nothing stored" replies make the attempt failed (contract §10). ----
         // stale_session is excluded on purpose: §6.9 says to retry it once before deciding.
         string[] definitive = { ClassroomCodes.InvalidPayload, ClassroomCodes.UnsupportedVersion, ClassroomCodes.PayloadTooLarge, ClassroomCodes.RateLimited,
@@ -209,6 +227,7 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             var o = await Exercise(Peer(_ => NekoChat.Tests.Loopback.ClassroomError(code)), Loopback);
             Check(o.Thrown is null && o.Result is { Success: false } && o.CompletionState == "failed", $"F3 message reply {code}: the attempt is failed", Describe(o));
             Check(o.DraftText == Text, $"F3 message reply {code}: the draft is kept", "draft=" + o.DraftText);
+            UiCheck($"F3 message reply {code}", o);
         }
         // Ambiguous results stay unconfirmed ("the other side may have it"): guards against over-correcting F3.
         var ambiguous = new (string Name, Func<WireReq, WireReply> OnMessage)[]
@@ -230,6 +249,8 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             var o = await Exercise(Peer(onMessage), Loopback);
             Check(o.Thrown is null && o.Result is { Success: false } && o.CompletionState == "unconfirmed", $"F3 control {name}: stays unconfirmed", Describe(o));
             Check(o.DraftText == Text, $"F3 control {name}: the draft is kept", "draft=" + o.DraftText);
+            UiCheck($"F3 control {name}", o);
+            if (name == "storage_unavailable") Check(o.Result is not null && !UiText(o).Contains("本機無法儲存"), "UI F3 control storage_unavailable (the RECEIVER's store failed): the text does not blame the local store", "text='" + (o.Result is null ? "" : UiText(o)) + "'");
         }
 
         // ---- F4: observed_sender_ip is checked against the actual connection, not against the caller's guess. ----
@@ -311,11 +332,15 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             Check(o.AttemptState == "failed", $"H hello {name}: the attempt is failed", Describe(o) + " state=" + o.AttemptState);
             Check(o.RetryMayHave == false, $"H hello {name}: a manual retry does not claim the previous try may have been delivered", "retryMayHave=" + o.RetryMayHave);
             Check(o.DraftText == Text, $"H hello {name}: the draft is kept", "draft=" + o.DraftText);
+            UiCheck($"H hello {name}", o);
+            Check(o.Result is not null && UiText(o).Contains("未送出"), $"UI H hello {name}: the user is told the message was not sent", "text='" + (o.Result is null ? "" : UiText(o)) + "'");
         }
         {
             var o = await Exercise(r => r.IsHello ? new WireSilence() : Loopback_Json("{}"u8.ToArray()), Loopback, cancelAfterMs: 250);
             Check(!o.TextOnWire && !o.Calls.Any(c => c.Method == "RecordClassroomRoute") && !o.Confirmed, "H cancelled while hello is pending: nothing sent, no route, not confirmed", Describe(o));
             Check(o.AttemptState == "cancelled", "H cancelled while hello is pending: the attempt is cancelled (§11.1), not left `sending` and not unconfirmed", Describe(o) + " state=" + o.AttemptState);
+            UiCheck("H cancelled while hello is pending", o);
+            Check(o.Result is not null && ClassroomSendUiPolicy.DecideCancelResultFromOutcome(o.Result) is { Cancelled: true, Reason: "cancelled" }, "UI H cancelled while hello is pending: the cancel button's answer is cancelled", "");
         }
         {
             var o = await Exercise(Peer(_ => NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.ReceiverNotReady)), Loopback); // control: after the message bytes went out the same kind of reply is unconfirmed (§10)
@@ -352,6 +377,7 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             Check(o.Thrown is null && !o.Confirmed && !o.TextOnWire && !o.Calls.Any(c => c.Method == "RecordClassroomRoute"), "H-transient hello answered transient: nothing sent, no route, not confirmed", Describe(o));
             Check(o.AttemptState == "unconfirmed", "H-transient hello answered transient: the attempt is unconfirmed (§10), not failed", Describe(o) + " state=" + o.AttemptState);
             Check(o.DraftText == Text, "H-transient hello answered transient: the draft is kept", "draft=" + o.DraftText);
+            UiCheck("H-transient hello", o);
         }
 
         // ---- C (frozen spec §11.1): `cancelled` only happens before any message byte was written, so the other side cannot have it. A manual retry of a cancelled attempt must NOT
@@ -401,6 +427,7 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             Check(o.Thrown is null && !o.Confirmed && o.AttemptState == "failed", "S stale_session twice: the attempt is failed (§10: stale_session stored nothing)", Describe(o) + " state=" + o.AttemptState);
             Check(sent.Length == 2 && JsonField(sent[0], "message_id") == JsonField(sent[1], "message_id"), "S stale_session twice: both tries used the same message_id", "messages=" + sent.Length);
             Check(o.AttemptRows == "1/1" && o.DraftText == Text, "S stale_session twice: still one manual attempt and the draft is kept", "rows/maxTry=" + o.AttemptRows + " draft=" + o.DraftText);
+            UiCheck("S stale_session twice", o);
         }
 
         // ---- K (keep-alive peer; a real socket that keeps the connection open and serves several requests): every request must use its own connection, so the real local endpoint is
@@ -470,6 +497,8 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             Check(o.AttemptState == "failed", $"L legacy peer, {label}: the attempt is failed (nothing was written)", Describe(o) + " state=" + o.AttemptState);
             Check(o.RetryMayHave == false, $"L legacy peer, {label}: a manual retry does not claim the previous try may have been delivered", "retryMayHave=" + o.RetryMayHave);
             Check(o.DraftText == bigText, $"L legacy peer, {label}: the draft is kept", "draftLength=" + o.DraftText?.Length);
+            UiCheck($"L legacy peer, {label}", o);
+            Check(o.Result is not null && UiText(o).Contains("對方是舊版，最多 2,000 字"), $"UI L legacy peer, {label}: the CM-07 notice is shown", "text='" + (o.Result is null ? "" : UiText(o)) + "'");
         }
 
         // ---- RS2 (CM-18c ruling 5a): on the receipt route ONLY a well-formed classroom envelope with code stale_session (HTTP 409) triggers the single retry. Any other answer keeps the
@@ -495,6 +524,8 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             Check(o.Thrown is null && !o.Confirmed && !o.TextOnWire && o.Seen.Count(r => r.IsClassroomMessage) == 0, "X cancelled right after the route was recorded: the message request is never written", Describe(o));
             Check(o.AttemptState == "cancelled", "X cancelled right after the route was recorded: the attempt is cancelled (§11.1), not unconfirmed", Describe(o) + " state=" + o.AttemptState);
             Check(o.RetryMayHave == false, "X cancelled before any byte was written: a manual retry does not warn", "retryMayHave=" + o.RetryMayHave);
+            UiCheck("X cancelled right after the route record", o);
+            Check(o.Result is not null && ClassroomSendUiPolicy.DecideCancelResultFromOutcome(o.Result) is { Cancelled: true, Reason: "cancelled" } cr && ClassroomSendUiPolicy.DecideCancelClickResult(cr).Contains("未送出"), "UI X the cancel button's answer for a cancelled-before-write attempt is cancelled / not sent", "");
         }
 
         // ---- F5: cancellation never records a route and never sends the text (contract §11: cancelled is unconfirmed, nothing is retried). ----
@@ -516,6 +547,8 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             var routes = o.Calls.Where(c => c.Method == "RecordClassroomRoute").ToList();
             Check(routes.Count == 1 && routes[0].Args.OfType<ClassroomRoute>().SingleOrDefault() == ClassroomRoute.Classroom, "F5 control: cancelled while the message is pending keeps the single classroom route", Describe(o));
             Check(!o.Confirmed && o.DraftText == Text, "F5 control: cancelled message is not confirmed and the draft is kept", Describe(o));
+            UiCheck("F5 control cancelled while the message is pending", o);
+            Check(o.Result is not null && ClassroomSendUiPolicy.DecideCancelResultFromOutcome(o.Result) is { Cancelled: false, Reason: "unconfirmed" } cr2 && ClassroomSendUiPolicy.DecideCancelClickResult(cr2).Contains("對方可能已收到"), "UI F5 control cancelled while the message is pending: the cancel button says the other side may have it", "");
         }
         {
             var o = await Exercise(Peer(), Loopback); // control: an undisturbed send records exactly one classroom route
