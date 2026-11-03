@@ -60,6 +60,30 @@ public sealed partial class ChatStore
     }
 
     public RosterMutationResult DeleteRosterEntry(string entryId, string expectedSnapshotToken) => ChangeRosterBindingOrDelete(entryId, expectedSnapshotToken, null, delete: true);
+
+    /// <summary>CM-17: nothing is written. The UI shows <see cref="RosterDeletePreview.Notice"/> and deletes only after the user confirms.</summary>
+    public RosterDeletePreview PreviewRosterDelete(string entryId)
+    {
+        ValidateRosterId(entryId);
+        var snapshot = GetRosterSnapshot(); string token = RosterImportPreview.ComputeSnapshotToken(snapshot);
+        var row = snapshot.SingleOrDefault(r => r.Entry.Id == entryId)?.Entry;
+        if (row is null) return new(false, "not-found", entryId, "", 0, 0, token);
+        var (classroom, legacy) = Read(c => {
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT (SELECT count(*) FROM ClassroomMessage WHERE principal=@p),(SELECT count(*) FROM LegacyMessage WHERE rosterEntryId=@id)";
+            cmd.Parameters.AddWithValue("@p", "roster:" + entryId); cmd.Parameters.AddWithValue("@id", entryId);
+            using var r = cmd.ExecuteReader(); r.Read(); return ((int)r.GetInt64(0), (int)r.GetInt64(1));
+        });
+        return new(true, "ok", entryId, row.DisplayName, classroom, legacy, token);
+    }
+
+    /// <summary>Delete after the user confirmed the preview. Refused if the row's name is no longer the one that was shown.</summary>
+    public RosterMutationResult DeleteRosterEntry(string entryId, string expectedSnapshotToken, RosterDeleteConfirmation confirmation)
+    {
+        ArgumentNullException.ThrowIfNull(confirmation);
+        if (confirmation.EntryId != entryId) return new(false, "confirmation_mismatch", entryId, expectedSnapshotToken);
+        return ChangeRosterBindingOrDelete(entryId, expectedSnapshotToken, null, delete: true, confirmation.DisplayName);
+    }
     /// <summary>Explicit human selection after pairing. Never creates a Peer or changes pairingState.</summary>
     public RosterMutationResult BindPairedRosterPeer(string entryId, string? peerId, string expectedSnapshotToken)
     {
@@ -67,7 +91,7 @@ public sealed partial class ChatStore
         return ChangeRosterBindingOrDelete(entryId, expectedSnapshotToken, peerId, delete: false);
     }
 
-    private RosterMutationResult ChangeRosterBindingOrDelete(string entryId, string expectedToken, string? peer, bool delete)
+    private RosterMutationResult ChangeRosterBindingOrDelete(string entryId, string expectedToken, string? peer, bool delete, string? confirmedName = null)
     {
         ValidateRosterId(entryId); ValidateRosterToken(expectedToken);
         return Write(delete ? "delete-roster" : "bind-roster", ctx => {
@@ -77,7 +101,13 @@ public sealed partial class ChatStore
             if (old is null) return (new RosterMutationResult(false, "not-found", entryId, token), false);
             if (!delete && peer is not null && !IsPaired(ctx, peer)) return (new RosterMutationResult(false, "peer-not-paired", entryId, token), false);
             if (!delete && old.Entry.PeerId == peer) return (new RosterMutationResult(false, "unchanged", entryId, token), false);
-            if (delete) ctx.Exec("DELETE FROM RosterEntry WHERE id=@id", ("@id", entryId));
+            if (delete && confirmedName is not null && confirmedName != old.Entry.DisplayName) return (new RosterMutationResult(false, "confirmation_mismatch", entryId, token), false);
+            if (delete)
+            {
+                // CM-17: keep the name the row had, in the same transaction, so its conversation stays labelled and readable.
+                ctx.Exec("INSERT OR REPLACE INTO RosterRemoved(rosterEntryId,displayName,removedUtc) VALUES(@id,@name,@now)", ("@id", entryId), ("@name", old.Entry.DisplayName), ("@now", ctx.NowUtc));
+                ctx.Exec("DELETE FROM RosterEntry WHERE id=@id", ("@id", entryId));
+            }
             else ctx.Exec("UPDATE RosterEntry SET peerId=@peer WHERE id=@id", ("@peer", peer), ("@id", entryId));
             return (new RosterMutationResult(true, delete ? "deleted" : "bound", entryId, RosterImportPreview.ComputeSnapshotToken(ReadRoster(ctx))), true);
         });

@@ -230,6 +230,50 @@ internal static class ClassroomStoreChecks
             Check(bad, "inconsistent bounds are refused at open");
         }
 
+        // NCM1c (1): v1 legacy messages from off-roster sources share the CM-11 budget
+        using (var f = new Fixture())
+        {
+            var diag = new List<string>();
+            using var store = ChatStore.Open(f.Options with { OffRoster = new(MaxSources: 2, MaxMessagesPerSource: 2, MaxMessagesTotal: 3, MaxTotalBytes: 1000), DiagnosticSink = diag.Add });
+            string a = Add(store, "甲", X);
+            LegacyReceiveResult Legacy(string ip, string text) => store.ReceiveLegacyMessage(new(text, null), store.GetLegacyReceiveContext(ip), () => true);
+            Check(Legacy(Z, "v1-1").Stored && store.ReceiveClassroomMessage(Z, new("c1", "classroom-1")) is ClassroomStored, "off-roster v1 and classroom messages from one source both count");
+            Check(Legacy(Z, "v1-2") is { Stored: false, Reason: "offroster-limit" } && store.ReceiveClassroomMessage(Z, new("c2", "classroom-2")) is ClassroomRejected { Reason: "offroster-limit" } &&
+                diag.Contains("classroom-offroster-limit scope=source") && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 1, "per-source bound is shared by both paths and stores nothing more");
+            Check(Legacy(W, "v1-w").Stored && Legacy("10.0.0.20", "v1-new") is { Stored: false, Reason: "offroster-limit" } && diag.Contains("classroom-offroster-limit scope=sources"), "a third unknown source is refused for v1 too");
+            Check(Legacy(X, "from roster 1").Stored && Legacy(X, "from roster 2").Stored && Legacy(X, "from roster 3").Stored && Legacy(X, "from roster 4").Stored && store.ListLegacyMessages(new(a, null)).Items.Count == 4, "roster members' v1 history has no bound");
+            Check(Count(f.Db, "SELECT count(*) FROM LegacyMessage WHERE rosterEntryId IS NULL") == 2 && diag.All(d => !d.Contains("10.0.0.") && !d.Contains("v1")), "nothing is deleted and diagnostics hold no address or content");
+        }
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options with { OffRoster = new(MaxMessagesPerSource: 10, MaxMessagesTotal: 10, MaxTotalBytes: 12) });
+            Check(store.ReceiveLegacyMessage(new("12345678", null), store.GetLegacyReceiveContext(Z), () => true).Stored && store.ReceiveLegacyMessage(new("12345", null), store.GetLegacyReceiveContext(Z), () => true) is { Stored: false, Reason: "offroster-limit" },
+                "v1 byte bound counts UTF-8 bytes");
+        }
+
+        // NCM1c (2): CM-17 removing a roster row keeps the conversation
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            string a = Add(store, "甲", X); var pa = ClassroomPrincipalKey.ForRosterEntry(a);
+            store.SaveManualRosterEntry(a, new("甲改", null, false, X), Token(store));
+            store.ReceiveClassroomMessage(X, new("r-1", "before delete")); store.SaveClassroomDraft(pa, "keep me", 0, 1);
+            store.ReceiveLegacyMessage(new("v1 hello", null), store.GetLegacyReceiveContext(X), () => true);
+            var preview = store.PreviewRosterDelete(a);
+            Check(preview is { CanDelete: true, DisplayName: "甲改", ClassroomMessages: 1, LegacyMessages: 1 } && preview.Notice.Contains("對話會保留") && preview.Notice.Contains("甲改（已從名單移除）") && store.GetRosterSnapshot().Count == 1, "delete preview says the conversation is kept and writes nothing");
+            Check(store.DeleteRosterEntry(a, Token(store), new RosterDeleteConfirmation("someone-else", "甲改")).Reason == "confirmation_mismatch" && store.DeleteRosterEntry(a, Token(store), new RosterDeleteConfirmation(a, "舊名")).Reason == "confirmation_mismatch" && store.GetRosterSnapshot().Count == 1, "a confirmation for another row or an outdated name deletes nothing");
+            Check(store.DeleteRosterEntry(a, Token(store), preview.ToConfirmation()).Reason == "deleted" && store.GetRosterSnapshot().Count == 0, "confirmed delete removes the row");
+            var summary = store.ListClassroomConversations().Single();
+            Check(summary is { Removed: true, DisplayName: "甲改", Label: "甲改（已從名單移除）", CanSend: false, Messages: 1 } && Texts(store, pa).SequenceEqual(["before delete"]), "the conversation stays, labelled with the name at deletion");
+            Check(store.BeginClassroomSend(pa, "hi", 0, 1) is InvalidSend { Reason: "removed" } && store.SaveClassroomDraft(pa, "x", 0, 2) is { Saved: false, Reason: "not-found" } && store.GetClassroomDraftState(pa).RawText == "keep me", "a removed row cannot be sent to; its stored draft is untouched");
+            Check(store.MarkClassroomVisibleRead(pa, [1], new(pa.Value, true, true, false, true)).Marked == 1, "history of a removed row can still be read");
+            Check(store.ReceiveClassroomMessage(X, new("r-2", "after delete")) is ClassroomStored { Principal.Value: "ip:10.0.0.1" } && store.ListClassroomConversations().Count == 2, "mail from the old address now lands in 名單外");
+            Check(Count(f.Db, "SELECT count(*) FROM LegacyMessage WHERE rosterEntryId IS NOT NULL") == 0 && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1, "KNOWN LIMIT: v1 rows lose their roster owner (FK) but are kept, now under 名單外・IP");
+            string again = Add(store, "甲", X);
+            Check(again != a && Texts(store, ClassroomPrincipalKey.ForRosterEntry(again)).Count == 0 && Texts(store, pa).Count == 1, "adding the person again makes a new row; the old conversation is not re-attached by itself");
+            Check(store.ClearClassroomConversation(pa).Messages == 1 && store.ListClassroomConversations().All(c => c.Principal != pa), "a removed row's conversation can be cleared by the user");
+        }
+
         // migration: old history is preserved, frozen schema untouched, new schema guarded
         using (var f = new Fixture())
         {
@@ -240,7 +284,7 @@ internal static class ClassroomStoreChecks
                 old.ReceiveLegacyMessage(new("old v1", null), old.GetLegacyReceiveContext("10.0.0.9"), () => true);
             }
             using var current = ChatStore.Open(f.Options);
-            Check(Count(f.Db, "PRAGMA user_version") == 7 && Count(f.Db, "SELECT count(*) FROM Message") == 1 && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0 &&
+            Check(Count(f.Db, "PRAGMA user_version") == 8 && Count(f.Db, "SELECT count(*) FROM Message") == 1 && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0 &&
                 Text(f.Db, "SELECT pairingState FROM Peer WHERE id='A'") == "paired", "additive migration keeps old key-based history exactly where it was; nothing is reassigned");
             string row = Add(current, "甲", X.ToString());
             current.ReceiveClassroomMessage(Z, new("k", "x"));

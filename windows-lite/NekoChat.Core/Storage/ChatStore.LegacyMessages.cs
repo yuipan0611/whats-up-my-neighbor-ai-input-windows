@@ -33,12 +33,18 @@ public sealed partial class ChatStore
         }
         catch (EncoderFallbackException) { return new(false, "invalid-unicode"); }
         bool Guard(WriteContext ctx) => stillCurrent() && ctx.Query(LegacyCaptureSql, r => MapLegacyCapture(r, expected.SourceIp), ("@ip", expected.SourceIp)).Single() == expected;
-        return Write("legacy-receive", ctx => {
+        string? limit = null;
+        var legacyResult = Write("legacy-receive", ctx => {
+            // CM-11: v1 messages from sources that are not on the roster share the classroom off-roster budget; refuse the new one, never delete.
+            if (expected.RosterEntryId is null && OffRosterLimit(ctx, expected.SourceIp, Encoding.UTF8.GetByteCount(message.Text)) is { } hit)
+            { limit = hit; return (new LegacyReceiveResult(false, "offroster-limit"), false); }
             ctx.Exec("INSERT OR IGNORE INTO LegacyScopeRevision(scopeKey) VALUES(@scope)", ("@scope", expected.Scope.ContextId));
             ctx.Exec("INSERT INTO LegacyMessage(scopeKey,sourceIp,rosterEntryId,rawText,reaction,receivedUtc) VALUES(@scope,@ip,@row,@text,@reaction,@now)",
                 ("@scope", expected.Scope.ContextId), ("@ip", expected.SourceIp), ("@row", expected.RosterEntryId), ("@text", message.Text), ("@reaction", message.Reaction), ("@now", ctx.NowUtc));
             return (new LegacyReceiveResult(true, "stored-local-only", Convert.ToInt64(ctx.Scalar("SELECT last_insert_rowid()"), CultureInfo.InvariantCulture)), true);
         }, guardRejected: () => new LegacyReceiveResult(false, "stale-legacy-scope"), transactionGuard: Guard);
+        if (limit is not null) _options.DiagnosticSink?.Invoke("classroom-offroster-limit scope=" + limit);
+        return legacyResult;
     }
     public IReadOnlyList<LegacyHistorySummary> ListLegacyHistories(long? beforeLastLegacySeq = null, int limit = 200)
     {

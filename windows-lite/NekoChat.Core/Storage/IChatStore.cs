@@ -50,6 +50,8 @@ public interface IChatStore : IDisposable
     RosterSaveResult SaveManualRosterEntry(string? entryId, RosterEdit edit, string expectedSnapshotToken, LegacyMergeConsent? mergeConsent);
     RosterEditPreview PreviewManualRosterEntry(string? entryId, RosterEdit edit);
     RosterSendTarget ResolveRosterSendTarget(string rowId);
+    RosterDeletePreview PreviewRosterDelete(string entryId);
+    RosterMutationResult DeleteRosterEntry(string entryId, string expectedSnapshotToken, RosterDeleteConfirmation confirmation);
     IReadOnlyList<RosterImportMergeNotice> GetRosterImportMergeNotices(NekoChat.Core.Roster.RosterImportPreview preview);
     RosterApplyResult ApplyRosterPreview(NekoChat.Core.Roster.RosterImportPreview preview, IReadOnlyList<RosterImportMergeNotice>? confirmedMerges);
     ClassroomPrincipalKey? ResolveClassroomPrincipal(string sourceIp);

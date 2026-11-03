@@ -78,7 +78,7 @@ public sealed partial class ChatStore
             bool same = old.Text == message.Text && old.Reaction == message.Reaction && CryptographicOperations.FixedTimeEquals(old.Fingerprint, fingerprint);
             return (same ? new ClassroomDuplicate(principal, message.MessageId, old.Seq) : new ClassroomConflict(principal, message.MessageId), false);
         }
-        if (!principal.IsRoster && OffRosterLimit(ctx, principal, Encoding.UTF8.GetByteCount(message.Text)) is { } hit)
+        if (!principal.IsRoster && OffRosterLimit(ctx, principal.SourceIp!, Encoding.UTF8.GetByteCount(message.Text)) is { } hit)
         { limitHit(hit); return (new ClassroomRejected("offroster-limit"), false); }   // CM-11: refuse the new message, never delete stored rows
         EnsureClassroomConversation(ctx, principal);
         ctx.Exec("INSERT INTO ClassroomMessage(principal,direction,messageId,rawText,kind,reaction,contentFingerprint,sourceIp,createdUtc) VALUES(@p,'incoming',@id,@text,'text',@reaction,@fp,@ip,@now)",
@@ -88,13 +88,16 @@ public sealed partial class ChatStore
         return (new ClassroomStored(principal, message.MessageId, seq, unread), true);
     });
 
-    /// <summary>Which bound the NEW message would exceed, or null. Counts only sources that are not on the roster.</summary>
-    private string? OffRosterLimit(WriteContext ctx, ClassroomPrincipalKey principal, int newBytes)
+    /// <summary>
+    /// Which bound the NEW message would exceed, or null (CM-11). One shared budget for everything that is not on the roster: classroom conversations
+    /// (<c>ip:</c> principals) and v1 LegacyMessage rows with no roster owner. Roster members are never bounded; stored rows are never deleted.
+    /// </summary>
+    private string? OffRosterLimit(WriteContext ctx, string ip, int newBytes)
     {
         var limits = _options.OffRoster;
         var (sources, perSource, total, bytes, known) = ctx.Query(
-            "SELECT count(DISTINCT principal),coalesce(sum(CASE WHEN principal=@p THEN 1 ELSE 0 END),0),count(*),coalesce(sum(length(CAST(rawText AS BLOB))),0),coalesce(max(principal=@p),0) FROM ClassroomMessage WHERE direction='incoming' AND principal GLOB 'ip:*'",
-            r => (r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), r.GetInt64(3), r.GetInt64(4) == 1), ("@p", principal.Value)).Single();
+            "WITH u AS (SELECT sourceIp AS ip,length(CAST(rawText AS BLOB)) AS n FROM LegacyMessage WHERE rosterEntryId IS NULL" + (_migrations.Count >= 7 ? " UNION ALL SELECT substr(principal,4),length(CAST(rawText AS BLOB)) FROM ClassroomMessage WHERE direction='incoming' AND principal GLOB 'ip:*'" : "") + ") SELECT count(DISTINCT ip),coalesce(sum(CASE WHEN ip=@ip THEN 1 ELSE 0 END),0),count(*),coalesce(sum(n),0),coalesce(max(ip=@ip),0) FROM u",
+            r => (r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), r.GetInt64(3), r.GetInt64(4) == 1), ("@ip", ip)).Single();
         if (!known && sources >= limits.MaxSources) return "sources";
         if (perSource >= limits.MaxMessagesPerSource) return "source";
         if (total >= limits.MaxMessagesTotal) return "total";
@@ -163,7 +166,9 @@ public sealed partial class ChatStore
         ? ctx.Scalar("SELECT endpoint FROM RosterEntry WHERE id=@id", ("@id", principal.RosterEntryId)) as string
         : principal.SourceIp;
     private static string NoTargetReason(WriteContext ctx, ClassroomPrincipalKey principal) =>
-        principal.IsRoster && Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM RosterEntry WHERE id=@id", ("@id", principal.RosterEntryId)), CultureInfo.InvariantCulture) == 0 ? "not-found" : "no-address";
+        !principal.IsRoster || Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM RosterEntry WHERE id=@id", ("@id", principal.RosterEntryId)), CultureInfo.InvariantCulture) != 0 ? "no-address"
+        : _removedTableExists(ctx) && Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM RosterRemoved WHERE rosterEntryId=@id", ("@id", principal.RosterEntryId)), CultureInfo.InvariantCulture) != 0 ? "removed" : "not-found";
+    private static bool _removedTableExists(WriteContext ctx) => Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='RosterRemoved'"), CultureInfo.InvariantCulture) == 1;
 
     public BeginSendResult BeginClassroomSend(ClassroomPrincipalKey principal, string rawText, long draftEpoch, long draftRevision, string kind = "text", string? reaction = null)
     {
@@ -186,7 +191,7 @@ public sealed partial class ChatStore
             bool mayHave = old.State is "unconfirmed" or "cancelled";
             if (!same) return StartClassroomAttempt(ctx, principal, currentText, kind, reaction, draftEpoch, draftRevision, mayHave);
             if (old.Count >= int.MaxValue) return (new InvalidSend("try-count-exhausted"), false);
-            if (!EnsureClassroomConversation(ctx, principal)) return (new InvalidSend("not-found"), false);
+            if (!EnsureClassroomConversation(ctx, principal)) return (new InvalidSend(NoTargetReason(ctx, principal)), false);
             if (ClassroomTarget(ctx, principal) is null) return (new InvalidSend(NoTargetReason(ctx, principal)), false);
             var binding = ReadClassroomBinding(ctx, principal.Value)!;
             if (ctx.Scalar("SELECT messageId FROM ClassroomAttempt WHERE principal=@p AND attemptState='sending'", ("@p", principal.Value)) is string active) return (new AlreadySending(active), false);
@@ -199,7 +204,7 @@ public sealed partial class ChatStore
 
     private (BeginSendResult Value, bool Commit) StartClassroomAttempt(WriteContext ctx, ClassroomPrincipalKey principal, string text, string kind, string? reaction, long epoch, long revision, bool mayHaveDelivered)
     {
-        if (!EnsureClassroomConversation(ctx, principal)) return (new InvalidSend("not-found"), false);
+        if (!EnsureClassroomConversation(ctx, principal)) return (new InvalidSend(NoTargetReason(ctx, principal)), false);
         if (ClassroomTarget(ctx, principal) is null) return (new InvalidSend(NoTargetReason(ctx, principal)), false);   // CM-04: no address, no sending
         var binding = ReadClassroomBinding(ctx, principal.Value)!;
         if (ctx.Scalar("SELECT messageId FROM ClassroomAttempt WHERE principal=@p AND attemptState='sending'", ("@p", principal.Value)) is string active) return (new AlreadySending(active), false);
@@ -402,9 +407,9 @@ public sealed partial class ChatStore
         if (limit is < 1 or > 1000) throw new ArgumentOutOfRangeException(nameof(limit));
         return Read(c => {
             using var cmd = c.CreateCommand();
-            cmd.CommandText = "WITH g AS (SELECT principal,max(localSeq) AS lastSeq,count(*) AS total,sum(CASE WHEN direction='incoming' AND localReadAt IS NULL THEN 1 ELSE 0 END) AS unread FROM ClassroomMessage GROUP BY principal) SELECT g.principal,g.lastSeq,g.total,g.unread,m.rawText,m.createdUtc FROM g JOIN ClassroomMessage m ON m.localSeq=g.lastSeq ORDER BY g.lastSeq DESC LIMIT @limit";
+            cmd.CommandText = "WITH g AS (SELECT principal,max(localSeq) AS lastSeq,count(*) AS total,sum(CASE WHEN direction='incoming' AND localReadAt IS NULL THEN 1 ELSE 0 END) AS unread FROM ClassroomMessage GROUP BY principal) SELECT g.principal,g.lastSeq,g.total,g.unread,m.rawText,m.createdUtc,r.displayName,d.displayName FROM g JOIN ClassroomMessage m ON m.localSeq=g.lastSeq LEFT JOIN RosterEntry r ON 'roster:'||r.id=g.principal LEFT JOIN RosterRemoved d ON 'roster:'||d.rosterEntryId=g.principal ORDER BY g.lastSeq DESC LIMIT @limit";
             cmd.Parameters.AddWithValue("@limit", limit); using var r = cmd.ExecuteReader(); var rows = new List<ClassroomConversationSummary>();
-            while (r.Read()) if (ClassroomPrincipalKey.TryParse(r.GetString(0), out var key)) rows.Add(new(key, r.GetInt64(1), r.GetInt64(2), r.GetInt64(3), r.GetString(4), r.GetString(5)));
+            while (r.Read()) if (ClassroomPrincipalKey.TryParse(r.GetString(0), out var key)) rows.Add(new(key, r.GetInt64(1), r.GetInt64(2), r.GetInt64(3), r.GetString(4), r.GetString(5), r.IsDBNull(6) ? r.IsDBNull(7) ? null : r.GetString(7) : r.GetString(6), key.IsRoster && r.IsDBNull(6)));
             return rows.AsReadOnly();
         });
     }

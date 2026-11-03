@@ -7,6 +7,17 @@ namespace NekoChat.Core.Storage;
 /// </summary>
 internal static class ClassroomSchema
 {
+    /// <summary>CM-17: the name a roster row had when it was removed, so its conversation keeps a label. Written in the same transaction as the delete.</summary>
+    internal const string RemovedSql = """
+        CREATE TABLE RosterRemoved(
+          rosterEntryId TEXT PRIMARY KEY CHECK (length(rosterEntryId) BETWEEN 1 AND 64),
+          displayName   TEXT NOT NULL CHECK (length(displayName) BETWEEN 1 AND 256),
+          removedUtc    TEXT NOT NULL
+        ) STRICT;
+        CREATE TRIGGER RosterRemoved_immutable BEFORE UPDATE ON RosterRemoved
+        BEGIN SELECT RAISE(ABORT, 'Removed roster snapshots are immutable'); END;
+        """;
+
     internal const string Sql = """
         CREATE TABLE ClassroomConversation(
           principal     TEXT PRIMARY KEY CHECK (length(principal) BETWEEN 4 AND 80 AND (principal GLOB 'roster:*' OR principal GLOB 'ip:*')),
