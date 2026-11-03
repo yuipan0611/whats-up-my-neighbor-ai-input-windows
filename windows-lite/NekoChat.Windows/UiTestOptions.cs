@@ -95,16 +95,6 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
         {
             throw new InvalidOperationException("不允許使用 extended-length path prefix (\\\\?\\)。");
         }
-
-        // 2. 阻擋 8.3 短檔名特徵 ('~')
-        var rawSegments = rawPath.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
-        foreach (var seg in rawSegments)
-        {
-            if (seg.Contains('~'))
-            {
-                throw new InvalidOperationException($"不允許使用包含 8.3 短檔名特徵 ('~') 的路徑：'{seg}'。");
-            }
-        }
     }
 
     public static string ResolveRealPath(string rawPath)
@@ -112,6 +102,11 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
         AssertSafePathFormat(rawPath);
 
         string fullPath = Path.GetFullPath(rawPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            fullPath = ExpandWindowsShortName(fullPath);
+        }
+
         string? root = Path.GetPathRoot(fullPath);
         if (string.IsNullOrEmpty(root))
         {
@@ -123,6 +118,10 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
         var missingSegments = new Stack<string>();
         while (!string.IsNullOrEmpty(existing) && !Directory.Exists(existing) && !File.Exists(existing))
         {
+            if (IsSymbolicLink(existing))
+            {
+                throw new InvalidOperationException($"符號連結指向不存在的目標（懸空符號連結）：'{existing}'。");
+            }
             string seg = Path.GetFileName(existing);
             if (string.IsNullOrEmpty(seg))
             {
@@ -152,8 +151,31 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
         return Path.GetFullPath(combined).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
+    private static bool IsSymbolicLink(string path)
+    {
+        try
+        {
+            if (File.Exists(path) || Directory.Exists(path))
+            {
+                var attr = File.GetAttributes(path);
+                return (attr & FileAttributes.ReparsePoint) != 0;
+            }
+            var di = new DirectoryInfo(path);
+            if (di.LinkTarget is not null) return true;
+            var fi = new FileInfo(path);
+            if (fi.LinkTarget is not null) return true;
+        }
+        catch { }
+        return false;
+    }
+
     private static string ResolveExistingPathViaOs(string path)
     {
+        if (IsSymbolicLink(path) && !File.Exists(path) && !Directory.Exists(path))
+        {
+            throw new InvalidOperationException($"符號連結指向不存在的目標（懸空符號連結）：'{path}'。");
+        }
+
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             return ResolveWindowsFinalPath(path);
@@ -180,6 +202,18 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
             finally
             {
                 posix_free(ptr);
+            }
+        }
+        else
+        {
+            int errno = Marshal.GetLastPInvokeError();
+            if (errno == 62 || errno == 40)
+            {
+                throw new InvalidOperationException($"偵測到符號連結迴圈：'{path}'。");
+            }
+            if (IsSymbolicLink(path))
+            {
+                throw new InvalidOperationException($"符號連結指向不存在的目標（懸空符號連結）：'{path}'。");
             }
         }
 
@@ -230,23 +264,60 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
 
     private static string ResolveViaDotNetLinkTarget(string path)
     {
-        try
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        FileSystemInfo fsi = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+        int depth = 0;
+        while (depth++ < 32)
         {
-            FileSystemInfo fsi = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
-            int depth = 0;
-            while (depth++ < 32)
+            string current = fsi.FullName;
+            if (!visited.Add(current))
             {
-                var target = fsi.ResolveLinkTarget(returnFinalTarget: true);
-                if (target is null) break;
-                fsi = target;
+                throw new InvalidOperationException($"偵測到符號連結迴圈：'{current}'。");
             }
-            return fsi.FullName;
+
+            var target = fsi.ResolveLinkTarget(returnFinalTarget: false);
+            if (target is null) break;
+
+            if (!target.Exists)
+            {
+                throw new InvalidOperationException($"符號連結指向不存在的目標（懸空符號連結）：'{current}' -> '{target.FullName}'。");
+            }
+            fsi = target;
         }
-        catch
+
+        if (depth >= 32)
+        {
+            throw new InvalidOperationException($"符號連結解析超過最大深度限制（可能存在迴圈）：'{path}'。");
+        }
+
+        return fsi.FullName;
+    }
+
+    private static string ExpandWindowsShortName(string path)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             return path;
         }
+
+        try
+        {
+            var sb = new StringBuilder(1024);
+            uint res = GetLongPathName(path, sb, (uint)sb.Capacity);
+            if (res > 0 && res < sb.Capacity)
+            {
+                return sb.ToString();
+            }
+        }
+        catch { }
+        return path;
     }
+
+    [DllImport("kernel32.dll", EntryPoint = "GetLongPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetLongPathName(
+        string lpszShortPath,
+        [Out] StringBuilder lpszLongPath,
+        uint cchBuffer);
 
     [DllImport("libc", EntryPoint = "realpath", SetLastError = true)]
     private static extern IntPtr posix_realpath(string path, IntPtr resolved_path);

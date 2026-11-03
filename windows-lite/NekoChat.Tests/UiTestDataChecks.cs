@@ -74,11 +74,26 @@ public static class UiTestDataChecks
             Check(UiTestOptions.Parse(Array.Empty<string>()) is null, "empty args returns null");
             Check(UiTestOptions.Parse(new[] { "--startup-smoke-test", testDir }) is null, "smoke args return null");
 
-            // 4. Extended prefix and 8.3 short name rejection
+            // 4. Extended prefix rejection and '~' directory permission
             Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", @"\\?\C:\some\dir" }), "extended-length prefix \\\\?\\ rejected");
             Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", @"//?/C:/some/dir" }), "extended-length prefix //?/ rejected");
-            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(tempBase, "PROGRA~1") }), "8.3 short name PROGRA~1 rejected");
-            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(tempBase, "sub", "NEKOCH~1") }), "8.3 short name in subfolder rejected");
+            string tildeDir = Path.Combine(tempBase, "data~with~tilde");
+            Directory.CreateDirectory(tildeDir);
+            var optTilde = UiTestOptions.Parse(new[] { "--ui-test-data", tildeDir });
+            Check(optTilde is not null, "directory containing '~' is permitted (global reject removed)");
+
+            // Dangling symlink rejection (fail-closed)
+            string nonExistentTarget = Path.Combine(tempBase, "does-not-exist-" + Guid.NewGuid().ToString("N"));
+            string danglingSymlink = Path.Combine(tempBase, "dangling-link");
+            Directory.CreateSymbolicLink(danglingSymlink, nonExistentTarget);
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", danglingSymlink }), "dangling symlink rejected");
+
+            // Symlink loop rejection (fail-closed)
+            string loopA = Path.Combine(tempBase, "loop-a");
+            string loopB = Path.Combine(tempBase, "loop-b");
+            Directory.CreateSymbolicLink(loopA, loopB);
+            Directory.CreateSymbolicLink(loopB, loopA);
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", loopA }), "symlink loop rejected");
 
             // 5. Safety guard: rejection if located inside official directory
             Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", official }), "exact official directory rejected");
