@@ -15,6 +15,9 @@ if (NekoChat.Tests.StorageReadChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageLegacyRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageBackupChecks.RunChild(args)) return;
+if (args.SequenceEqual(new[] { "--shared-regression-guards" })) { Console.WriteLine($"Shared regression guards: {await RunSharedRegressionGuards()} checks."); return; }
+if (args.SequenceEqual(new[] { "--receipt-archived" })) { await NekoChat.Tests.ReceiptServiceChecks.RunArchivedProtocol(); return; }
+if (args.SequenceEqual(new[] { "--receipt-privacy" })) { await NekoChat.Tests.ReceiptServiceChecks.RunSharedPrivacy(); return; }
 if (args.SequenceEqual(new[] { "--listener-accept-recovery" })) { await NekoChat.Tests.ListenerAcceptRecoveryChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-listener" })) { await NekoChat.Tests.ClassroomListenerChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
@@ -185,7 +188,22 @@ checks += await NekoChat.Tests.Limit64kChecks.Run();
 checks += await NekoChat.Tests.ClassroomFramingChecks.Run();
 checks += await NekoChat.Tests.ClassroomListenerChecks.Run();
 checks += await NekoChat.Tests.ListenerAcceptRecoveryChecks.Run();
+// M1: shared storage/security, presence and D-10 guards remain mandatory even when their fixtures use signed V2.
+checks += await RunSharedRegressionGuards();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
 
-Console.WriteLine("Current/shared count excludes archived-superseded signed/P1 suites; classroom runtime acceptance is a separate gate.");
+Console.WriteLine("Current/shared includes M1 storage, presence and privacy regression guards (some signed fixtures); archived superseded flows are counted separately. Classroom runtime acceptance remains a separate gate.");
 if (args.SequenceEqual(new[] { "--all-with-archived" })) await NekoChat.Tests.ArchivedSupersededChecks.Run();
+
+static async Task<int> RunSharedRegressionGuards()
+{
+    int checks = 0;
+    checks += await NekoChat.Tests.PresenceChecks.Run();
+    checks += NekoChat.Tests.PresenceChecks.RunAbaProbe();
+    checks += await NekoChat.Tests.SecurityRevisionChecks.Run();
+    checks += await NekoChat.Tests.V2BoundaryChecks.Run();
+    checks += NekoChat.Tests.V2StorageFenceChecks.Run();
+    checks += await NekoChat.Tests.PresenceWireChecks.Run();
+    checks += await NekoChat.Tests.ReceiptServiceChecks.RunSharedPrivacy();
+    return checks;
+}

@@ -7,7 +7,9 @@ The fixed classroom LAN/IP requirements supersede signed identity pairing (PMCM 
 - Existing focused signed/P1 arguments still work and now print an archived label.
 - `NekoChat.Tests/ArchivedSupersededChecks.cs` lists the exact preserved calls. No historical assertion or frozen vector was removed to obtain a current green result.
 
-This group includes signed-wire/parser/nonce/security-revision checks, signed TCP/receipt/presence and related crash tests, identity vault/recovery and all P1 pairing tests. Shared storage, legacy compatibility, presentation, roster and text/draft boundary regressions still run by default; those shared regressions alone do not establish the new classroom runtime works.
+M1 keeps these shared regression guards in the default current/shared group: `SecurityRevisionChecks`, `V2StorageFenceChecks`, `V2BoundaryChecks`, `PresenceChecks` (including ABA), `PresenceWireChecks`, and the first seven D-10 privacy assertions of `ReceiptServiceChecks`. Some use signed fixtures to exercise shared implementations; their success does not establish classroom protocol/runtime acceptance.
+
+The archived group retains signed vectors/TCP/crash flows, `SharedPortChecks` (mixed historical routing fixture), passive identity, identity vault/recovery and all P1 pairing tests. `ReceiptServiceChecks.RunArchivedProtocol` retains the remaining four protocol/trust/legacy-event assertions; it prepares the same fixture without rerunning/counting the seven privacy assertions. The existing focused `--receipt-worker` still runs all eleven once, and new `--receipt-privacy` runs the seven shared ones; `--receipt-archived` runs the remaining four. No assertion or frozen vector is removed.
 
 The historical intermittent Release P1 repair failure remains **UNRESOLVED**. Earlier failing evidence is retained in `build/delivery-standalone-20261103/logs/core.log` and the Codex verification record. A later historical green run does not prove it fixed. New classroom receive/send/receipt/clear paths still require actual SQLite transaction-boundary process kills and independent final acceptance.
 

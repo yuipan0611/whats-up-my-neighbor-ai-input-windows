@@ -8,10 +8,20 @@ namespace NekoChat.Tests;
 
 internal static class ReceiptServiceChecks
 {
-    public static async Task<int> Run()
+    private enum Scope { All, SharedPrivacy, ArchivedProtocol }
+    public static Task<int> Run() => Run(Scope.All);
+    internal static Task<int> RunSharedPrivacy() => Run(Scope.SharedPrivacy);
+    internal static Task<int> RunArchivedProtocol() => Run(Scope.ArchivedProtocol);
+    private static async Task<int> Run(Scope scope)
     {
         int checks = 0;
-        void Check(bool ok, string label) { checks++; if (!ok) throw new Exception("Receipt worker: " + label); }
+        bool privacyPhase = true;
+        void Check(bool ok, string label)
+        {
+            // The archived tail needs the same setup but its privacy assertions are counted/run in the shared group.
+            if (privacyPhase && scope == Scope.ArchivedProtocol) return;
+            checks++; if (!ok) throw new Exception("Receipt worker: " + label);
+        }
         await using var f = new Fixture(); var clock = new Clock(); await using var service = new ReadReceiptService(f.A, f.ClientA, f.ListenerB.Port, clock);
         string first = await f.Send(); f.Read(first); service.Start(); await Until(() => Volatile.Read(ref service.Passes) > 0);
         Check(!f.A.GetReadReceiptPolicy().Enabled && f.A.ListPendingReadReceipts().Count == 0 && Volatile.Read(ref service.Attempts) == 0 && f.B.ListMessages(f.ConvB).Items.Single().RemoteReadAt is null,
@@ -29,6 +39,13 @@ internal static class ReceiptServiceChecks
         Check(Volatile.Read(ref service.Attempts) == 2 && f.A.ListPendingReadReceipts().Count == 0 && f.B.ListMessages(f.ConvB).Items.Single(m => m.MessageId == fourth).RemoteReadAt is null,
             "turning privacyOFF atomically removes unsent queue and worker cannot send captured old policy");
         f.A.SetReadReceiptPolicy(true); await PulseAndWait(service); Check(Volatile.Read(ref service.Attempts) == 2, "re-enabling privacy policy never backfills read fourth message");
+        if (scope == Scope.SharedPrivacy)
+        {
+            await service.DisposeAsync();
+            Console.WriteLine($"Shared receipt privacy: {checks} actual service/TCP/SQLite defaultOFF, opt-in, disable and no-backfill checks; signed fixture, not classroom protocol acceptance.");
+            return checks;
+        }
+        privacyPhase = false;
         string fifth = await f.Send(); f.Read(fifth); f.A.SetPairingState(f.WriterB.PeerId, PairingState.Suspended); clock.Advance(30); await PulseAndWait(service);
         Check(Volatile.Read(ref service.Attempts) == 2 && f.B.ListMessages(f.ConvB).Items.Single(m => m.MessageId == fifth).RemoteReadAt is null,
             "suspended trust cannot dispatch pending metadata even with read receipts enabled");
@@ -40,7 +57,7 @@ internal static class ReceiptServiceChecks
             notice.Scope == new LegacyHistoryScope(null, "127.0.0.1") && typeof(LegacyDeliveryNotice).GetProperties().All(p => p.Name is not ("Text" or "Body" or "RawText")),
             "actual legacy stored event has immutable arrival scope and no body; throwing subscriber cannot turn committed receipt into wire failure");
         await service.DisposeAsync(); Check(f.A.GetInboxSnapshot().Entries.Count == 2 && f.A.GetReadReceiptPolicy().Enabled, "drained receipt service leaves borrowed store/client alive");
-        Console.WriteLine($"Receipt worker: {checks} actual TCP/signature/SQLite privacy, pacing, trust and legacy notice checks."); return checks;
+        Console.WriteLine($"Receipt worker ({scope}): {checks} actual TCP/signature/SQLite checks; shared privacy and archived protocol counts stay separate."); return checks;
     }
     private static async Task PulseAndWait(ReadReceiptService service)
     { long before = Volatile.Read(ref service.Passes); service.Pulse(); await Until(() => Volatile.Read(ref service.Passes) > before); }
