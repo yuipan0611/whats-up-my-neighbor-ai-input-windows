@@ -23,6 +23,7 @@ if (args.SequenceEqual(new[] { "--listener-failure-policy" })) { await NekoChat.
 if (args.SequenceEqual(new[] { "--listener-accept-recovery" })) { await NekoChat.Tests.ListenerAcceptRecoveryChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-listener" })) { await NekoChat.Tests.ClassroomListenerChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--classroom-adapter" })) { await NekoChat.Tests.ClassroomEndpointAdapterChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--archived-superseded" })) { await NekoChat.Tests.ArchivedSupersededChecks.Run(); return; }
 if (args.Length == 1 && NekoChat.Tests.ArchivedSupersededChecks.IsFocusedArgument(args[0]))
     Console.WriteLine("archived-superseded: historical signed/P1 regression only; excluded from current classroom acceptance.");
