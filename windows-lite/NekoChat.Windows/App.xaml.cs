@@ -41,17 +41,6 @@ public partial class App : Application
             return;
         }
 
-        if (e.Args.Length == 2 && e.Args[0] == "--pairing-ui-smoke-test")
-        {
-            Environment.Exit(await RunPairingUiSmokeAsync(e.Args[1]));
-            return;
-        }
-
-        if (e.Args.Length == 2 && e.Args[0] == "--identity-vault-smoke-test")
-        {
-            Environment.Exit(Identity.IdentityVaultSmoke.Run(e.Args[1]));
-            return;
-        }
 
         if (e.Args.Length == 2 && e.Args[0] == "--update-download-smoke-test")
         {
