@@ -11,6 +11,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <!-- CatArtwork and WPF content URIs read built-ins from the extraction base in standalone mode. -->
+    <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
     <NuGetLockFilePath Condition="'$(PublishSingleFile)' == 'true'">packages.singlefile.lock.json</NuGetLockFilePath>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>

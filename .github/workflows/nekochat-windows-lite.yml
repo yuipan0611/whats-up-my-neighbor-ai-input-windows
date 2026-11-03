@@ -36,6 +36,10 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s windows-lite/tools -p "test_*.py"
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: '10.0.x'
@@ -49,16 +53,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Move-Item build/windows-lite-portable/NekoChat.Windows.exe build/windows-lite-portable/NekoChat-Lite.exe
           (Get-FileHash build/windows-lite-portable/NekoChat-Lite.exe -Algorithm SHA256).Hash | Out-File build/windows-lite-portable/NekoChat-Lite.exe.sha256 -Encoding ascii
+      - name: Verify standalone bundle content without the Windows loader
+        run: python windows-lite/tools/verify_bundle.py build/windows-lite-portable/NekoChat-Lite.exe --repo . --output build/windows-lite-smoke/portable-bundle.json
       - name: Publish self-contained x64 package
         shell: pwsh
         run: |
           dotnet publish windows-lite/NekoChat.Windows -c Release -r win-x64 --self-contained true -o build/windows-lite-package
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Copy-Item windows-lite/README.md build/windows-lite-package/README.md
+          Copy-Item windows-lite/DELIVERY.md build/windows-lite-package/DELIVERY.md
+          Copy-Item windows-lite/PAIRING-IMPLEMENTATION.md build/windows-lite-package/PAIRING-IMPLEMENTATION.md
+          Copy-Item windows-lite/PAIRING-VERIFICATION.md build/windows-lite-package/PAIRING-VERIFICATION.md
+          Copy-Item windows-lite/SEND-CANCELLATION.md build/windows-lite-package/SEND-CANCELLATION.md
           Copy-Item windows-lite/BACKUP-RESTORE.md build/windows-lite-package/BACKUP-RESTORE.md
           Copy-Item windows-lite/IDENTITY-VERIFICATION.md build/windows-lite-package/IDENTITY-VERIFICATION.md
           Copy-Item LICENSE build/windows-lite-package/LICENSE
           Copy-Item windows-lite/THIRD-PARTY.md build/windows-lite-package/THIRD-PARTY.md
+          New-Item -ItemType Directory -Force build/windows-lite-package/tools | Out-Null
+          Copy-Item windows-lite/tools/README.md build/windows-lite-package/tools/README.md
       - name: Verify installed App without external runtimes
         shell: pwsh
         run: |
@@ -86,6 +98,19 @@ jobs:
             if ($probe.ExitCode -ne 0) { throw 'Update download UI failed' }
             New-Item -ItemType Directory -Force build/windows-lite-smoke/update-download | Out-Null
             Copy-Item "$target/result.txt" "build/windows-lite-smoke/update-download/result-$index.txt"
+            $index++
+          }
+      - name: Verify current manual-send Cancel controls in isolated native fixtures
+        shell: pwsh
+        run: |
+          $index = 0
+          foreach ($app in @('build/windows-lite-package/NekoChat.Windows.exe', 'build/windows-lite-portable/NekoChat-Lite.exe')) {
+            $proof = Join-Path $env:GITHUB_WORKSPACE "build/windows-lite-smoke/manual-cancel-$index"
+            $probe = Start-Process -FilePath (Resolve-Path $app).Path -ArgumentList @('--manual-send-cancel-smoke-test', "`"$proof`"") -PassThru
+            if (!$probe.WaitForExit(60000)) { $probe.Kill(); throw 'Manual send Cancel fixture timed out' }
+            if ($probe.ExitCode -ne 0) { throw 'Manual send Cancel fixture failed' }
+            $result = Get-Content "$proof/manual-send-cancel-result.json" -Raw | ConvertFrom-Json
+            if (!$result.passed -or !$result.cleaned -or $result.productIdentityModeSelected -or $result.productMaximumTextBytesSelected) { throw 'Invalid isolated cancellation result' }
             $index++
           }
       - name: Verify packaged and portable apps exchange real messages

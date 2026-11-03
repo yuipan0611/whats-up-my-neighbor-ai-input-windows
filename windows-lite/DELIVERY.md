@@ -1,30 +1,31 @@
-# 本機整合交付 — 2026-11-03
+# 本機整合候選交付 — 2026-11-03
 
-> 完成稽核補正：下列53b983c產物是既有來源快照，未包含後續「進行中取消」修正；其 portable 仍是資料夾包，尚未滿足原定的單檔驗收。本輪正在補正並重新固定來源，不能把這三個舊產物當目前 HEAD。
+本批是本機交叉產物，供後續 Windows 驗收；未安裝、簽章驗證、上傳或發布。以同批 `delivery-manifest.json` 的來源 SHA／實際檢查與每檔 SHA-256 為準。`build/final-delivery-20261103/` 中的53b983c是較早快照，缺當次取消修正，且 portable 尚是資料夾包，不代表目前來源。新產物由下方可重做流程產生至全新輸出目錄，不覆寫舊證據。
 
-本批為 Mac 產生的 Windows x64 交叉產物，供 Windows 後續驗收。來源 SHA、每個檔案的大小與 SHA-256 以同批 `delivery-manifest.json` 為準；包裝輸出位於整合 worktree 的 `build/final-delivery-20261103/`。這不是安裝、簽章驗證、發布或 Windows 驗收通過。
+## 三種產物
 
-## 三種包裝
-
-| 檔名 | 用途與使用方式 |
+| 檔名 | 使用與驗證界線 |
 |---|---|
-| `NekoChat-Windows-Lite-win-x64.zip` | 完整 self-contained 資料夾，整包解壓後使用 `NekoChat.Windows.exe`。 |
-| `NekoChat-Lite-portable-win-x64.zip` | 免安裝資料夾包，使用 `NekoChat-Lite.exe`；保留所有 Assets、Coats 與附檔，不只複製 EXE。 |
-| `NekoChat-Setup-win-x64.exe` | 含同一完整 ZIP 及內嵌 SHA-256 的 Setup；未在 Windows 執行，不應把離線完整性核對視為安裝／防火牆驗收。 |
+| `NekoChat-Windows-Lite-win-x64.zip` | 完整 self-contained 套件；整包解壓後使用 NekoChat.Windows.exe。 |
+| `NekoChat-Lite.exe` | 真正單檔免安裝候選；內含原素材／花色／runtime，使用.NET all-content extraction 模式。靜態與 Mac content-load proof 不代替 Windows WPF／解壓權限驗收。 |
+| `NekoChat-Setup-win-x64.exe` | 嵌入同一完整 ZIP 與 SHA-256；離線讀 metadata 核對，未執行安裝／更新／防火牆。 |
 
-同批外附 `.sha256`、`delivery-manifest.json`、`offline-verification.json`。Mac 只核對 ZIP CRC／完整檔案 hash、原素材／花色、PE x64 apphost、Setup 內嵌 payload/checksum 與 bundle 中的實際 managed assembly。離線工具只讀 PE metadata，不載入／執行 Windows assembly。
+另附 `.sha256`、DELIVERY、`delivery-manifest.json`、`portable-bundle.json` 與 logs。真正需要跟 EXE 放一起的 runtime sidecars 不得靠資料夾包掩蓋；portable verifier 必須驗到 all-content flag 及各原始檔 bytes。保留的完整 publish 子目錄只是中間證據。
 
-## 已完成的來源與本機證據
+## 他人可重做
 
-- 持久化身分／名單／分對話歷史／草稿／清除、簽章與可靠收發、presence、選擇性已讀回條與隱私預設，及其 WPF 接線。
-- 條件式 P1 的候選／commit-reveal／雙方 one-use SAS consent／同埠 TCP／交叉發起／真 kill-restart／MITM 反例、選定列同交易綁定、host／設定／視窗生命週期守衛。詳 [PAIRING-IMPLEMENTATION.md](PAIRING-IMPLEMENTATION.md)。
-- Core 6,600 項、動畫 4,361 項及 WPF cross-build 0 warning／0 error。原始 log、反例控制與 hash 留於 worktree 的 `build/wire-evidence/`，不把它們稱作 Windows 實機證據。
-- 獨立 UI 審查的拒絕結果文案問題已修正；合成 HTML 預覽問題已解決，**native disposition 仍為 fix/unexecuted**。預覽沒有連線／配對能力，沒有被當成人類比碼證據。
+從乾淨、已 commit 的整合 checkout，使用 Python、Git 與 .NET10 SDK：
 
-## 仍未啟用／未驗收
+```sh
+python3 windows-lite/tools/build_delivery.py --dotnet /完整路徑/dotnet --output build/delivery-new
+```
 
-身分方案 P1／P2／P3 與訊息上限 L 尚未由使用者選定。一般 App 不自動建立身分或啟用配對／V2 私訊；本批不代答產品決策。合成 fixture 只在隔離資料下明確啟用 P1，配對 UI fixture 仍不選 L。原 N002P-v2 的退回與有限密碼學論證保留，不能改稱原提案通過。教材依使用者指示暫緩、另訂規則。
+環境／分項命令見 [工具說明](tools/README.md)。腳本執行實際 Core／動畫 tests，記錄精確來源與 SDK，再建三種包裝及核對。不預填成功數或拿較早 log 當本次執行；來源在過程中改變即失敗。Windows PE App／Setup 不在 Mac 執行。
 
-Windows WPF 實際字型／焦點／鍵盤／輔助工具、IME、DPI／多螢幕、DPAPI／CNG／ACL、OS 睡眠／重啟、安裝／更新／防火牆、雙實機／教室皆未執行。操作單：[PAIRING-VERIFICATION.md](PAIRING-VERIFICATION.md)、[IDENTITY-VERIFICATION.md](IDENTITY-VERIFICATION.md)、[BACKUP-RESTORE.md](BACKUP-RESTORE.md)。
+## 來源範圍與待決
 
-前次可在 Mac 完成之工作已收尾的結論範圍過寬；後續稽核仍發現當次網路取消與真正單檔包裝缺口。取消來源已補並見 [SEND-CANCELLATION.md](SEND-CANCELLATION.md)，單檔與最終重打仍須完成。完整 N002B／N008 與產品可用驗收另受未決政策及 Windows 證據限制。沒有 push、PR、合併 main、安裝或發布。
+已實作持久對話／草稿／清除、簽章可靠收發與 presence、選擇性已讀與隱私預設、WPF 接線，以及條件式 P1 的選定列同交易綁定／SAS／host lifecycle。當次傳送取消修正見 [SEND-CANCELLATION.md](SEND-CANCELLATION.md)，配對設計與有限證據見 [PAIRING-IMPLEMENTATION.md](PAIRING-IMPLEMENTATION.md)。核准的 themeA／貓／反應保留；先前 SAS source/browser finding resolved，**native disposition仍fix/unexecuted**。
+
+身分模式 P1／P2／P3 與 L 尚未選定，普通 App 不自行建立金鑰或啟用配對／V2 私訊。synthetic fixture 的明確設定不代表產品決策；原 N002P-v2 的退回與有限密碼學論證不改成通過。教材依使用者暫緩、另訂規則。
+
+Windows WPF／字型／焦點／鍵盤／assistive／IME／DPI／多螢幕、DPAPI／CNG／ACL、OS生命週期、安裝／更新／防火牆、真雙機／教室仍未執行。操作單：[PAIRING-VERIFICATION.md](PAIRING-VERIFICATION.md)、[SEND-CANCELLATION.md](SEND-CANCELLATION.md)、[IDENTITY-VERIFICATION.md](IDENTITY-VERIFICATION.md)、[BACKUP-RESTORE.md](BACKUP-RESTORE.md)。完整N002B／N008與產品啟用不由交叉包裝或Mac tests自動通過。
