@@ -19,6 +19,7 @@ if (args.SequenceEqual(new[] { "--storage-backups" })) { NekoChat.Tests.StorageB
 if (args.SequenceEqual(new[] { "--shared-regression-guards" })) { Console.WriteLine($"Shared regression guards: {await RunSharedRegressionGuards()} checks."); return; }
 if (args.SequenceEqual(new[] { "--receipt-archived" })) { await NekoChat.Tests.ReceiptServiceChecks.RunArchivedProtocol(); return; }
 if (args.SequenceEqual(new[] { "--receipt-privacy" })) { await NekoChat.Tests.ReceiptServiceChecks.RunSharedPrivacy(); return; }
+if (args.SequenceEqual(new[] { "--listener-failure-policy" })) { await NekoChat.Tests.ListenerFailurePolicyChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--listener-accept-recovery" })) { await NekoChat.Tests.ListenerAcceptRecoveryChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-listener" })) { await NekoChat.Tests.ClassroomListenerChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
@@ -189,6 +190,7 @@ checks += await NekoChat.Tests.Limit64kChecks.Run();
 checks += await NekoChat.Tests.ClassroomFramingChecks.Run();
 checks += await NekoChat.Tests.ClassroomListenerChecks.Run();
 checks += await NekoChat.Tests.ListenerAcceptRecoveryChecks.Run();
+checks += await NekoChat.Tests.ListenerFailurePolicyChecks.Run();
 // M1: shared storage/security, presence and D-10 guards remain mandatory even when their fixtures use signed V2.
 checks += await RunSharedRegressionGuards();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");

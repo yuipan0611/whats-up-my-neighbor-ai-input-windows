@@ -36,9 +36,10 @@ public sealed class V2TcpListener : IAsyncDisposable
     private readonly HashSet<Task> _workers = new();
     private readonly SourceRateLimit _rate;
     private Task? _loop, _disposal;
-    private int _running, _boundPort;
+    private int _running, _boundPort, _failed;
     private long _acceptFailures;
     public bool Running => Volatile.Read(ref _running) == 1;
+    public bool Failed => Volatile.Read(ref _failed) == 1;
     public int Port => Volatile.Read(ref _boundPort);
     public long AcceptFailures => Interlocked.Read(ref _acceptFailures);
     public int ActiveConnections { get { lock (_gate) return _workers.Count; } }
@@ -66,6 +67,7 @@ public sealed class V2TcpListener : IAsyncDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            if (Failed) throw new InvalidOperationException("Replace a failed listener before restarting.");
             if (Running) return;
             _listener.Start(32); Volatile.Write(ref _boundPort, ((IPEndPoint)_listener.LocalEndpoint).Port);
             Volatile.Write(ref _running, 1); _receiver?.SetReady(true); _loop = AcceptAsync();
@@ -73,6 +75,7 @@ public sealed class V2TcpListener : IAsyncDisposable
     }
     private async Task AcceptAsync()
     {
+        int consecutiveFailures = 0;
         try
         {
             while (!_lifetime.IsCancellationRequested)
@@ -80,9 +83,24 @@ public sealed class V2TcpListener : IAsyncDisposable
                 TcpClient? client = null; bool transferred = false;
                 try
                 {
-                    client = await _listener.AcceptTcpClientAsync(_lifetime.Token).ConfigureAwait(false);
-                    _options.AcceptedForTest?.Invoke(client);
-                    if (client.Client is not { RemoteEndPoint: IPEndPoint remote }) throw new SocketException((int)SocketError.NotConnected);
+                    IPEndPoint remote;
+                    try
+                    {
+                        client = await _listener.AcceptTcpClientAsync(_lifetime.Token).ConfigureAwait(false);
+                        _options.AcceptedForTest?.Invoke(client);
+                        if (client.Client is not { RemoteEndPoint: IPEndPoint peer }) throw new SocketException((int)SocketError.NotConnected);
+                        remote = peer; consecutiveFailures = 0;
+                    }
+                    catch (Exception error) when (error is IOException or SocketException or ObjectDisposedException or InvalidOperationException or OperationCanceledException)
+                    {
+                        if (_lifetime.IsCancellationRequested) return;
+                        Interlocked.Increment(ref _acceptFailures);
+                        if (++consecutiveFailures >= 50) return;
+                        if (consecutiveFailures == 1 || consecutiveFailures % 10 == 0) Report("accept_retry");
+                        try { await Task.Delay(TimeSpan.FromMilliseconds(100), _lifetime.Token).ConfigureAwait(false); }
+                        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
+                        continue;
+                    }
                     string source = remote.Address.ToString();
                     string? rejected = !LanInvitation.PrivateIPv4(source) ? "unpaired_sender" : !_rate.Allow(source) ? "rate_limited" : null;
                     lock (_gate)
@@ -98,23 +116,26 @@ public sealed class V2TcpListener : IAsyncDisposable
                             continue;
                         }
                     }
-                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-                    timeout.CancelAfter(TimeSpan.FromMilliseconds(200));
-                    var stream = client.GetStream();
-                    await RespondAsync(stream, V2HttpResponse.Error(rejected ?? "receiver_not_ready"), timeout.Token).ConfigureAwait(false);
-                    await FinishAsync(client, stream, timeout.Token).ConfigureAwait(false);
-                }
-                catch (Exception error) when (error is IOException or SocketException or ObjectDisposedException or InvalidOperationException or OperationCanceledException)
-                {
-                    if (_lifetime.IsCancellationRequested) return;
-                    Interlocked.Increment(ref _acceptFailures); Report("accept_retry");
-                    try { await Task.Delay(TimeSpan.FromMilliseconds(100), _lifetime.Token).ConfigureAwait(false); }
-                    catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
+                    try
+                    {
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+                        timeout.CancelAfter(TimeSpan.FromMilliseconds(200));
+                        var stream = client.GetStream();
+                        await RespondAsync(stream, V2HttpResponse.Error(rejected ?? "receiver_not_ready"), timeout.Token).ConfigureAwait(false);
+                        await FinishAsync(client, stream, timeout.Token).ConfigureAwait(false);
+                    }
+                    catch (Exception error) when (error is IOException or SocketException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
                 }
                 finally { if (!transferred) client?.Dispose(); }
             }
         }
-        finally { Volatile.Write(ref _running, 0); _receiver?.SetReady(false); }
+        finally
+        {
+            bool failedExit = !_lifetime.IsCancellationRequested;
+            if (failedExit) Volatile.Write(ref _failed, 1);
+            Volatile.Write(ref _running, 0); _listener.Stop(); _receiver?.SetReady(false);
+            if (failedExit) Report("listener_failed");
+        }
     }
     private async Task HandleAsync(TcpClient client, string source)
     {
