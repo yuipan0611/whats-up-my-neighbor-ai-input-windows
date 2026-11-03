@@ -360,6 +360,55 @@ internal static class ClassroomStoreChecks
             Check(store.ClearClassroomConversation(pa).Messages == 1 && store.ListClassroomConversations().All(c => c.Principal != pa), "a removed row's conversation can be cleared by the user");
         }
 
+        // CM-14b: a v1 peer's "delivered" is its own result, not a stored-ACK
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            string a = Add(store, "舊版同學", X); var pa = ClassroomPrincipalKey.ForRosterEntry(a);
+            store.SaveClassroomDraft(pa, "to an old client", 0, 1);
+            var begin = (AttemptStarted)store.BeginClassroomSend(pa, "to an old client", 0, 1);
+            Check(store.CompleteClassroomLegacyDelivered(begin.MessageId, Z) is Discarded { Reason: "ack-binding" } && store.CompleteClassroomLegacyDelivered(begin.MessageId, "::1") is Discarded { Reason: "ack-binding" } && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0,
+                "legacy delivered must come from the conversation's own address");
+            var done = store.CompleteClassroomLegacyDelivered(begin.MessageId, X);
+            var sent = store.ListClassroomMessages(pa).Items.Single();
+            Check(done is Confirmed { DraftCleared: true } && sent.LegacyDeliveredAt is not null && sent.DeliveryLabel == "舊版・已送出" && sent.RemoteStoredAt is null && sent.RemoteReadAt is null,
+                "delivered: the message is in history as 舊版・已送出 through an explicit field, with no stored/read timestamp");
+            Check(Text(f.Db, "SELECT attemptState FROM ClassroomAttempt WHERE messageId='" + begin.MessageId + "'") == "confirmed" && store.GetClassroomDraftState(pa) is { RawText: null, Epoch: 1 }, "the attempt is terminal and the unchanged draft is cleared");
+            Check(store.BeginClassroomRetry(begin.MessageId, pa, "to an old client", 1, 1) is InvalidSend { Reason: "already-confirmed" } && store.CompleteClassroomLegacyDelivered(begin.MessageId, X) is AlreadyConfirmed, "after delivered there is no resend and a repeat is idempotent");
+            Check(store.CompleteClassroomAttempt(begin.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, ClassroomFingerprintOf("to an old client")), X) is AlreadyConfirmed &&
+                Count(f.Db, "SELECT count(*) FROM ClassroomMessage WHERE remoteStoredAt IS NOT NULL") == 0, "a stored-ACK path can never turn the v1 message into 'stored'");
+            Check(store.ApplyClassroomReceipt(X, begin.MessageId, RemoteReceiptKind.Read) is { Changed: false, Reason: "legacy-no-receipts" } && store.ApplyClassroomReceipt(X, begin.MessageId, RemoteReceiptKind.Stored) is { Changed: false, Reason: "legacy-no-receipts" } &&
+                Count(f.Db, "SELECT count(*) FROM ClassroomMessage WHERE remoteReadAt IS NOT NULL OR remoteStoredAt IS NOT NULL") == 0, "read and stored receipts for that message are refused");
+            bool rejected = false; try { Execute(f.Db, "UPDATE ClassroomMessage SET remoteReadAt='2026-01-01T00:00:00.000Z' WHERE legacyDeliveredAt IS NOT NULL"); } catch (SqliteException) { rejected = true; }
+            bool rejectedInsert = false; try { Execute(f.Db, "INSERT INTO ClassroomMessage(principal,direction,messageId,rawText,contentFingerprint,createdUtc,remoteStoredAt,legacyDeliveredAt) VALUES('" + pa.Value + "','outgoing','x','t',zeroblob(32),'t','t','t')"); } catch (SqliteException) { rejectedInsert = true; }
+            Check(rejected && rejectedInsert, "the database itself refuses receipts, and a stored time together with a legacy mark");
+            // history is still a normal history: the legacy mark survives a merge-free reopen and is shown for that message only
+            Rx(store, X, new("in1", "reply from old client"));
+            Check(store.ListClassroomMessages(pa).Items.Count(m => m.DeliveryLabel is not null) == 1, "only the delivered message carries the legacy label");
+        }
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            string a = Add(store, "舊版同學", X); var pa = ClassroomPrincipalKey.ForRosterEntry(a);
+            store.SaveClassroomDraft(pa, "first", 0, 1);
+            var begin = (AttemptStarted)store.BeginClassroomSend(pa, "first", 0, 1);
+            store.SaveClassroomDraft(pa, "edited while sending", 0, 2);
+            var done = store.CompleteClassroomLegacyDelivered(begin.MessageId, X);
+            Check(done is Confirmed { DraftCleared: false } && store.GetClassroomDraftState(pa).RawText == "edited while sending", "a draft edited after the send began is kept");
+        }
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            string a = Add(store, "舊版同學", X); var pa = ClassroomPrincipalKey.ForRosterEntry(a);
+            store.SaveClassroomDraft(pa, "no delivered came back", 0, 1);
+            var begin = (AttemptStarted)store.BeginClassroomSend(pa, "no delivered came back", 0, 1);
+            Check(store.CompleteClassroomAttempt(begin.MessageId, new UnconfirmedOutcome()) is StateUpdated { NewState: "unconfirmed" } && store.GetClassroomDraftState(pa).RawText == "no delivered came back" && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0,
+                "timeout or disconnect: the draft stays, the attempt is unconfirmed, and nothing enters history");
+            var retry = store.BeginClassroomRetry(begin.MessageId, pa, "no delivered came back", 0, 1) as AttemptStarted;
+            Check(retry is { ReusedId: true, PreviousAttemptMayHaveDelivered: true, TryCount: 2 }, "only a manual retry resends, and it reports that the first try may have arrived (so the UI can warn about a duplicate)");
+            Check(store.CompleteClassroomLegacyDelivered(begin.MessageId, X, expectedTryCount: 1) is Discarded { Reason: "stale-attempt" } && store.CompleteClassroomLegacyDelivered(begin.MessageId, X, expectedTryCount: 2) is Confirmed, "a delivered for an older try is discarded");
+        }
+
         // migration: old history is preserved, frozen schema untouched, new schema guarded
         using (var f = new Fixture())
         {
@@ -370,7 +419,7 @@ internal static class ClassroomStoreChecks
                 old.ReceiveLegacyMessage(new("old v1", null), old.GetLegacyReceiveContext("10.0.0.9"), () => true);
             }
             using var current = ChatStore.Open(f.Options);
-            Check(Count(f.Db, "PRAGMA user_version") == 8 && Count(f.Db, "SELECT count(*) FROM Message") == 1 && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0 &&
+            Check(Count(f.Db, "PRAGMA user_version") == 9 && Count(f.Db, "SELECT count(*) FROM Message") == 1 && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0 &&
                 Text(f.Db, "SELECT pairingState FROM Peer WHERE id='A'") == "paired", "additive migration keeps old key-based history exactly where it was; nothing is reassigned");
             string row = Add(current, "甲", X.ToString());
             Rx(current, Z, new("k", "x"));
@@ -389,6 +438,7 @@ internal static class ClassroomStoreChecks
         return checks;
     }
 
+    private static byte[] ClassroomFingerprintOf(string text) => ChatStore.ClassroomFingerprint(text, null);
     private static ClassroomReceiveResult Rx(ChatStore s, string ip, ClassroomIncoming m) => s.ReceiveClassroomMessage(ip, m, () => true);
     private static byte[] ClassroomFpOf(ChatStore store, string messageId) => Convert.FromHexString(store.GetClassroomPreparedSend(messageId)!.FingerprintHex);
     private static string Add(ChatStore store, string name, string? ip)

@@ -294,6 +294,43 @@ public sealed partial class ChatStore
         });
     }
 
+    /// <summary>
+    /// CM-14b: the v1 peer answered "delivered". Records the message in history as 舊版・已送出 (explicit column; no remoteStoredAt, no remoteReadAt, no receipts ever),
+    /// makes the attempt terminal, and clears the draft only if it is unchanged since the send began. v1 carries no content proof, so the only binding is
+    /// that the reply came from the conversation's own address. Not a RemoteStoredOutcome: nothing here says the peer stored or read anything.
+    /// </summary>
+    public CompleteResult CompleteClassroomLegacyDelivered(string messageId, string deliveredFromIp, int? expectedTryCount = null)
+    {
+        ValidateMessageId(messageId);
+        if (expectedTryCount is <= 0) throw new ArgumentOutOfRangeException(nameof(expectedTryCount));
+        var from = ClassroomPrincipalKey.ForSource(deliveredFromIp);
+        return Write<CompleteResult>("classroom-legacy-delivered", ctx => {
+            var old = FindClassroomAttempt(ctx, messageId);
+            if (old is null) return (new Discarded("not-found"), false);
+            if (old.State == "superseded") return (new Discarded("superseded"), false);
+            if (old.State == "confirmed")
+            {
+                object? sequence = ctx.Scalar("SELECT localSeq FROM ClassroomMessage WHERE principal=@p AND direction='outgoing' AND messageId=@id", ("@p", old.Principal), ("@id", messageId));
+                return sequence is null ? (new Discarded("missing-confirmed-message"), false) : (new AlreadyConfirmed(Convert.ToInt64(sequence, CultureInfo.InvariantCulture)), false);
+            }
+            if (expectedTryCount.HasValue && expectedTryCount != old.Count) return (new Discarded("stale-attempt"), false);
+            if (from is null || ResolveClassroomPrincipal(ctx, from.Value.SourceIp!).Value != old.Principal) return (new Discarded("ack-binding"), false);
+            var binding = ReadClassroomBinding(ctx, old.Principal);
+            bool clear = old.Kind != "reaction" && binding is not null && binding.Epoch == old.Epoch && binding.Revision == old.Revision && binding.Text == old.Text;
+            if (clear && binding!.Epoch == long.MaxValue) throw new InvalidOperationException("Draft epoch exhausted.");
+            ctx.Exec("INSERT INTO ClassroomMessage(principal,direction,messageId,rawText,kind,reaction,contentFingerprint,createdUtc,legacyDeliveredAt) VALUES(@p,'outgoing',@id,@text,@kind,@reaction,@fp,@now,@now)",
+                ("@p", old.Principal), ("@id", old.Id), ("@text", old.Text), ("@kind", old.Kind), ("@reaction", old.Reaction), ("@fp", old.Fingerprint), ("@now", ctx.NowUtc));
+            long seq = Convert.ToInt64(ctx.Scalar("SELECT last_insert_rowid()"), CultureInfo.InvariantCulture);
+            ctx.Exec("UPDATE ClassroomAttempt SET attemptState='confirmed',updatedUtc=@now WHERE messageId=@id", ("@now", ctx.NowUtc), ("@id", messageId));
+            if (clear)
+            {
+                ctx.Exec("DELETE FROM ClassroomDraft WHERE principal=@p", ("@p", old.Principal));
+                ctx.Exec("UPDATE ClassroomConversation SET draftEpoch=draftEpoch+1 WHERE principal=@p", ("@p", old.Principal));
+            }
+            return (new Confirmed(seq, clear), true);
+        });
+    }
+
     public CancelResult CancelClassroomAttempt(string messageId, int? expectedTryCount = null)
     {
         ValidateMessageId(messageId);
@@ -318,14 +355,15 @@ public sealed partial class ChatStore
         if (ClassroomPrincipalKey.ForSource(sourceIp) is not { } key) return new(false, "invalid-source");
         return Write("classroom-apply-receipt", ctx => {
             var principal = ResolveClassroomPrincipal(ctx, key.SourceIp!);
-            var rows = ctx.Query("SELECT localSeq,remoteStoredAt,remoteReadAt FROM ClassroomMessage WHERE principal=@p AND direction='outgoing' AND messageId=@id",
-                r => (Seq: r.GetInt64(0), Stored: !r.IsDBNull(1), Read: !r.IsDBNull(2)), ("@p", principal.Value), ("@id", messageId));
+            var rows = ctx.Query("SELECT localSeq,remoteStoredAt,remoteReadAt,legacyDeliveredAt FROM ClassroomMessage WHERE principal=@p AND direction='outgoing' AND messageId=@id",
+                r => (Seq: r.GetInt64(0), Stored: !r.IsDBNull(1), Read: !r.IsDBNull(2), Legacy: !r.IsDBNull(3)), ("@p", principal.Value), ("@id", messageId));
             if (rows.Count == 0)
             {
                 long pending = Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM ClassroomAttempt WHERE principal=@p AND messageId=@id AND attemptState NOT IN ('confirmed','superseded')", ("@p", principal.Value), ("@id", messageId)), CultureInfo.InvariantCulture);
                 return (new ReceiptApplyResult(false, pending > 0 ? "pending-local-confirmation" : "not-found"), false);
             }
             var row = rows[0];
+            if (row.Legacy) return (new ReceiptApplyResult(false, "legacy-no-receipts", row.Seq), false);   // CM-14b: a v1 peer cannot have stored or read this message
             if (row.Stored && (kind == RemoteReceiptKind.Stored || row.Read)) return (new ReceiptApplyResult(false, "unchanged", row.Seq), false);
             ctx.Exec("UPDATE ClassroomMessage SET remoteStoredAt=coalesce(remoteStoredAt,@now),remoteReadAt=CASE WHEN @read=1 THEN coalesce(remoteReadAt,@now) ELSE remoteReadAt END WHERE localSeq=@seq",
                 ("@now", ctx.NowUtc), ("@read", kind == RemoteReceiptKind.Read ? 1 : 0), ("@seq", row.Seq));
@@ -391,11 +429,11 @@ public sealed partial class ChatStore
         if (pageSize is < 1 or > 200) throw new ArgumentOutOfRangeException(nameof(pageSize));
         return Read(c => {
             using var cmd = c.CreateCommand();
-            cmd.CommandText = "SELECT localSeq,direction,messageId,rawText,kind,reaction,sourceIp,createdUtc,localReadAt,remoteStoredAt,remoteReadAt FROM ClassroomMessage WHERE principal=@p AND (@before IS NULL OR localSeq<@before) ORDER BY localSeq DESC LIMIT @limit";
+            cmd.CommandText = "SELECT localSeq,direction,messageId,rawText,kind,reaction,sourceIp,createdUtc,localReadAt,remoteStoredAt,remoteReadAt,legacyDeliveredAt FROM ClassroomMessage WHERE principal=@p AND (@before IS NULL OR localSeq<@before) ORDER BY localSeq DESC LIMIT @limit";
             cmd.Parameters.AddWithValue("@p", principal.Value); cmd.Parameters.AddWithValue("@before", (object?)beforeLocalSeq ?? DBNull.Value); cmd.Parameters.AddWithValue("@limit", pageSize + 1);
             using var r = cmd.ExecuteReader(); var rows = new List<ClassroomStoredMessage>();
             while (r.Read()) rows.Add(new(r.GetInt64(0), principal, r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4), r.IsDBNull(5) ? null : r.GetString(5), r.IsDBNull(6) ? null : r.GetString(6),
-                r.GetString(7), r.IsDBNull(8) ? null : r.GetString(8), r.IsDBNull(9) ? null : r.GetString(9), r.IsDBNull(10) ? null : r.GetString(10)));
+                r.GetString(7), r.IsDBNull(8) ? null : r.GetString(8), r.IsDBNull(9) ? null : r.GetString(9), r.IsDBNull(10) ? null : r.GetString(10), r.IsDBNull(11) ? null : r.GetString(11)));
             bool more = rows.Count > pageSize; if (more) rows.RemoveAt(rows.Count - 1); rows.Reverse();
             return new ClassroomMessagePage(rows.AsReadOnly(), more ? rows[0].LocalSeq : null);
         });

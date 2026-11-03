@@ -25,7 +25,11 @@ public sealed record ClassroomOffRosterLimits(int MaxSources = 200, int MaxMessa
 public static class ClassroomLimits { public const int MaxDraftBytes = 1_048_576; }
 
 public sealed record ClassroomStoredMessage(long LocalSeq, ClassroomPrincipalKey Principal, string Direction, string MessageId, string RawText, string Kind,
-    string? Reaction, string? SourceIp, string CreatedUtc, string? LocalReadAt, string? RemoteStoredAt, string? RemoteReadAt);
+    string? Reaction, string? SourceIp, string CreatedUtc, string? LocalReadAt, string? RemoteStoredAt, string? RemoteReadAt, string? LegacyDeliveredAt = null)
+{
+    /// <summary>CM-14b: "舊版・已送出" for a v1 peer's delivered. It means neither stored nor read; null for every other message.</summary>
+    public string? DeliveryLabel => LegacyDeliveredAt is null ? null : "舊版・已送出";
+}
 public sealed record ClassroomMessagePage(IReadOnlyList<ClassroomStoredMessage> Items, long? NextBeforeLocalSeq);
 public sealed record ClassroomConversationSummary(ClassroomPrincipalKey Principal, long LastLocalSeq, long Messages, long Unread, string LastText, string LastCreatedUtc,
     string? DisplayName = null, bool Removed = false)

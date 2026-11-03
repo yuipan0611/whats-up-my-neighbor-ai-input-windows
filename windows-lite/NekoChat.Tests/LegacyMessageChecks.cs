@@ -58,7 +58,7 @@ internal static class LegacyMessageChecks
             string row;
             using (var old = ChatStore.Open(f.Options with { Migrations = Migration.Default.Take(5).ToArray() })) { row = AddRow(old, "Alice", "10.0.0.1"); }
             using var current = ChatStore.Open(f.Options);
-            Check(Number(f.Db, "PRAGMA user_version") == 8 && Number(f.Db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*'") == 25 &&
+            Check(Number(f.Db, "PRAGMA user_version") == 9 && Number(f.Db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*'") == 25 &&
                 current.GetRosterSnapshot().Single().Entry.Id == row, "real v5 upgrade adds two STRICT legacy tables without changing roster");
             string backup = Path.Combine(f.Data, "backup", current.ListBackups().Single(b => b.Purpose == "upgrade").FileName);
             Check(Number(backup, "PRAGMA user_version") == 5, "upgrade preimage remains standalone true v5");

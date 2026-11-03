@@ -7,6 +7,22 @@ namespace NekoChat.Core.Storage;
 /// </summary>
 internal static class ClassroomSchema
 {
+    /// <summary>
+    /// CM-14b: a v1 peer's "delivered" is recorded by an explicit column, never inferred from remoteStoredAt being null (an unconfirmed send is null too).
+    /// Such a message has no stored/read timestamps and can never receive any.
+    /// </summary>
+    internal const string LegacyDeliveredSql = """
+        ALTER TABLE ClassroomMessage ADD COLUMN legacyDeliveredAt TEXT;
+        CREATE TRIGGER ClassroomMessage_legacy_insert BEFORE INSERT ON ClassroomMessage
+        WHEN NEW.legacyDeliveredAt IS NOT NULL AND (NEW.direction <> 'outgoing' OR NEW.remoteStoredAt IS NOT NULL OR NEW.remoteReadAt IS NOT NULL)
+        BEGIN SELECT RAISE(ABORT, 'A legacy-delivered message is outgoing and has no stored/read timestamps'); END;
+        CREATE TRIGGER ClassroomMessage_legacy_immutable BEFORE UPDATE OF legacyDeliveredAt ON ClassroomMessage
+        BEGIN SELECT RAISE(ABORT, 'legacyDeliveredAt is write-once at insert'); END;
+        CREATE TRIGGER ClassroomMessage_legacy_no_receipt BEFORE UPDATE OF remoteStoredAt, remoteReadAt ON ClassroomMessage
+        WHEN OLD.legacyDeliveredAt IS NOT NULL
+        BEGIN SELECT RAISE(ABORT, 'A legacy-delivered message never gets stored/read receipts'); END;
+        """;
+
     /// <summary>CM-17: the name a roster row had when it was removed, so its conversation keeps a label. Written in the same transaction as the delete.</summary>
     internal const string RemovedSql = """
         CREATE TABLE RosterRemoved(

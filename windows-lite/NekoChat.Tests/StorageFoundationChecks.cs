@@ -36,8 +36,8 @@ internal static class StorageFoundationChecks
             using (var store = ChatStore.Open(new(area.Data)))
             {
                 string path = store.DatabasePath;
-                Check(Number(path, "PRAGMA user_version") == 8, "new database uses schema v8");
-                Check(Number(path, "SELECT count(*) FROM SchemaVersion") == 8, "eight migrations recorded");
+                Check(Number(path, "PRAGMA user_version") == 9, "new database uses schema v9");
+                Check(Number(path, "SELECT count(*) FROM SchemaVersion") == 9, "nine migrations recorded");
                 Check(Text(path, "PRAGMA journal_mode") == "wal", "WAL persisted");
                 Check(Number(path, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*'") == 25, "all twenty-five STRICT tables exist");
                 Check(Number(path, "SELECT sum(strict) FROM pragma_table_list WHERE name NOT GLOB 'sqlite_*'") == 25, "all application tables STRICT");
@@ -299,7 +299,7 @@ internal static class StorageFoundationChecks
                 command.ExecuteNonQuery();
             }
             using var store = ChatStore.Open(new(area.Data));
-            Check(Number(path, "PRAGMA user_version") == 8, "recognized Windows CRLF v1 schema upgrades to v8");
+            Check(Number(path, "PRAGMA user_version") == 9, "recognized Windows CRLF v1 schema upgrades to v9");
         }
         using (var area = new Area())
         {

@@ -26,9 +26,9 @@ internal static class BackupRestoreChecks
         { bool rejected = false; try { action(); } catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or StoreException or SqliteException or OperationCanceledException) { rejected = true; } Check(rejected, name); }
         using (var f = new Fixture())
         {
-            string backup = f.Seed(8); string hash = Hash(backup);
+            string backup = f.Seed(9); string hash = Hash(backup);
             var result = OfflineBackupRestore.Prepare(backup, f.Target);
-            Check(result is { SourceVersion: 8, RestoredVersion: 8, SuspendedPeers: 2, ContainsLocalIdentity: true, OutboundReadReceiptsEnabled: false } && result.SourceSha256 == hash, "current backup reports verified hash, identity presence and reset security");
+            Check(result is { SourceVersion: 9, RestoredVersion: 9, SuspendedPeers: 2, ContainsLocalIdentity: true, OutboundReadReceiptsEnabled: false } && result.SourceSha256 == hash, "current backup reports verified hash, identity presence and reset security");
             using var restored = ChatStore.Open(new(f.Target));
             var entries = restored.GetInboxSnapshot().Entries;
             Check(entries.Where(e => e.PeerId is not null).All(e => e.Pairing == PairingState.Suspended), "every previously paired peer suspended on the restored copy");
@@ -41,16 +41,16 @@ internal static class BackupRestoreChecks
             Check(!report.Contains(Fixture.Body) && !report.Contains(Fixture.Draft) && !Directory.Exists(Path.Combine(f.Target, "identity")), "restore report excludes content and no keys/settings imported");
             Check(hash == Hash(backup) && Number(backup, "SELECT count(*) FROM Peer WHERE pairingState='paired'") == 2 && Number(backup, "SELECT enabled FROM ReadReceiptPolicy") == 1, "source bytes and its trust/privacy settings unchanged");
         }
-        for (int version = 1; version <= 8; version++)
+        for (int version = 1; version <= 9; version++)
         {
             using var f = new Fixture(); string backup = f.Seed(version), before = Hash(backup);
             var result = OfflineBackupRestore.Prepare(backup, f.Target);
             using var restored = ChatStore.Open(new(f.Target));
-            Check(result.SourceVersion == version && result.RestoredVersion == 8 && restored.GetInboxSnapshot().Entries.Single(e => e.PeerId == "A").Pairing == PairingState.Suspended && Hash(backup) == before, $"frozen schema v{version} validates, upgrades, reopens and preserves source");
+            Check(result.SourceVersion == version && result.RestoredVersion == 9 && restored.GetInboxSnapshot().Entries.Single(e => e.PeerId == "A").Pairing == PairingState.Suspended && Hash(backup) == before, $"frozen schema v{version} validates, upgrades, reopens and preserves source");
         }
         foreach (string kind in new[] { "empty", "text", "foreign", "newer", "altered", "foreign-key", "schema-record", "truncated", "wal-header" })
         {
-            using var f = new Fixture(); string backup = f.Seed(8);
+            using var f = new Fixture(); string backup = f.Seed(9);
             switch (kind)
             {
                 case "empty": File.WriteAllBytes(backup, []); break;
@@ -69,13 +69,13 @@ internal static class BackupRestoreChecks
         }
         foreach (string suffix in new[] { "-wal", "-shm", "-journal" })
         {
-            using var f = new Fixture(); string backup = f.Seed(8); File.WriteAllBytes(backup + suffix, []); string before = Hash(backup);
+            using var f = new Fixture(); string backup = f.Seed(9); File.WriteAllBytes(backup + suffix, []); string before = Hash(backup);
             Reject(() => OfflineBackupRestore.Prepare(backup, f.Target), "even empty/ambiguous sidecar rejected: " + suffix);
             Check(Hash(backup) == before && File.Exists(backup + suffix) && !Directory.Exists(f.Target), "sidecars never deleted: " + suffix);
         }
         using (var f = new Fixture())
         {
-            string backup = f.Seed(8), link = Path.Combine(f.Root, "source-link.db"); File.CreateSymbolicLink(link, backup);
+            string backup = f.Seed(9), link = Path.Combine(f.Root, "source-link.db"); File.CreateSymbolicLink(link, backup);
             Reject(() => OfflineBackupRestore.Prepare(link, f.Target), "linked source rejected");
             string parentLink = Path.Combine(f.Root, "parent-link"); Directory.CreateSymbolicLink(parentLink, Path.GetDirectoryName(backup)!);
             Reject(() => OfflineBackupRestore.Prepare(Path.Combine(parentLink, Path.GetFileName(backup)), f.Target), "source ancestor link rejected");
@@ -90,7 +90,7 @@ internal static class BackupRestoreChecks
         }
         using (var f = new Fixture())
         {
-            string backup = f.Seed(8), before = Hash(backup);
+            string backup = f.Seed(9), before = Hash(backup);
             var original = new IOException("Synthetic preparation failure."); Exception? observed = null;
             try
             {
@@ -109,14 +109,14 @@ internal static class BackupRestoreChecks
         }
         foreach (string checkpoint in new[] { "copied", "prepared", "before-publish" })
         {
-            using var f = new Fixture(); string backup = f.Seed(8), before = Hash(backup);
+            using var f = new Fixture(); string backup = f.Seed(9), before = Hash(backup);
             using var cancel = new CancellationTokenSource();
             Reject(() => OfflineBackupRestore.Prepare(backup, f.Target, cancel.Token, point => { if (point == checkpoint) cancel.Cancel(); }), "cancel at " + checkpoint);
             Check(!Directory.Exists(f.Target) && !f.Stages().Any() && Hash(backup) == before, "cancel cleans only own staging and leaves source unchanged: " + checkpoint);
         }
         using (var f = new Fixture())
         {
-            string backup = f.Seed(8);
+            string backup = f.Seed(9);
             Reject(() => OfflineBackupRestore.Prepare(backup, f.Target, default, point => {
                 if (point == "before-publish") { Directory.CreateDirectory(f.Target); File.WriteAllText(Path.Combine(f.Target, "sentinel"), "competing destination"); }
             }), "concurrent destination creation blocks rename");
@@ -124,7 +124,7 @@ internal static class BackupRestoreChecks
         }
         foreach (string checkpoint in new[] { "copying", "copied", "prepared", "before-publish", "published" })
         {
-            using var f = new Fixture(); string backup = f.Seed(8), before = Hash(backup);
+            using var f = new Fixture(); string backup = f.Seed(9), before = Hash(backup);
             using var child = StartChild(backup, f.Target, checkpoint); using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             try { string? ready = await child.StandardOutput.ReadLineAsync(deadline.Token); if (ready != "READY") throw new Exception("Restore child checkpoint: " + await child.StandardError.ReadToEndAsync(deadline.Token)); }
             finally { if (!child.HasExited) child.Kill(entireProcessTree: true); await child.WaitForExitAsync(); }
