@@ -38,7 +38,7 @@ public sealed class PresenceService : IAsyncDisposable
     private readonly Channel<bool> _pulse = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { SingleReader = true, FullMode = BoundedChannelFullMode.DropWrite });
     private readonly Dictionary<long, Running> _running = new();
     private readonly Dictionary<string, V2VerifiedActivity> _pendingActivity = new(StringComparer.Ordinal);
-    private long _passiveOperation;
+    private long _physicalOperation;
     private V2Receiver? _receiver;
     private Dictionary<string, PresenceTarget> _targets = new(StringComparer.Ordinal);
     private Dictionary<string, PresenceSnapshot> _published = new(StringComparer.Ordinal);
@@ -106,25 +106,25 @@ public sealed class PresenceService : IAsyncDisposable
     private void ReceiverDiagnostic(string code) { if (code == "identity_conflict") { MarkTargetsDirty(); Wake(); } Report(code); }
     public void SetView(bool windowVisible, IEnumerable<string> visibleRows, string? currentRow)
     {
-        ArgumentNullException.ThrowIfNull(visibleRows); string[] rows = visibleRows.Distinct(StringComparer.Ordinal).ToArray(); IReadOnlyList<long> cancel = [];
+        ArgumentNullException.ThrowIfNull(visibleRows); string[] rows = visibleRows.Distinct(StringComparer.Ordinal).ToArray(); IReadOnlyList<long> cancel = []; PresenceController owner;
         if (rows.Any(r => !StoreIds.IsValid(r)) || currentRow is not null && !StoreIds.IsValid(currentRow)) throw new ArgumentException("Invalid presence view.");
         lock (_control)
         {
             if (_stopping || Volatile.Read(ref _healthy) == 0) return;
-            _shown = windowVisible; _visible = rows; _current = currentRow;
+            owner = _controller; _shown = windowVisible; _visible = rows; _current = currentRow;
             if (_initialized) cancel = _controller.SetView(windowVisible, rows, currentRow);
         }
-        Cancel(cancel); Publish(); Wake();
+        Cancel(owner, cancel); Publish(); Wake();
     }
     public void ResetAfterResume()
     {
-        IReadOnlyList<long> cancel; Running[] old;
+        IReadOnlyList<long> cancel; Running[] old; PresenceController owner;
         lock (_control)
         {
-            if (_stopping || Volatile.Read(ref _healthy) == 0) return; cancel = _controller.ResetAfterResume(); _pendingActivity.Clear();
+            if (_stopping || Volatile.Read(ref _healthy) == 0) return; owner = _controller; cancel = owner.ResetAfterResume(); _pendingActivity.Clear();
             lock (_operations) old = _running.Values.ToArray();
         }
-        MarkTargetsDirty(); _receiver?.ResetReplayProtection(); Cancel(cancel); foreach (var work in old) work.Cancel(); Publish(); Wake();
+        MarkTargetsDirty(); _receiver?.ResetReplayProtection(); Cancel(owner, cancel); foreach (var work in old) work.Cancel(); Publish(); Wake();
     }
     public PresenceSnapshot? GetSnapshot(string rowId)
     { lock (_control) return _initialized && !_stopping && Volatile.Read(ref _healthy) == 1 && _targets.ContainsKey(rowId) ? _controller.GetSnapshot(rowId) : null; }
@@ -219,10 +219,11 @@ public sealed class PresenceService : IAsyncDisposable
                     }
                 }
                 else lock (_control) targets = _targetList;
-                IReadOnlyList<long> cancel; PresenceWorkBatch batch;
+                IReadOnlyList<long> cancel; PresenceWorkBatch batch; PresenceController owner;
                 lock (_control)
                 {
                     if (_stopping) break;
+                    owner = _controller;
                     if (reload)
                     {
                         cancel = _controller.UpdateTargets(targets); _targets = targets.ToDictionary(t => t.RowId, StringComparer.Ordinal);
@@ -233,16 +234,17 @@ public sealed class PresenceService : IAsyncDisposable
                     int free; lock (_operations) free = Math.Max(0, 4 - _running.Count);
                     batch = _controller.TakeDueProbes(Math.Max(0, free - activities.Length));
                 }
-                Cancel(cancel.Concat(batch.Cancel));
+                Cancel(owner, cancel.Concat(batch.Cancel));
                 foreach (var probe in batch.Start)
                 {
-                    var running = new Running(probe.Id, probe, null, _lifetime.Token); running.Source.CancelAfter(TimeSpan.FromSeconds(2));
-                    lock (_operations) { _running.Add(probe.Id, running); running.Work = Task.Run(() => Run(running)); }
+                    long key = NextPhysicalOperation();
+                    var running = new Running(key, probe, null, _lifetime.Token); running.Source.CancelAfter(TimeSpan.FromSeconds(2));
+                    lock (_operations) { _running.Add(key, running); running.Work = Task.Run(() => Run(running)); }
                 }
                 foreach (var activity in activities)
                 {
                     if (!activity.Current) continue;
-                    long key; lock (_control) { if (_passiveOperation == long.MinValue) throw new InvalidOperationException("Presence operation counter exhausted."); key = --_passiveOperation; }
+                    long key = NextPhysicalOperation();
                     var running = new Running(key, null, activity, _lifetime.Token);
                     lock (_operations) { _running.Add(key, running); running.Work = Task.Run(() => Run(running)); }
                 }
@@ -316,9 +318,19 @@ public sealed class PresenceService : IAsyncDisposable
             Report(code);
         }
     }
-    private void Cancel(IEnumerable<long> ids)
+    // Physical work can outlive its controller while canceled SQL/callbacks drain. Never reuse a controller's local probe ID as a service job ID.
+    private long NextPhysicalOperation()
     {
-        Running[] work; lock (_operations) work = ids.Distinct().Where(_running.ContainsKey).Select(id => _running[id]).ToArray();
+        lock (_control)
+        {
+            if (_physicalOperation == long.MinValue) throw new InvalidOperationException("Presence operation counter exhausted.");
+            return --_physicalOperation;
+        }
+    }
+    private void Cancel(PresenceController owner, IEnumerable<long> ids)
+    {
+        var probes = ids.ToHashSet(); Running[] work;
+        lock (_operations) work = _running.Values.Where(r => r.Probe is { } probe && ReferenceEquals(probe.Owner, owner) && probes.Contains(probe.Id)).ToArray();
         foreach (var item in work) item.Cancel();
     }
     private void CancelAll() { Running[] work; lock (_operations) work = _running.Values.ToArray(); foreach (var item in work) item.Cancel(); }

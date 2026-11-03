@@ -244,8 +244,56 @@ internal static class PassiveIdentityChecks
             svc.Refresh(); await Until(() => svc.TargetReads == afterInterval + 1);
             Check(svc.TargetReads == afterInterval + 1, "Refresh() triggers exactly one event-driven read");
         }
+        checks += await RunRestartDrainChecks();
         Console.WriteLine($"Passive activity and duplicate identity: {checks} cryptographic, SQLite, lifecycle and concurrency checks."); return checks;
     }
+    internal static async Task<int> RunRestartDrainChecks()
+    {
+        int checks = 0;
+        void Check(bool ok, string label) { checks++; if (!ok) throw new Exception("Presence restart/drain: " + label); }
+        await using var f = new Fixture();
+        string row = f.AddRow(); var seen = new ConcurrentQueue<string>();
+        using var entered = new ManualResetEventSlim(); using var release = new ManualResetEventSlim();
+        int held = 0, failReload = 0;
+        f.Faults.Before = op => {
+            if (op == "roster-presence" && Interlocked.Exchange(ref held, 1) == 0)
+            { entered.Set(); if (!release.Wait(TimeSpan.FromSeconds(12))) throw new TimeoutException("review SQL gate"); }
+        };
+        f.Faults.Read = op => {
+            if (op == "GetPresenceTargets" && Interlocked.Exchange(ref failReload, 0) == 1)
+                throw new InvalidOperationException("synthetic target-read failure");
+        };
+        await using var server = new V2TcpChecks.ScriptedServer((_, body) => {
+            using var packet = JsonDocument.Parse(body);
+            return Task.FromResult<V2HttpResponse?>(new(200, f.A.HelloReply(packet.RootElement.GetProperty("client_nonce").GetString()!, V2PacketWriter.NewClientNonce())));
+        });
+        f.DialPort = server.Port;
+        await using var service = new PresenceService(f.Store, f.Client, f.Clock, () => 0) { RestartBackoff = TimeSpan.FromMilliseconds(5) };
+        service.Diagnostic += seen.Enqueue;
+        service.SetView(true, [row], row); service.Start();
+        try
+        {
+            await Until(() => service.GetSnapshot(row) is not null);
+            service.Refresh();
+            await Until(() => entered.IsSet);
+            Interlocked.Exchange(ref failReload, 1); service.Refresh();
+            await Until(() => seen.Count(c => c == "presence_restarting") >= 1);
+            service.Refresh();
+            await Until(() => f.Connections >= 2 || seen.Count(c => c == "presence_restarting") > 1);
+            Check(f.Connections >= 2, "replacement controller starts a distinct physical probe while the canceled prior SQL job drains");
+            Check(seen.Count(c => c == "presence_restarting") == 1, "exactly the injected worker fault restarts the service; no duplicate job-key failure");
+            Check(service.Healthy && service.ActiveOperations is >= 1 and <= 4, "recovery retains health and the physical four-operation cap");
+            release.Set();
+            await Until(() => service.ActiveOperations == 0 && service.GetSnapshot(row)?.Presence == PresenceStatus.Online);
+            Check(service.ActiveOperations == 0 && service.GetSnapshot(row)?.Presence == PresenceStatus.Online, "old canceled work drains and only new proof becomes online");
+            Check(seen.Count(c => c == "presence_restarting") == 1, "old job completion cannot disturb the replacement controller");
+            Console.WriteLine("Presence restart/drain: distinct physical jobs survive controller replacement; canceled old SQL rolls back, new proof persists, capacity<=4.");
+        }
+        catch { Console.WriteLine("Review diagnostics: " + string.Join(",", seen) + "; connections=" + f.Connections + "; operations=" + service.ActiveOperations); throw; }
+        finally { release.Set(); }
+        return checks;
+    }
+
     private static string Code(V2HttpResponse response) { using var p = JsonDocument.Parse(response.Body); return p.RootElement.GetProperty("code").GetString()!; }
     private static async Task Until(Func<bool> condition)
     { for (int i = 0; i < 500; i++) { if (condition()) return; await Task.Delay(10); } throw new TimeoutException("passive identity fixture condition"); }
@@ -313,8 +361,10 @@ internal static class PassiveIdentityChecks
     {
         internal Action<string>? Begin;
         internal Action<string>? Before;
+        internal Action<string>? Read;
         public void AfterBegin(string op) => Begin?.Invoke(op);
         public void BeforeCommit(string op) => Before?.Invoke(op);
         public void AfterCommit(string op) { }
+        public void AfterRead(string op) => Read?.Invoke(op);
     }
 }
