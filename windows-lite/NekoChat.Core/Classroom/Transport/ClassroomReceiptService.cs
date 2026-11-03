@@ -27,6 +27,7 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
     private readonly ClassroomSender _sender;
     private readonly int _port;
     private readonly string _ownIp;
+    private readonly Func<string, string>? _ownIpResolver;
     private readonly TimeProvider _clock;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Channel<bool> _wake = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { SingleReader = true, FullMode = BoundedChannelFullMode.DropWrite });
@@ -57,7 +58,8 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
         ClassroomSender sender,
         int port = DirectLanMessaging.DefaultPort,
         string ownIp = "127.0.0.1",
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        Func<string, string>? ownIpResolver = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _sender = sender ?? throw new ArgumentNullException(nameof(sender));
@@ -65,6 +67,7 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
         _port = port;
         _ownIp = ownIp ?? "127.0.0.1";
         _clock = clock ?? TimeProvider.System;
+        _ownIpResolver = ownIpResolver;
     }
 
     public static TimeSpan CalculateBackoff(int attemptCount)
@@ -215,10 +218,11 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
                 state.Attempts++;
                 Interlocked.Increment(ref TotalAttempts);
 
+                string targetOwnIp = _ownIpResolver?.Invoke(receipt.TargetIp) ?? _ownIp;
                 var result = await _sender.SendReceiptAsync(
                     receipt,
                     _port,
-                    _ownIp,
+                    targetOwnIp,
                     () => !_lifetime.IsCancellationRequested && _store.GetReadReceiptPolicy().Enabled,
                     _lifetime.Token).ConfigureAwait(false);
 

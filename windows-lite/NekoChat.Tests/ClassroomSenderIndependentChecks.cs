@@ -25,7 +25,8 @@ namespace NekoChat.Tests;
 /// </summary>
 internal static class ClassroomSenderIndependentChecks
 {
-    private const string PeerIp = "192.168.1.50", OwnIp = "192.168.1.10";
+    // OwnIp is the sender's real local endpoint: every connection is redirected to a loopback peer, so the socket's local address is 127.0.0.1 and the receiver must echo that (F4).
+    private const string PeerIp = "192.168.1.50", OwnIp = "127.0.0.1";
     private const int LegacyMaxScalars = 2000; // CM-07, restated here on purpose (not read from product code)
     private static readonly byte[] ExactLegacyBody = "{\"error\":\"empty_text\"}"u8.ToArray();
     private static readonly byte[] DeliveredBody = "{\"status\":\"delivered\"}"u8.ToArray();

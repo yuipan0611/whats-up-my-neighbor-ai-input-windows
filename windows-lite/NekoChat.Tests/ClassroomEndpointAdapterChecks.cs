@@ -78,9 +78,9 @@ internal static class ClassroomEndpointAdapterChecks
         string msgId = Guid.NewGuid().ToString("D");
         byte[] msgReq = ClassroomPacketWriter.MessageSend(msgId, session, local, "Hello classroom teacher!");
         var msgResp = await adapter.HandleAsync(new("classroom.message", msgReq), ctx, () => true, default);
-        Check(msgResp.StatusCode == 200, "Message returns 200 OK");
+        Check(msgResp.StatusCode == 503, "Message without sink returns 503 receiver_not_ready");
         using var msgDoc = JsonDocument.Parse(msgResp.Body);
-        Check(msgDoc.RootElement.GetProperty("status").GetString() == "stored", "Message status is stored");
+        Check(msgDoc.RootElement.GetProperty("code").GetString() == ClassroomCodes.ReceiverNotReady, "Message error is receiver_not_ready");
 
         // Replay with consumed session -> stale_session (409)
         var replayResp = await adapter.HandleAsync(new("classroom.message", msgReq), ctx, () => true, default);
@@ -89,9 +89,9 @@ internal static class ClassroomEndpointAdapterChecks
         // 7. Legacy v1 handling
         byte[] legacyBody = Encoding.UTF8.GetBytes("{\"text\":\"hello legacy peer\"}");
         var legacyResp = await adapter.HandleAsync(new("legacy.v1", legacyBody), ctx, () => true, default);
-        Check(legacyResp.StatusCode == 200, "Legacy v1 returns 200 OK");
+        Check(legacyResp.StatusCode == 503, "Legacy v1 without sink returns 503 receiver_not_ready");
         using var legDoc = JsonDocument.Parse(legacyResp.Body);
-        Check(legDoc.RootElement.GetProperty("status").GetString() == "delivered", "Legacy status is delivered");
+        Check(legDoc.RootElement.GetProperty("code").GetString() == ClassroomCodes.ReceiverNotReady, "Legacy error is receiver_not_ready");
 
         Console.WriteLine($"Classroom endpoint adapter: {checks} head routing, bounds, readiness, session lifecycle and replay checks passed.");
         return checks;

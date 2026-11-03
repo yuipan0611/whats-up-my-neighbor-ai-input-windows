@@ -25,124 +25,17 @@ public sealed class ClassroomSender
     private readonly IChatStore _store;
     private readonly HttpClient _http;
     private readonly Func<DateTime> _utcNow;
-    private readonly bool _isIndependentRouteChecks;
-    private volatile string? _lastConnectedIp;
 
     public ClassroomSender(IChatStore store, HttpClient? httpClient = null, Func<DateTime>? utcNow = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
-        _isIndependentRouteChecks = new System.Diagnostics.StackTrace().ToString().Contains("ClassroomSenderIndependentChecks");
-        if (httpClient is not null)
+        _http = httpClient ?? new HttpClient(new SocketsHttpHandler
         {
-            _http = httpClient;
-            WrapConnectCallback(_http);
-        }
-        else
-        {
-            var handler = new SocketsHttpHandler
-            {
-                AllowAutoRedirect = false,
-                UseProxy = false,
-                ConnectTimeout = TimeSpan.FromSeconds(3),
-                ConnectCallback = async (context, cancellationToken) =>
-                {
-                    var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-                    try
-                    {
-                        await socket.ConnectAsync(context.DnsEndPoint, cancellationToken).ConfigureAwait(false);
-                        if (socket.LocalEndPoint is IPEndPoint ep)
-                        {
-                            _lastConnectedIp = ep.Address.IsIPv4MappedToIPv6 ? ep.Address.MapToIPv4().ToString() : ep.Address.ToString();
-                        }
-                        return new NetworkStream(socket, ownsSocket: true);
-                    }
-                    catch
-                    {
-                        socket.Dispose();
-                        throw;
-                    }
-                }
-            };
-            _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
-        }
-    }
-
-    private void WrapConnectCallback(HttpClient http)
-    {
-        try
-        {
-            var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
-            var handlerField = typeof(HttpMessageInvoker).GetField("_handler", flags);
-            object? handler = handlerField?.GetValue(http);
-            if (handler == null) return;
-
-            var settingsField = handler.GetType().GetField("_settings", flags);
-            object? settings = settingsField?.GetValue(handler);
-            if (settings == null) return;
-
-            var cbField = settings.GetType().GetField("_connectCallback", flags);
-            if (cbField == null) return;
-
-            var originalCallback = cbField.GetValue(settings) as Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>;
-
-            Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>> wrapped = async (context, cancellationToken) =>
-            {
-                try
-                {
-                    Stream stream;
-                    if (originalCallback != null)
-                    {
-                        stream = await originalCallback(context, cancellationToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-                        try
-                        {
-                            await socket.ConnectAsync(context.DnsEndPoint, cancellationToken).ConfigureAwait(false);
-                            stream = new NetworkStream(socket, ownsSocket: true);
-                        }
-                        catch
-                        {
-                            socket.Dispose();
-                            throw;
-                        }
-                    }
-
-                    static string NormalizeIp(IPAddress addr) => addr.IsIPv4MappedToIPv6 ? addr.MapToIPv4().ToString() : addr.ToString();
-
-                    try
-                    {
-                        if (stream is NetworkStream ns && ns.Socket.LocalEndPoint is IPEndPoint ep)
-                        {
-                            _lastConnectedIp = NormalizeIp(ep.Address);
-                        }
-                        else
-                        {
-                            var sProp = stream.GetType().GetProperty("Socket", flags);
-                            if (sProp?.GetValue(stream) is Socket s && s.LocalEndPoint is IPEndPoint ep2)
-                            {
-                                _lastConnectedIp = NormalizeIp(ep2.Address);
-                            }
-                        }
-                    }
-                    catch { }
-
-                    return stream;
-                }
-                catch (Exception)
-                {
-                    throw;
-                }
-            };
-
-            cbField.SetValue(settings, wrapped);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[DBG-WRAP-ERR] {ex}");
-        }
+            AllowAutoRedirect = false,
+            UseProxy = false,
+            ConnectTimeout = TimeSpan.FromSeconds(3)
+        }) { Timeout = TimeSpan.FromSeconds(10) };
     }
 
     private static readonly byte[] ExactLegacyBody = "{\"error\":\"empty_text\"}"u8.ToArray();
@@ -183,7 +76,7 @@ public sealed class ClassroomSender
             helloRequest.Content = new ByteArrayContent(helloBytes);
             helloRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
 
-            using var helloResponse = await _http.SendAsync(helloRequest, cancellation).ConfigureAwait(false);
+            using var helloResponse = await _http.SendAsync(helloRequest, HttpCompletionOption.ResponseHeadersRead, cancellation).ConfigureAwait(false);
             helloUtc = _utcNow();
             actualLocalIp = ResolveActualLocalIp(helloResponse, ownIp);
 
@@ -390,14 +283,37 @@ public sealed class ClassroomSender
         }
     }
 
-    private string ResolveActualLocalIp(HttpResponseMessage response, string fallbackIp)
+    private static string ResolveActualLocalIp(HttpResponseMessage response, string fallbackIp)
     {
-        if (_isIndependentRouteChecks)
+        try
         {
-            return fallbackIp;
+            if (response.Content != null)
+            {
+                var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+                var streamField = response.Content.GetType().GetField("_stream", flags);
+                if (streamField?.GetValue(response.Content) is Stream stream)
+                {
+                    Type? t = stream.GetType();
+                    while (t != null && t != typeof(object))
+                    {
+                        var connField = t.GetField("_connection", flags);
+                        if (connField?.GetValue(stream) is { } conn)
+                        {
+                            var sField = conn.GetType().GetField("_stream", flags);
+                            if (sField?.GetValue(conn) is NetworkStream ns && ns.Socket.LocalEndPoint is IPEndPoint ep)
+                            {
+                                var addr = ep.Address;
+                                return addr.IsIPv4MappedToIPv6 ? addr.MapToIPv4().ToString() : addr.ToString();
+                            }
+                            break;
+                        }
+                        t = t.BaseType;
+                    }
+                }
+            }
         }
-
-        return _lastConnectedIp ?? fallbackIp;
+        catch { }
+        return fallbackIp;
     }
 
     public async Task<ClassroomReceiptSendResult> SendReceiptAsync(
@@ -432,14 +348,14 @@ public sealed class ClassroomSender
             helloRequest.Content = new ByteArrayContent(helloBytes);
             helloRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
 
-            using var helloResponse = await _http.SendAsync(helloRequest, cancellation).ConfigureAwait(false);
+            using var helloResponse = await _http.SendAsync(helloRequest, HttpCompletionOption.ResponseHeadersRead, cancellation).ConfigureAwait(false);
             if (!helloResponse.IsSuccessStatusCode)
             {
                 return new ClassroomReceiptSendResult(false, "transient", "hello_failed");
             }
 
-            byte[] helloRespBytes = await helloResponse.Content.ReadAsByteArrayAsync(cancellation).ConfigureAwait(false);
             string actualHelloLocalIp = ResolveActualLocalIp(helloResponse, ownIp);
+            byte[] helloRespBytes = await helloResponse.Content.ReadAsByteArrayAsync(cancellation).ConfigureAwait(false);
             var helloContext = new ClassroomResponseContext(
                 targetIp,
                 actualHelloLocalIp,
@@ -491,13 +407,13 @@ public sealed class ClassroomSender
             receiptRequest.Content = new ByteArrayContent(receiptBytes);
             receiptRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
 
-            using var receiptResponse = await _http.SendAsync(receiptRequest, cancellation).ConfigureAwait(false);
+            using var receiptResponse = await _http.SendAsync(receiptRequest, HttpCompletionOption.ResponseHeadersRead, cancellation).ConfigureAwait(false);
             int statusCode = (int)receiptResponse.StatusCode;
+            string actualReceiptLocalIp = ResolveActualLocalIp(receiptResponse, ownIp);
             byte[] respBytes = await receiptResponse.Content.ReadAsByteArrayAsync(cancellation).ConfigureAwait(false);
 
             if (statusCode == 200)
             {
-                string actualReceiptLocalIp = ResolveActualLocalIp(receiptResponse, ownIp);
                 var ackContext = new ClassroomResponseContext(
                     targetIp,
                     actualReceiptLocalIp,

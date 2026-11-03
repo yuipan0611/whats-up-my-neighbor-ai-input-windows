@@ -40,7 +40,6 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
         if (result is ClassroomDuplicate or ClassroomClearedDuplicate)
         {
             byte[] ack = ClassroomPacketWriter.MessageAck("duplicate", request.MessageId!, request.Session!, sourceIp, localIp, request.Reaction, request.Text!);
-            try { MessageStored?.Invoke(sourceIp, request.Text!, request.Reaction); } catch { }
             return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(200, ack));
         }
 

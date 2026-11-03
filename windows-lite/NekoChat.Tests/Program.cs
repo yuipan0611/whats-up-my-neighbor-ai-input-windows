@@ -23,6 +23,31 @@ if (args.SequenceEqual(new[] { "--listener-failure-policy" })) { await NekoChat.
 if (args.SequenceEqual(new[] { "--listener-accept-recovery" })) { await NekoChat.Tests.ListenerAcceptRecoveryChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-listener" })) { await NekoChat.Tests.ClassroomListenerChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--classroom-all" }))
+{
+    Console.WriteLine("=== Running all classroom focused test suites ===");
+    try
+    {
+        await NekoChat.Tests.ClassroomAdapterIndependentChecks.RunAsync();
+        await NekoChat.Tests.ClassroomSenderIndependentChecks.RunAsync();
+        await NekoChat.Tests.ClassroomSenderOutcomeIndependentChecks.RunAsync();
+        await NekoChat.Tests.ClassroomSendChecks.RunAsync();
+        await NekoChat.Tests.ClassroomEndpointAdapterChecks.Run();
+        await NekoChat.Tests.ClassroomStoreSinkTcpChecks.RunAsync();
+        await NekoChat.Tests.ClassroomReceiptChecks.RunAsync();
+        NekoChat.Tests.ClassroomStoreChecks.Run();
+        await NekoChat.Tests.ClassroomListenerChecks.Run();
+        NekoChat.Tests.ClassroomInboxChecks.Run();
+        NekoChat.Tests.UiTestDataChecks.Run();
+        Console.WriteLine("All classroom focused checks: ALL PASSED.");
+    }
+    catch (Exception e)
+    {
+        Console.Error.WriteLine("Classroom test failed: " + e.Message);
+        Environment.Exit(1);
+    }
+    return;
+}
 if (args.SequenceEqual(new[] { "--classroom-adapter" })) { await NekoChat.Tests.ClassroomEndpointAdapterChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-sink-tcp" })) { await NekoChat.Tests.ClassroomStoreSinkTcpChecks.RunAsync(); return; }
 if (args.SequenceEqual(new[] { "--classroom-store" })) { NekoChat.Tests.ClassroomStoreChecks.Run(); return; }

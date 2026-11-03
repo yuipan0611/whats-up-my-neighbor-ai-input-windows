@@ -35,10 +35,12 @@ public static class ClassroomSendChecks
             {
                 if (SimulateLegacy)
                 {
-                    return new HttpResponseMessage(HttpStatusCode.NotFound)
+                    var legacyHello = new HttpResponseMessage(HttpStatusCode.BadRequest)
                     {
-                        Content = new StringContent("Not Found")
+                        Content = new ByteArrayContent(Encoding.UTF8.GetBytes("{\"error\":\"empty_text\"}"))
                     };
+                    legacyHello.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+                    return legacyHello;
                 }
 
                 byte[] body = await request.Content!.ReadAsByteArrayAsync(cancellationToken);

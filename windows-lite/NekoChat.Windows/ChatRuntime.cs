@@ -1,4 +1,6 @@
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using NekoChat.Core;
 using NekoChat.Core.Identity;
@@ -100,9 +102,28 @@ internal sealed class ChatRuntime : IAsyncDisposable
             Listener = new DirectLanListener(classroomListener, sink);
         }
         Worker = new(store, lifetime: _lifetime.Token);
-        ClassroomReceipts = new ClassroomReceiptService(store, ClassroomSender, port, "127.0.0.1");
+        ClassroomReceipts = new ClassroomReceiptService(store, ClassroomSender, port, ownIpResolver: target => ResolveLocalEndpointIp(target, port));
         ClassroomReceipts.ReceiptsChanged += () => DataChanged?.Invoke();
         _maintenance = Task.Run(MaintainBackups);
+    }
+    internal static string ResolveLocalEndpointIp(string targetIp, int port)
+    {
+        if (IPAddress.TryParse(targetIp, out var ip) && IPAddress.IsLoopback(ip))
+        {
+            return "127.0.0.1";
+        }
+        try
+        {
+            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0);
+            socket.Connect(targetIp, port > 0 ? port : 8768);
+            if (socket.LocalEndPoint is IPEndPoint ep)
+            {
+                var addr = ep.Address;
+                return addr.IsIPv4MappedToIPv6 ? addr.MapToIPv4().ToString() : addr.ToString();
+            }
+        }
+        catch { }
+        return LanInvitation.PrimaryLocalIP() ?? "127.0.0.1";
     }
     internal static string RootDirectory(Settings source, bool isolated) => UiTestOptions.ResolveRootDirectory(source, isolated);
     internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null, ChatPairingConfiguration? pairingConfiguration = null) => Task.Run(() => {
@@ -163,7 +184,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
             _lifetime.Token.ThrowIfCancellationRequested();
-            string ownIp = LanInvitation.LocalAddresses().FirstOrDefault() ?? "127.0.0.1";
+            string ownIp = ResolveLocalEndpointIp(prepared.TargetIp, port);
             var task = Task.Run(async () =>
             {
                 var outcome = await ClassroomSender.SendPreparedAsync(prepared, port, ownIp, () => !_lifetime.IsCancellationRequested, _lifetime.Token).ConfigureAwait(false);
