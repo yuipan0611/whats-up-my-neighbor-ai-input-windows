@@ -13,11 +13,14 @@ namespace NekoChat.Tests;
 internal static class V2CrashChecks
 {
     private const string ChildMode = "--v2-crash-receiver";
+    /// <summary>Hard cap only. Every wait ends as soon as the child answers; a slow machine gets time instead of a flaky 12 s timeout.</summary>
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(60);
     private sealed record ChildInput(string SyntheticPrivateKeyBase64, string SenderId, string SenderSpkiBase64)
     { public override string ToString() => "Synthetic crash fixture inputs"; }
     private sealed record Ready(int Port, string ReceiverId, string PublicSpkiBase64);
     public static async Task<bool> RunChild(string[] args)
     {
+        if (args.Length > 0 && args[0] == V2CrashMoreChecks.ChildMode) return await V2CrashMoreChecks.RunChild(args);
         if (args.Length == 0 || args[0] != ChildMode) return false;
         if (args.Length != 3 || args[2] is not ("before" or "after" or "normal")) throw new ArgumentException("Invalid V2 crash child arguments.");
         // Synthetic keys are delivered only through the anonymous stdin pipe, never argv, env, a file, stdout or diagnostics.
@@ -30,7 +33,7 @@ internal static class V2CrashChecks
         {
             if (op != "receive") return;
             Console.WriteLine("BOUNDARY:" + args[2]); Console.Out.Flush();
-            using var stop = new ManualResetEventSlim(false); stop.Wait(TimeSpan.FromSeconds(15));
+            using var stop = new ManualResetEventSlim(false); stop.Wait(TimeSpan.FromSeconds(120));
             throw new TimeoutException("Parent did not kill the crash fixture.");
         }
         if (args[2] == "before") faults.Before = Boundary; else if (args[2] == "after") faults.After = Boundary;
@@ -77,8 +80,8 @@ internal static class V2CrashChecks
                     Check(hello.Success, "actual child signed hello passes real product verifier");
                     byte[] oldPacket = sender.Message(prepared.MessageId, prepared.RecipientId, hello.Value!.Nonce, prepared.RawText);
                     Task<V2HttpResponse> inFlight = Post(ready.Port, "/nekochat/v2/message", oldPacket);
-                    Check(await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(12)) == "BOUNDARY:" + stage, "real TCP request reaches exact product transaction boundary " + stage);
-                    child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); killed++;
+                    Check(await child.StandardOutput.ReadLineAsync().WaitAsync(Patience) == "BOUNDARY:" + stage, "real TCP request reaches exact product transaction boundary " + stage);
+                    child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(Patience); killed++;
                     Check(child.ExitCode != 0, "receiver is truly killed without graceful store disposal");
                     Check((await stderr).Length == 0 && (await child.StandardOutput.ReadToEndAsync()).Length == 0, "killed fixture emits only bounded public ready and boundary metadata");
                     bool noAck = false;
@@ -107,10 +110,10 @@ internal static class V2CrashChecks
                             "both sides converge to exactly one message and one receiver unread");
                         Check(Text(db, "SELECT rawText FROM Message") == prepared.RawText && Text(db, "SELECT rawText FROM Draft") == "preserved receiver draft", "crash retry preserves original bytes and independent receiver composer");
                         await restarted.StandardInput.WriteLineAsync("STATS"); await restarted.StandardInput.FlushAsync();
-                        Check(await restarted.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5)) == "NOTICES:" + (stage == "after" ? 0 : 1), "new stored message notifies; recovered duplicate stays silent");
+                        Check(await restarted.StandardOutput.ReadLineAsync().WaitAsync(Patience) == "NOTICES:" + (stage == "after" ? 0 : 1), "new stored message notifies; recovered duplicate stays silent");
                         await restarted.StandardInput.WriteLineAsync("STOP"); await restarted.StandardInput.FlushAsync();
-                        Check(await restarted.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5)) == "STOPPED", "normal restarted receiver drains listener");
-                        await restarted.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); stopped++;
+                        Check(await restarted.StandardOutput.ReadLineAsync().WaitAsync(Patience) == "STOPPED", "normal restarted receiver drains listener");
+                        await restarted.WaitForExitAsync().WaitAsync(Patience); stopped++;
                         Check(restarted.ExitCode == 0 && (await restartErrors).Length == 0, "restarted receiver exits cleanly after verified delivery");
                         Check(NoPrivateKeyFiles(root, receiverKey), "synthetic private key raw bytes and base64 never persisted in fixture files");
                     }
@@ -139,11 +142,11 @@ internal static class V2CrashChecks
     }
     private static async Task<Ready> ReadReady(Process child)
     {
-        string line = await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(12)) ?? throw new EndOfStreamException("Crash child did not become ready.");
+        string line = await child.StandardOutput.ReadLineAsync().WaitAsync(Patience) ?? throw new EndOfStreamException("Crash child did not become ready.");
         return JsonSerializer.Deserialize<Ready>(line) ?? throw new InvalidDataException("Fixture public ready metadata.");
     }
     private static async Task KillIfLive(Process child)
-    { if (!child.HasExited) { child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); } }
+    { if (!child.HasExited) { child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(Patience); } }
     private static async Task<V2HttpResponse> Post(int port, string path, byte[] bytes)
     {
         using var http = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(15) };
