@@ -72,6 +72,7 @@ public interface IChatStore : IDisposable
     ClassroomMessagePage ListClassroomMessages(ClassroomPrincipalKey principal, long? beforeLocalSeq = null, int pageSize = 50);
     IReadOnlyList<ClassroomConversationSummary> ListClassroomConversations(int limit = 200);
     ClassroomClearResult ClearClassroomConversation(ClassroomPrincipalKey principal);
+    ClassroomInboxSnapshot GetClassroomInboxSnapshot();
     RosterMutationResult DeleteRosterEntry(string entryId, string expectedSnapshotToken);
     RosterMutationResult BindPairedRosterPeer(string entryId, string? peerId, string expectedSnapshotToken);
     RosterApplyResult ApplyRosterPreview(NekoChat.Core.Roster.RosterImportPreview preview);
