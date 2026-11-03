@@ -50,6 +50,10 @@ public sealed class PresenceService : IAsyncDisposable
     // Supervision (v2 fix): a transient failure restarts the worker with backoff; only repeated failures make presence unavailable until TryRestart().
     private const int MaxConsecutiveFailures = 5;
     private int _failures, _faulted, _targetReads;
+    private long _workerFailures, _timerFailures;
+    /// <summary>Lifetime failure totals, including intermittent faults separated by successful iterations. Manual recovery does not reset them.</summary>
+    public long WorkerFailures => Interlocked.Read(ref _workerFailures);
+    public long TimerFailures => Interlocked.Read(ref _timerFailures);
     // Roster targets are re-read from SQLite on events (Refresh, activity, resume, conflict) and at most every TargetRefreshInterval, not on every 250 ms tick.
     private long _targetsVersion, _targetsApplied = -1, _targetsReadAt;
     private IReadOnlyList<PresenceTarget> _targetList = [];
@@ -166,6 +170,7 @@ public sealed class PresenceService : IAsyncDisposable
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
             catch
             {
+                Interlocked.Increment(ref _timerFailures);
                 Report("presence_timer_restarting");
                 if (++failures > MaxConsecutiveFailures) { Volatile.Write(ref _healthy, 0); CancelAll(); Report("presence_unavailable"); Notify(); return; }
                 try { await Task.Delay(TimeSpan.FromTicks(Math.Min(30, 1 << (failures - 1)) * RestartBackoff.Ticks), _clock, _lifetime.Token).ConfigureAwait(false); } catch (OperationCanceledException) { return; }
@@ -184,6 +189,7 @@ public sealed class PresenceService : IAsyncDisposable
     /// <summary>One failure: cancel work, rebuild controller state from SQLite, back off 1,2,4,8,16 s. After more than <see cref="MaxConsecutiveFailures"/> consecutive failures presence becomes unavailable.</summary>
     private async Task<bool> RecoverAsync()
     {
+        Interlocked.Increment(ref _workerFailures);
         int attempt = Interlocked.Increment(ref _failures); CancelAll();
         if (attempt > MaxConsecutiveFailures) { Volatile.Write(ref _healthy, 0); Report("presence_unavailable"); Notify(); return false; }
         lock (_control)

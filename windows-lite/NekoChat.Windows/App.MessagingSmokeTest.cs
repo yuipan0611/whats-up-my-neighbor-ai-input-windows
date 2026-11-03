@@ -92,7 +92,7 @@ public partial class App
                 Require(!reopened.GetReadReceiptPolicy().Enabled, "Read-receipt privacy default changed on reopen");
             }
             File.WriteAllText(prefix + "-result.txt",
-                "PASS: two independent real WPF processes; explicit synthetic identity pins and engineering L=16384; Enter/button → SQLite attempt → signed loopback HTTP/TCP → persisted incoming message → verified storage ACK → durable draft clear; " +
+                "PASS: two independent real WPF processes; archived signed fixture with synthetic identity pins and D-06 L=65536; Enter/button → SQLite attempt → signed loopback HTTP/TCP → persisted incoming message → verified storage ACK → durable draft clear; " +
                 "Unicode/code raw text, default name/new-message notification without body/IP, opaque peer reply context, remote-read default off, separate unverified legacy history; timeout retains draft and one manual attempt; orderly close/reopen. " +
                 "Same-host loopback only; no classroom LAN, real pairing consent or product L decision is established.");
             Environment.Exit(0);

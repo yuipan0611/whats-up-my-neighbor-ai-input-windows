@@ -24,6 +24,7 @@ public partial class ChatWindow : Window
     {
         settings = initial;
         InitializeComponent();
+        RefreshSettingsSaveStatus();
         InitializeWorkAreaSizing();
         // Observe composition completion even when TextBox/IME handles the event.
         Draft.AddHandler(TextCompositionManager.PreviewTextInputStartEvent,
@@ -220,10 +221,17 @@ public partial class ChatWindow : Window
         if (saved) SetStatus("已關閉開機啟動。");
     }
 
+    internal void RefreshSettingsSaveStatus()
+    {
+        SettingsSaveStatus.Text = settings.StatusNote ?? (Settings.LastSaveProblem is null ? "" : "設定未能儲存；目前的設定變更可能在重開後遺失，請處理設定檔讀寫問題。");
+        SettingsSaveStatus.Visibility = SettingsSaveStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
     private bool UpdateSettings(Settings updated)
     {
         settings = updated;
         bool saved = settings.Save();
+        RefreshSettingsSaveStatus();
         SettingsChanged?.Invoke(settings);
         if (!saved) SetStatus("設定檔未儲存；請先處理設定檔的讀寫問題，原檔已保留。");
         return saved;

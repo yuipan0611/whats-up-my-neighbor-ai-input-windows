@@ -15,6 +15,9 @@ if (NekoChat.Tests.StorageReadChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageLegacyRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageBackupChecks.RunChild(args)) return;
+if (args.SequenceEqual(new[] { "--archived-superseded" })) { await NekoChat.Tests.ArchivedSupersededChecks.Run(); return; }
+if (args.Length == 1 && NekoChat.Tests.ArchivedSupersededChecks.IsFocusedArgument(args[0]))
+    Console.WriteLine("archived-superseded: historical signed/P1 regression only; excluded from current classroom acceptance.");
 if (args.SequenceEqual(new[] { "--presence-aba-probe" })) { NekoChat.Tests.PresenceChecks.RunAbaProbe(); return; }
 if (args.SequenceEqual(new[] { "--v2-vectors" })) { await NekoChat.Tests.V2VectorChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--v2-boundaries" })) { await NekoChat.Tests.V2BoundaryChecks.Run(); return; }
@@ -171,35 +174,12 @@ checks += await NekoChat.Tests.StorageLegacyRosterChecks.Run();
 checks += await NekoChat.Tests.ClassroomRosterChecks.Run();
 checks += NekoChat.Tests.StorageBackupChecks.Run();
 checks += await NekoChat.Tests.BackupRestoreChecks.Run();
-checks += await NekoChat.Tests.PresenceChecks.Run();
-checks += NekoChat.Tests.PresenceChecks.RunAbaProbe();
-checks += await NekoChat.Tests.SecurityRevisionChecks.Run();
-checks += await NekoChat.Tests.V2VectorChecks.Run();
-checks += await NekoChat.Tests.V2BoundaryChecks.Run();
-checks += NekoChat.Tests.V2StorageFenceChecks.Run();
-checks += await NekoChat.Tests.V2TcpChecks.Run();
-checks += await NekoChat.Tests.V2TcpChecks.RunCancellation();
-checks += await NekoChat.Tests.V2CrashChecks.Run();
-checks += await NekoChat.Tests.V2CrashMoreChecks.Run();
-checks += await NekoChat.Tests.SharedPortChecks.Run();
 checks += await NekoChat.Tests.LegacyMessageChecks.Run();
-checks += await NekoChat.Tests.PresenceWireChecks.Run();
-checks += await NekoChat.Tests.PassiveIdentityChecks.Run();
-checks += await NekoChat.Tests.IdentityVaultChecks.Run();
-checks += await NekoChat.Tests.IdentityRecoveryChecks.Run();
-checks += NekoChat.Tests.PairingWireChecks.Run();
-checks += await NekoChat.Tests.PairingCandidateChecks.Run();
-checks += await NekoChat.Tests.PairingResponderChecks.Run();
-checks += await NekoChat.Tests.PairingInitiatorChecks.Run();
-checks += await NekoChat.Tests.PairingTcpChecks.Run();
-checks += await NekoChat.Tests.PairingCrossChecks.Run();
-checks += await NekoChat.Tests.PairingCrashChecks.Run();
-checks += await NekoChat.Tests.PairingCrossChecks.RunMitm();
-checks += await NekoChat.Tests.PairingRosterChecks.Run();
-checks += await NekoChat.Tests.PairingRosterChecks.RunHost();
 checks += NekoChat.Tests.SettingsSourceChecks.Run();
 checks += await NekoChat.Tests.InboxWorkspaceChecks.Run();
-checks += await NekoChat.Tests.ReceiptServiceChecks.Run();
 checks += NekoChat.Tests.StorageFixChecks.Run();
 checks += await NekoChat.Tests.Limit64kChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
+
+Console.WriteLine("Current/shared count excludes archived-superseded signed/P1 suites; classroom runtime acceptance is a separate gate.");
+if (args.SequenceEqual(new[] { "--all-with-archived" })) await NekoChat.Tests.ArchivedSupersededChecks.Run();

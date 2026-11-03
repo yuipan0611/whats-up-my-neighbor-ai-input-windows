@@ -227,6 +227,7 @@ internal static class PassiveIdentityChecks
             Check(svc.TryRestart() && svc.Healthy, "manual restart is accepted after giving up");
             await Until(() => svc.GetSnapshot(row) is not null);
             Check(svc.GetSnapshot(row) is not null && svc.Healthy, "presence works again after TryRestart");
+            Check(svc.WorkerFailures == 6 && svc.TimerFailures == 0, "lifetime diagnostics retain all six worker faults across successful manual recovery");
         }
         // Roster targets are read on events and at most every refresh interval, not on every 250 ms tick.
         await using (var f = new Fixture())
@@ -287,6 +288,7 @@ internal static class PassiveIdentityChecks
             await Until(() => service.ActiveOperations == 0 && service.GetSnapshot(row)?.Presence == PresenceStatus.Online);
             Check(service.ActiveOperations == 0 && service.GetSnapshot(row)?.Presence == PresenceStatus.Online, "old canceled work drains and only new proof becomes online");
             Check(seen.Count(c => c == "presence_restarting") == 1, "old job completion cannot disturb the replacement controller");
+            Check(service.WorkerFailures == 1 && service.TimerFailures == 0, "successful replacement does not erase the lifetime worker-fault count");
             Console.WriteLine("Presence restart/drain: distinct physical jobs survive controller replacement; canceled old SQL rolls back, new proof persists, capacity<=4.");
         }
         catch { Console.WriteLine("Review diagnostics: " + string.Join(",", seen) + "; connections=" + f.Connections + "; operations=" + service.ActiveOperations); throw; }

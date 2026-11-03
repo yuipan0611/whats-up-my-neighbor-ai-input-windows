@@ -11,7 +11,7 @@ using NekoChat.Windows.Identity;
 
 namespace NekoChat.Windows;
 
-/// <summary>Explicit configuration supplied by a settled product policy or an isolated fixture. No implicit L or identity mode.</summary>
+/// <summary>Historical signed-V2 fixture configuration. Ordinary classroom startup never supplies this.</summary>
 internal sealed record ChatWireConfiguration(int MaximumTextBytes);
 
 /// <summary>Explicit conditional P1 policy/fixture activation; ordinary startup supplies null. Does not provision a key or choose L.</summary>
@@ -37,7 +37,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal DirectLanListener Listener { get; }
     internal PresenceService? Presence { get; }
     internal ReadReceiptService? Receipts { get; }
-    internal IdentityRecoveryFlow IdentityRecovery { get; }
+    internal IdentityRecoveryFlow? IdentityRecovery { get; }
+    internal bool ArchivedIdentityFixture { get; }
     private readonly Task _maintenance;
     internal event Action? DataChanged;
     internal int? MaximumTextBytes { get; }
@@ -49,27 +50,35 @@ internal sealed class ChatRuntime : IAsyncDisposable
     private ChatRuntime(ChatStore store, string dataDirectory, string identityDirectory, int port, ChatWireConfiguration? configuration, ChatPairingConfiguration? pairingConfiguration, bool isolated, string? warning)
     {
         _store = store; IsolatedData = isolated; DataDirectory = dataDirectory; StartupWarning = warning; Reads = new(store);
-        var local = store.GetLocalIdentitySnapshot(); var vault = WindowsIdentityVault.Create(identityDirectory); var coordinator = new LocalIdentityCoordinator(store, vault);
-        IdentityRecovery = new(store, vault);
-        IdentityStatus = local.Id is null || local.PublicSpkiBase64 is null && local.CredentialRef is null ? "身分方案尚未設定" :
-            coordinator.Inspect() is IdentityConsistent ? "本機身分檢查通過" : "本機身分遺失或不符，請明確建立新身分";
+        ArchivedIdentityFixture = isolated && (configuration is not null || pairingConfiguration is not null);
+        if (!isolated && (configuration is not null || pairingConfiguration is not null))
+            throw new InvalidOperationException("Historical signed identity configuration requires an isolated fixture.");
+        MaximumTextBytes = V2Text.ProductMaxUtf8Bytes;
+        IdentityStatus = "教室區域網路・依名單 IP";
         V2Receiver? receiver = null;
-        if (configuration is not null && local.PublicSpkiBase64 is not null && coordinator.Inspect() is IdentityConsistent)
+        // R3: ordinary startup never opens a credential vault, inspects keys, or creates a recovery/pairing flow.
+        if (ArchivedIdentityFixture)
         {
-            ECDsa? key = coordinator.OpenCurrentKey(() => true);
-            try { _writer = new(key, configuration.MaximumTextBytes); key = null; } finally { key?.Dispose(); }
-            MaximumTextBytes = configuration.MaximumTextBytes; var identities = new V2IdentityMonitor();
-            receiver = new(store, _writer, identities: identities); _client = new(store, _writer, identities: identities);
-            receiver.VerifiedActivity += _ => DataChanged?.Invoke();
-            Presence = new(store, _client); Presence.AttachReceiver(receiver);
-            Receipts = new(store, _client);
-            Receipts.ReceiptsChanged += () => DataChanged?.Invoke();
-        }
-        if (pairingConfiguration is not null && coordinator.Inspect() is IdentityConsistent)
-        {
-            ECDsa? key = coordinator.OpenCurrentKey(() => true);
-            try { _pairingIdentity = new(store, key); key = null; } finally { key?.Dispose(); }
-            Pairing = new(_pairingIdentity);
+            var local = store.GetLocalIdentitySnapshot(); var vault = WindowsIdentityVault.Create(identityDirectory); var coordinator = new LocalIdentityCoordinator(store, vault);
+            IdentityRecovery = new(store, vault);
+            IdentityStatus = "歷史簽章測試（隔離資料）";
+            if (configuration is not null && local.PublicSpkiBase64 is not null && coordinator.Inspect() is IdentityConsistent)
+            {
+                ECDsa? key = coordinator.OpenCurrentKey(() => true);
+                try { _writer = new(key, configuration.MaximumTextBytes); key = null; } finally { key?.Dispose(); }
+                MaximumTextBytes = configuration.MaximumTextBytes; var identities = new V2IdentityMonitor();
+                receiver = new(store, _writer, identities: identities); _client = new(store, _writer, identities: identities);
+                receiver.VerifiedActivity += _ => DataChanged?.Invoke();
+                Presence = new(store, _client); Presence.AttachReceiver(receiver);
+                Receipts = new(store, _client);
+                Receipts.ReceiptsChanged += () => DataChanged?.Invoke();
+            }
+            if (pairingConfiguration is not null && coordinator.Inspect() is IdentityConsistent)
+            {
+                ECDsa? key = coordinator.OpenCurrentKey(() => true);
+                try { _pairingIdentity = new(store, key); key = null; } finally { key?.Dispose(); }
+                Pairing = new(_pairingIdentity);
+            }
         }
         Listener = new(receiver, new V2ListenerOptions { Port = port }, store, Pairing);
         Worker = new(store, lifetime: _lifetime.Token);
@@ -78,13 +87,15 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal static string RootDirectory(Settings source, bool isolated) => isolated
         ? Path.Combine(Path.GetDirectoryName(source.PersistencePath!)!, Path.GetFileNameWithoutExtension(source.PersistencePath) + "-data") : Settings.DirectoryPath;
     internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null, ChatPairingConfiguration? pairingConfiguration = null) => Task.Run(() => {
+        if (!isolated && (configuration is not null || pairingConfiguration is not null))
+            throw new InvalidOperationException("Historical signed identity configuration requires an isolated fixture.");
         string root = RootDirectory(source.Value, isolated);
         string data = Path.Combine(root, "data"); ChatStore? store = null;
         try
         {
             store = ChatStore.Open(new(data) {
                 RosterExcludedEndpoints = () => LanInvitation.LocalAddresses().ToArray(),
-                TextValidator = configuration is null ? Protocol.ValidText : text => V2Text.Check(text, configuration.MaximumTextBytes) == V2TextProblem.None,
+                TextValidator = text => V2Text.Check(text, configuration?.MaximumTextBytes ?? V2Text.ProductMaxUtf8Bytes) == V2TextProblem.None,
                 AppVersion = typeof(App).Assembly.GetName().Version?.ToString() ?? ""
             });
             var imported = source.CanImportLegacyRoster && source.Value.Contacts.Count <= NekoChat.Core.Roster.RosterCsv.MaxRows ? source.ImportLegacyRoster(store) : null;
@@ -100,7 +111,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
             _lifetime.Token.ThrowIfCancellationRequested();
-            if (_client is null) throw new InvalidOperationException("身分與訊息上限尚未設定，無法傳送私訊。");
+            if (_client is null) throw new InvalidOperationException("教室傳送服務尚未就緒。");
             long generation = Volatile.Read(ref _wireGeneration);
             var key = (send.MessageId, send.TryCount);
             if (_manualSends.ContainsKey(key)) throw new InvalidOperationException("This manual attempt is already active.");

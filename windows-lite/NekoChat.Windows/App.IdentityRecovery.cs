@@ -10,14 +10,14 @@ public partial class App
     private CancellationTokenSource? _identityRecoveryCancellation;
     private async Task RecoverIdentityAsync()
     {
-        if (_recoveringIdentity || startingData || closingApp || chatRuntime is not { } runtime) return;
+        if (_recoveringIdentity || startingData || closingApp || chatRuntime is not { ArchivedIdentityFixture: true, IdentityRecovery: { } recovery } runtime) return;
         _recoveringIdentity = true;
         using var cancellation = new CancellationTokenSource(); _identityRecoveryCancellation = cancellation;
         bool quiesced = false; string status = "未變更本機身分。";
         chat.SetIdentityRecoveryStatus("正在檢查本機身分…", busy: true);
         try
         {
-            var prompt = await runtime.Worker.Run(_ => runtime.IdentityRecovery.Inspect(), cancellation.Token);
+            var prompt = await runtime.Worker.Run(_ => recovery.Inspect(), cancellation.Token);
             if (cancellation.IsCancellationRequested) return;
             if (prompt is null)
             { status = "目前沒有可復原的遺失身分。未建立或替換金鑰；首次使用仍需選定身分方案。"; return; }
@@ -31,7 +31,7 @@ public partial class App
             quiesced = true; chat.BeginClosing();
             await runtime.StopReceivingAsync(); await _activeLegacySend; await chat.PrepareForShutdownAsync();
             cancellation.Token.ThrowIfCancellationRequested();
-            var result = await runtime.Worker.Run(_ => runtime.IdentityRecovery.Confirm(prompt, () => !cancellation.IsCancellationRequested), CancellationToken.None);
+            var result = await runtime.Worker.Run(_ => recovery.Confirm(prompt, () => !cancellation.IsCancellationRequested), CancellationToken.None);
             status = result is IdentityReplaced
                 ? "已建立新的本機身分；歷史與草稿保留，既有配對已暫停。私訊仍需完成身分與訊息上限設定。"
                 : "身分或確認條件已改變，這次未重建。請重新檢查；資料與金鑰檔保留。";
@@ -41,7 +41,7 @@ public partial class App
         { status = "無法完成檢查、存稿或身分重建；請保留目前文字並處理本機資料問題後重試。舊金鑰檔保留。"; }
         finally
         {
-            runtime.IdentityRecovery.Cancel();
+            recovery.Cancel();
             if (quiesced)
             {
                 try { await runtime.DisposeAsync(); }

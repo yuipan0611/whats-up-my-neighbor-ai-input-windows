@@ -70,7 +70,7 @@
 `NekoChat Windows Lite` CI 必須執行訊息測試後，才能回報聊天功能通過：
 
 - 核心測試使用真實 TCP：雙向中文、emoji、多行文字、來源 IP、送達回覆、連接埠被占用、對方離線，以及 HTTP 成功但沒有送達確認的情況。
-- Windows 測試對完整套件、免安裝 EXE、安裝器實際解壓後的 App，各啟動兩個獨立程序，以隔離測試金鑰明確互相 pin，觸發實際 Enter 與「傳送」按鈕，走 SQLite attempt、簽章 TCP 與儲存 ACK。檢查正文原文、預設提醒僅顯示姓名與「新訊息」、以身分回覆、ACK 後草稿清空；逾時保留草稿與單次嘗試，再關閉重開資料庫驗證。固定 16384 bytes 僅為此隔離 fixture 的工程設定，不決定產品身分方案或訊息上限。
+- Windows 測試對完整套件、免安裝 EXE、安裝器實際解壓後的 App，各啟動兩個獨立程序，以隔離測試金鑰明確互相 pin，觸發實際 Enter 與「傳送」按鈕，走 SQLite attempt、簽章 TCP 與儲存 ACK。檢查正文原文、預設提醒僅顯示姓名與「新訊息」、以身分回覆、ACK 後草稿清空；逾時保留草稿與單次嘗試，再關閉重開資料庫驗證。此入口已列 archived-superseded 簽章測試，fixture 上限跟隨已確認的 D-06：65,536 UTF-8 bytes；不代表新版教室 transport 或 Windows 原生流程已通過。
 - 反應測試先驗證隱私預設，再從實際設定勾選允許反應圖片後，檢查五款素材、恢復位置與舊版來源的獨立未驗證紀錄。普通私訊不會退回無簽章傳送。
 - 每一種包裝也使用 Windows 原生滑鼠輸入，驗證單擊貓咪不開視窗、雙擊只開一次，以及第二次按住拖曳後放開不誤開視窗。
 - 兩端報告與聊天／氣泡／錯誤畫面保存於 `nekochat-windows-smoke-captures` artifact；原先的 `--smoke-test` 只涵蓋 UI 與素材，不能當成訊息已送達的證據。
@@ -91,7 +91,7 @@ App 提供 `--restore-backup <獨立備份.db> <全新目錄>`，只在新目錄
 
 ## 本機身分遺失
 
-設定中的「檢查本機身分…」只做背景檢查；既有身分遺失或不符時，經明確確認才會建立新身分，保留歷史與草稿、暫停既有配對並關閉對外已讀回條。首次身分方案與產品訊息上限仍待決，未自動採用 P1。詳見 [IDENTITY-VERIFICATION.md](IDENTITY-VERIFICATION.md)；Windows 原生流程未執行。
+教室產品依固定名單與實際 socket 來源 IPv4 歸屬，不需要產生金鑰或核對數字；一般啟動不開啟 credential vault，也沒有配對／重建身分入口。正文上限為已確認的 65,536 UTF-8 bytes，草稿另採 1,048,576-byte 上限。新版教室 transport／store／UI 尚在整合，不把既有 signed fixture 當作新版驗收。舊身分程式、文件與測試保留在 archived-superseded 範圍，見 [ARCHIVED-SUPERSEDED.md](ARCHIVED-SUPERSEDED.md)；Windows 原生未執行。
 
 ## 條件式配對來源與預覽
 

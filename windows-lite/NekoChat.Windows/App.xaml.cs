@@ -104,6 +104,7 @@ public partial class App : Application
 
             pet = new PetWindow();
             chat = new ChatWindow(settings);
+            Settings.SaveProblem += SettingsSaveProblem;
             pet.ReactionDisplayDevice = settings.ReactionDisplayDevice;
             pet.ReactionFailed += message => chat.SetStatus(message);
             chat.SettingsChanged += updated =>
@@ -161,7 +162,8 @@ public partial class App : Application
             startupSource = settingsSource ?? new SettingsLoadResult(settings, smokeDirectory is not null ? SettingsSourceStatus.Loaded : SettingsSourceStatus.Unavailable);
             isolatedData = smokeDirectory is not null; startupPort = messagingSmoke?.ListenPort ?? DirectLanMessaging.DefaultPort;
             chat.DataRetryRequested += () => _ = StartDataAsync();
-            chat.IdentityRecoveryRequested += () => _ = RecoverIdentityAsync();
+            // Historical recovery source is retained; ordinary classroom startup has no recovery command.
+            if (messagingSmoke is not null) chat.IdentityRecoveryRequested += () => _ = RecoverIdentityAsync();
 
             if (Appearance.Presets.Contains(settings.Coat))
             {
@@ -336,8 +338,15 @@ public partial class App : Application
         finally { checkingUpdate = false; }
     }
 
+    private void SettingsSaveProblem(string reason)
+    {
+        if (closingApp || Dispatcher.HasShutdownStarted) return;
+        _ = Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.RefreshSettingsSaveStatus(); }));
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
+        Settings.SaveProblem -= SettingsSaveProblem;
         _identityRecoveryCancellation?.Cancel();
         SystemEvents.PowerModeChanged -= AppPowerModeChanged;
         if (chatRuntime is not null)
@@ -378,7 +387,7 @@ public partial class App : Application
             listener.Diagnostic += code => { if (code == "receiver_not_ready") Dispatcher.BeginInvoke(new Action(() => { if (!closingApp && ReferenceEquals(directListener, listener)) chat.SetReceiverState(false, startupPort, listener.Error); })); };
             candidate.Start(); chatRuntime = candidate; candidate = null;
             chat.SetReceiverState(directListener.Running, directListener.Port, directListener.Error);
-            chat.SetStatus("本機資料已就緒；私訊仍需完成身分與訊息上限設定。");
+            chat.SetStatus(chatRuntime is { CanSend: true } ? "本機資料已就緒。" : "本機資料已就緒；教室傳送服務尚未就緒。");
         }
         catch (Exception ex)
         { chat.DetachRuntime(); chat.ShowDataFailure(ex is StoreException ? ex.Message : "無法開啟本機資料，請重新讀取。"); chat.SetReceiverState(false, startupPort, "本機資料尚未就緒"); }

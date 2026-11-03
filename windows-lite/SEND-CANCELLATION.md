@@ -24,6 +24,6 @@ dotnet run --project windows-lite/NekoChat.Tests -- --manual-send-cancel
 .\NekoChat.Windows.exe --manual-send-cancel-smoke-test C:\NekoChat-QA\manual-cancel-run1
 ```
 
-這個入口建立全新的隔離 DPAPI／SQLite profile，以測試用配對公鑰和 `L=16384` 啟用 sender；不讀／更改日常設定，不代表使用者已選身分方案或 L，也不作人類配對同意證據。實際 ChatWindow 的 Send／Cancel routed controls 透過 ChatRuntime 發送到一個刻意不回 hello 的 loopback socket；成功才會檢查取消狀態、0筆歷史與原稿保留。輸出 `manual-send-cancel-result.json`、96-DPI WPF RenderTargetBitmap 截圖，並報告 fixture 清理是否成功。它不是 native input injection／物理 DPI／真鍵盤驗收。
+這個入口屬 archived-superseded 簽章測試，建立全新的隔離 DPAPI／SQLite profile，以合成公鑰和已確認的正文上限 `L=65536` 啟用歷史 sender；不讀／更改日常設定，也不代表教室產品仍需配對或已完成新版 transport。實際 ChatWindow 的 Send／Cancel routed controls 透過 ChatRuntime 發送到一個刻意不回 hello 的 loopback socket；成功才會檢查取消狀態、0筆歷史與原稿保留。輸出 `manual-send-cancel-result.json`、96-DPI WPF RenderTargetBitmap 截圖，並報告 fixture 清理是否成功。它不是 native input injection／物理 DPI／真鍵盤驗收。
 
 另需在 Windows 驗收：按鈕／Tab／Enter／IME、對話切換中的舊 callback、真斷網與 receiver COMMIT 前後、睡眠／身分替換／關閉、存檔失敗、DPI／輔助工具。未執行維持未執行，不填 PASS。

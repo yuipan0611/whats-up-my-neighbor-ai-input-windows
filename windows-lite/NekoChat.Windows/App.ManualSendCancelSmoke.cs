@@ -37,7 +37,7 @@ public partial class App
             {
                 byte[] publicKey = remote.ExportSubjectPublicKeyInfo(); peer = V2Crypto.PeerId(publicKey);
                 await Task.Run(() => {
-                    using var store = ChatStore.Open(new(Path.Combine(root, "data")) { TextValidator = value => V2Text.Check(value, 16384) == V2TextProblem.None });
+                    using var store = ChatStore.Open(new(Path.Combine(root, "data")) { TextValidator = value => V2Text.Check(value, V2Text.ProductMaxUtf8Bytes) == V2TextProblem.None });
                     var identity = new LocalIdentityCoordinator(store, WindowsIdentityVault.Create(Path.Combine(root, "identity")));
                     if (!identity.Provision(store.GetLocalIdentitySnapshot(), () => true)) throw new InvalidOperationException("Synthetic provision failed.");
                     store.RegisterPeer(peer, PairingState.Paired, publicKey);
@@ -61,7 +61,7 @@ public partial class App
                 await release.Task.WaitAsync(timeout.Token);
             });
             // Explicit fixture L only. Ordinary startup still supplies no wire/P1 configuration.
-            runtime = await ChatRuntime.OpenAsync(source, true, 0, new(16384)); runtime.Start();
+            runtime = await ChatRuntime.OpenAsync(source, true, 0, new(V2Text.ProductMaxUtf8Bytes)); runtime.Start();
             window = new(source.Value); window.SetReceiverState(true, runtime.Listener.Port, null);
             await window.AttachRuntimeAsync(runtime, port); window.Show(); window.Activate();
             await window.SmokeOpenEntryAsync(entry => entry.PeerId == peer);
@@ -93,7 +93,7 @@ public partial class App
         }
         Directory.CreateDirectory(output);
         await File.WriteAllTextAsync(Path.Combine(output, "manual-send-cancel-result.json"), JsonSerializer.Serialize(new {
-            passed = failure is null, checks, failure, cleaned, syntheticRoutedControls = true, fixtureMaximumTextBytes = 16384,
+            passed = failure is null, checks, failure, cleaned, syntheticRoutedControls = true, fixtureMaximumTextBytes = V2Text.ProductMaxUtf8Bytes,
             productIdentityModeSelected = false, productMaximumTextBytesSelected = false, captureKind = "WPF RenderTargetBitmap96, not physical desktop DPI evidence",
             pending = new[] { "real native keyboard/IME", "DPI/accessibility and focus", "physical network after-receiver-COMMIT cancellation", "real Windows lifecycle" }
         }, new JsonSerializerOptions { WriteIndented = true }));

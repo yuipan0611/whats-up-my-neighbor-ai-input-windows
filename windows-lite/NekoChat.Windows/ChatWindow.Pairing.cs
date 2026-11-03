@@ -12,7 +12,7 @@ public partial class ChatWindow
     private void RefreshPairingControls()
     {
         var target = _pairingSelection;
-        bool usable = !_closingRequested && !_peerAction && _runtime is not null && target is not null;
+        bool usable = _runtime?.ArchivedIdentityFixture == true && !_closingRequested && !_peerAction && _runtime is not null && target is not null;
         bool missingKey = target?.BoundPeerId is not null && !target.HasBoundSigningKey;
         bool blocked = target?.Pairing is PairingState.Revoked or PairingState.Suspended;
         OpenPairingButton.IsEnabled = usable && !blocked && !missingKey && _runtime?.Pairing is not null && !_runtime.Lifetime.IsCancellationRequested;
@@ -41,7 +41,7 @@ public partial class ChatWindow
     private async void ResetPeerClick(object sender, RoutedEventArgs e) => await ChangePeerAsync(PairingState.Unpaired);
     private async Task ChangePeerAsync(PairingState? next)
     {
-        if (_peerAction || _closingRequested || _runtime is not { } runtime || _pairingSelection is not { BoundPeerId: not null } target) return;
+        if (_peerAction || _closingRequested || _runtime is not { ArchivedIdentityFixture: true } runtime || _pairingSelection is not { BoundPeerId: not null } target) return;
         string title = next is null ? "解除名單綁定" : next == PairingState.Revoked ? "撤銷身分信任" : "允許重新核對";
         string effect = next is null ? "只解除這筆名單與身分的連結。對話與這個身分的信任仍保留；不會撤回任何訊息。" :
             next == PairingState.Revoked ? "停止信任這個身分，影響所有綁定同一身分的名單。移除尚未送出的已讀回條；已送出的資料無法撤回。" :

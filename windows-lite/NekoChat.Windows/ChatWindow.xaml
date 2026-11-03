@@ -25,7 +25,7 @@
      </StackPanel>
      <StackPanel DockPanel.Dock="Bottom" Margin="16,12">
       <WrapPanel><Button Content="新增同學" Click="AddRosterClick" Margin="0,0,8,8"/><Button Content="匯入 CSV" Click="ImportRosterClick" Margin="0,0,0,8"/><Button Content="設定" Click="OpenSettingsClick"/></WrapPanel>
-      <TextBlock x:Name="IdentityStatus" Text="身分尚未設定" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
+      <TextBlock x:Name="IdentityStatus" Text="教室區域網路・依名單 IP" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
      </StackPanel>
      <Grid><ListBox x:Name="InboxList" BorderThickness="0" SelectionChanged="InboxSelectionChanged" ItemContainerStyle="{StaticResource InboxItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
       <ListBox.ItemTemplate><DataTemplate><Grid AutomationProperties.Name="{Binding AccessibleLabel}"><Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -67,20 +67,22 @@
     </Grid></Border>
    </Grid>
   </Grid>
-  <Border Grid.Row="1" BorderBrush="#DCE3EC" BorderThickness="0,1,0,0" Padding="16,6"><ScrollViewer MaxHeight="76" VerticalScrollBarVisibility="Auto"><StackPanel><TextBlock x:Name="StorageStatus" Foreground="#B43E3E" TextWrapping="Wrap" FontSize="12"/><TextBlock x:Name="ReceiverStatus" Text="接收服務啟動中…" Foreground="#596B80" TextWrapping="Wrap" FontSize="12"/><TextBlock x:Name="Status" Text="載入本機資料中…" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/><Button x:Name="ReloadData" Content="重新讀取" Click="ReloadDataClick" HorizontalAlignment="Left" Visibility="Collapsed"/></StackPanel></ScrollViewer></Border>
+  <Border Grid.Row="1" BorderBrush="#DCE3EC" BorderThickness="0,1,0,0" Padding="16,6"><ScrollViewer MaxHeight="76" VerticalScrollBarVisibility="Auto"><StackPanel><TextBlock x:Name="SettingsSaveStatus" Foreground="#B43E3E" TextWrapping="Wrap" FontSize="12" Visibility="Collapsed"/><TextBlock x:Name="StorageStatus" Foreground="#B43E3E" TextWrapping="Wrap" FontSize="12"/><TextBlock x:Name="ReceiverStatus" Text="接收服務啟動中…" Foreground="#596B80" TextWrapping="Wrap" FontSize="12"/><TextBlock x:Name="Status" Text="載入本機資料中…" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/><Button x:Name="ReloadData" Content="重新讀取" Click="ReloadDataClick" HorizontalAlignment="Left" Visibility="Collapsed"/></StackPanel></ScrollViewer></Border>
   <Border x:Name="SettingsPane" Grid.RowSpan="2" Background="#F3F6FA" BorderBrush="#DCE3EC" BorderThickness="1" Margin="16" Padding="16" Visibility="Collapsed">
    <DockPanel><Button Content="完成" Click="CloseSettingsClick" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,12,0,0"/>
     <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="ChatLayout">
      <TextBlock Text="名單與設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,16"/>
      <TextBlock x:Name="MyDirectIP" Text="我的 IP：偵測中…" TextWrapping="Wrap"/><Button x:Name="CopyMyIPButton" Content="複製我的 IP" Click="CopyMyIPClick" HorizontalAlignment="Left" Margin="0,8"/>
      <CheckBox x:Name="AutoStartCheck" Content="開機啟動" Checked="AutoStartChecked" Unchecked="AutoStartUnchecked" Margin="0,8,0,16"/>
+     <StackPanel x:Name="ArchivedIdentityPanel" Visibility="Collapsed">
      <Button x:Name="CheckIdentityButton" Content="檢查本機身分…" Click="CheckIdentityClick" HorizontalAlignment="Left" Margin="0,0,0,8"/>
      <TextBlock x:Name="IdentityRecoveryStatus" Text="檢查不會自動建立或替換身分。" TextWrapping="Wrap" Foreground="#596B80" FontSize="12" Margin="0,0,0,16"/>
      <TextBlock Text="目前同學的配對與信任" FontWeight="Bold"/>
      <TextBlock x:Name="PairingStatus" Text="先選擇已儲存的名單。" Foreground="#596B80" TextWrapping="Wrap" Margin="0,6,0,8"/>
      <WrapPanel><Button x:Name="OpenPairingButton" Content="核對與綁定…" Click="OpenPairingClick" IsEnabled="False" Margin="0,0,8,8"/><Button x:Name="UnlinkPeerButton" Content="解除名單綁定…" Click="UnlinkPeerClick" IsEnabled="False" Margin="0,0,8,8"/><Button x:Name="RevokePeerButton" Content="撤銷這個身分…" Click="RevokePeerClick" IsEnabled="False" Margin="0,0,8,8"/><Button x:Name="ResetPeerButton" Content="允許重新核對…" Click="ResetPeerClick" IsEnabled="False" Margin="0,0,0,8"/></WrapPanel>
      <TextBlock Text="解除綁定會保留對話與身分信任；撤銷影響所有綁定同一身分的名單。允許重新核對不會直接完成配對。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,20"/>
-     <TextBlock x:Name="ManualRosterTitle" Text="手動新增同學（不會自動配對）" FontWeight="Bold"/>
+     </StackPanel>
+     <TextBlock x:Name="ManualRosterTitle" Text="手動新增同學" FontWeight="Bold"/>
      <TextBlock Text="姓名" Margin="0,8,0,4"/><TextBox x:Name="ContactName" AutomationProperties.Name="同學姓名"/>
      <TextBlock Text="學號（可留白）" Margin="0,8,0,4"/><TextBox x:Name="StudentNumberBox" AutomationProperties.Name="學號"/>
      <TextBlock Text="內網 IP（可留白）" Margin="0,8,0,4"/><TextBox x:Name="RecipientIp" TextChanged="RecipientChanged" AutomationProperties.Name="同學內網 IP"/>

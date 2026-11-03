@@ -9,8 +9,8 @@ namespace NekoChat.Windows;
 
 public partial class App
 {
-    // Fixed engineering policy, used ONLY by the explicitly requested isolated smoke. It does not settle Q-D06 or P1/P2.
-    private const int MessagingFixtureLimit = 16384;
+    // Archived signed fixture only. The body limit follows the confirmed D-06 value; this does not activate signed identity in the classroom product.
+    private const int MessagingFixtureLimit = V2Text.ProductMaxUtf8Bytes;
     private sealed record PublicFixtureIdentity(string Role, string PeerId, string PublicSpkiBase64);
     private string? messagingPeerId;
     private async Task<ChatWireConfiguration> PrepareMessagingFixtureAsync(MessagingSmokeOptions options)

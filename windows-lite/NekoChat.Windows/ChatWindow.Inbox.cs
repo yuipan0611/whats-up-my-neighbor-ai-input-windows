@@ -49,7 +49,7 @@ public partial class ChatWindow
     internal event Action? DataRetryRequested;
     internal event Action? IdentityRecoveryRequested;
     private bool _identityRecoveryBusy;
-    private void CheckIdentityClick(object sender, RoutedEventArgs e) => IdentityRecoveryRequested?.Invoke();
+    private void CheckIdentityClick(object sender, RoutedEventArgs e) { if (_runtime?.ArchivedIdentityFixture == true) IdentityRecoveryRequested?.Invoke(); }
     internal void SetIdentityRecoveryStatus(string text, bool busy)
     { _identityRecoveryBusy = busy; IdentityRecoveryStatus.Text = text; CheckIdentityButton.IsEnabled = !busy && _runtime is not null && !_closingRequested; }
 
@@ -72,14 +72,14 @@ public partial class ChatWindow
     }
     internal async Task AttachRuntimeAsync(ChatRuntime runtime, int peerPort)
     {
-        _runtime = runtime; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
+        _runtime = runtime; ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
         var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy()); ReadReceiptToggle.IsChecked = policy.Enabled;
         if (runtime.Presence is { } presence) presence.StateChanged += PresenceChanged;
         await RefreshInboxAsync();
     }
     internal void ShowDataFailure(string message)
     { StorageStatus.Text = message; ReloadData.Visibility = Visibility.Visible; UpdateComposer(); }
-    internal void DetachRuntime() { _pairingWindow?.CloseSafely(); _pairingSelection = null; if (_runtime?.Presence is { } presence) presence.StateChanged -= PresenceChanged; _runtime = null; _receiverRunning = false; ReceiverStatus.Text = "接收暫停，等待本機資料就緒。"; RefreshPairingControls(); UpdateComposer(); }
+    internal void DetachRuntime() { _pairingWindow?.CloseSafely(); _pairingSelection = null; if (_runtime?.Presence is { } presence) presence.StateChanged -= PresenceChanged; _runtime = null; ArchivedIdentityPanel.Visibility = Visibility.Collapsed; _receiverRunning = false; ReceiverStatus.Text = "接收暫停，等待本機資料就緒。"; RefreshPairingControls(); UpdateComposer(); }
     internal void DataChanged() { if (!_stopping) _ = RefreshInboxAsync(refreshHistory: true); }
     private void PresenceChanged() => Dispatcher.BeginInvoke(new Action(() => { if (!_stopping) { ApplyInboxFilter(); UpdateHeader(); } }));
     private async Task RefreshInboxAsync(bool refreshHistory = false)
@@ -113,6 +113,8 @@ public partial class ChatWindow
     }
     private string StateOf(InboxEntry entry)
     {
+        if (_runtime?.ArchivedIdentityFixture != true)
+            return entry.Endpoint is null ? "未設定位址" : entry.LegacyUnread > 0 ? "舊版訊息・在線狀態待確認" : "在線狀態待確認";
         if (entry.Pairing is PairingState.Suspended) return "配對已暫停，請重新核對身分";
         if (entry.Pairing is PairingState.Revoked) return "配對已撤銷";
         var presence = entry.RosterId is { } row ? _runtime?.Presence?.GetSnapshot(row) : null;
@@ -204,7 +206,7 @@ public partial class ChatWindow
     private void UpdateComposer()
     {
         if (!_initializedInbox) return;
-        var buffer = CurrentDraft(); bool attached = _runtime is not null; bool ready = attached && _runtime!.CanSend && _selected?.Pairing == PairingState.Paired;
+        var buffer = CurrentDraft(); bool attached = _runtime is not null; bool ready = attached && _runtime!.CanSend && (_runtime.ArchivedIdentityFixture ? _selected?.Pairing == PairingState.Paired : _selected?.Endpoint is not null);
         Draft.IsEnabled = !_stopping && !_closingRequested && (attached ? buffer is { Clearing: false } : _receiverRunning);
         bool valid = !string.IsNullOrWhiteSpace(Draft.Text) && (_runtime?.MaximumTextBytes is not { } limit || V2Text.Check(Draft.Text, limit) == V2TextProblem.None);
         SendButton.IsEnabled = !_closingRequested && !_sending && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
@@ -216,10 +218,10 @@ public partial class ChatWindow
         CancelAttemptButton.IsEnabled = !_closingRequested && attached && !cancelling && attempt is { State: not ("cancelled" or "confirmed" or "superseded") } &&
             (attempt.State != "sending" || _runtime!.CanCancelAttempt(attempt.MessageId, attempt.TryCount));
         ClearConversationButton.IsEnabled = attached && _selected is not null && buffer?.Clearing != true;
-        CheckIdentityButton.IsEnabled = attached && !_identityRecoveryBusy && !_closingRequested;
+        CheckIdentityButton.IsEnabled = _runtime?.ArchivedIdentityFixture == true && !_identityRecoveryBusy && !_closingRequested;
         string count = _runtime?.MaximumTextBytes is { } maximum ? $"{Encoding.UTF8.GetByteCount(Draft.Text)} / {maximum} UTF-8 位元組 · " : "";
         DraftStatus.Text = (buffer?.Dirty == true ? "草稿尚未儲存 · " : "") + count + (!attached ? "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出" :
-            buffer is null ? "先完成身分配對，才能儲存草稿與傳送私訊。" : !_runtime!.CanSend ? "身分與訊息上限尚未設定；可編輯及儲存既有草稿。" : !valid && Draft.Text.Length > 0 ? "內容不符合訊息格式或超過上限。" : "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出");
+            buffer is null ? "選擇一位同學後編輯草稿。" : !_runtime!.CanSend ? "教室傳送服務尚未就緒；可編輯及儲存既有草稿。" : !valid && Draft.Text.Length > 0 ? "內容不符合訊息格式或超過上限。" : "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出");
     }
     private void UpdateHeader()
     {
@@ -337,7 +339,7 @@ public partial class ChatWindow
     private async Task LoadManualFormAsync(string? rosterId)
     {
         _editingRosterId = rosterId; _manualFormSnapshot = null; _pairingSelection = null; RefreshPairingControls(); long generation = ++_manualFormGeneration; SaveContactButton.IsEnabled = DeleteContactButton.IsEnabled = false;
-        ManualRosterTitle.Text = rosterId is null ? "手動新增同學（不會自動配對）" : "編輯目前名單標籤（不變更配對）";
+        ManualRosterTitle.Text = rosterId is null ? "手動新增同學" : "編輯目前名單";
         SaveContactButton.Content = rosterId is null ? "新增到名單" : "儲存這位同學";
         if (_runtime is null) { ContactName.Text = StudentNumberBox.Text = RecipientIp.Text = ""; TeacherLabel.IsChecked = false; return; }
         try
@@ -366,7 +368,7 @@ public partial class ChatWindow
             {
                 if (generation == _manualFormGeneration) { _editingRosterId = result.EntryId; _manualFormSnapshot = result.SnapshotToken; SaveContactButton.Content = "儲存這位同學"; DeleteContactButton.IsEnabled = true; }
                 if (generation == _manualFormGeneration) await LoadManualFormAsync(result.EntryId);
-                SetStatus(result.Changed ? "名單已儲存；不變更身分或配對。" : "名單沒有變動。"); _runtime.Presence?.Refresh(); await RefreshInboxAsync();
+                SetStatus(result.Changed ? "名單已儲存。" : "名單沒有變動。"); _runtime.Presence?.Refresh(); await RefreshInboxAsync();
             }
             else StorageStatus.Text = RosterFailure(result.Reason);
         }

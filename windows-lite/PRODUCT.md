@@ -12,13 +12,13 @@ Teachers and students exchanging classroom LAN messages, code and five existing 
 
 ## Product Purpose
 
-Keep separate local conversations, drafts and unread state across ordinary restarts. Confirm stored messages using signed identities and guarded SQLite commits. Offline messages remain drafts and require manual send/retry.
+Keep separate local conversations, drafts and unread state across ordinary restarts. Attribute classroom conversations using accepted socket source IPv4 and roster/IP principals; confirm stored messages only after guarded SQLite commits. Offline messages remain drafts and require manual send/retry.
 
 ## Capabilities and Constraints
 
-Manual roster labels and CSV preview/import never grant trust or pair identities. Outbound read receipts default off; local visible-read is independent. Desktop message notifications show name and “新訊息”, without body. Materials are deferred by the user. Normal private messages have no legacy v1-send fallback; incoming legacy history remains explicitly unverified.
+Seats, people and IPs are fixed within the classroom LAN. Manual roster editing and CSV preview/import assign addresses without keys or number matching. Outbound read receipts default off; local visible-read is independent. Desktop message notifications show name and “新訊息”, without body. Materials are deferred by the user. Probe hello before any user text; only the exact baseline legacy error response enables a v1 candidate. Legacy sends retain the 2,000-scalar limit and label, never imply stored/read confirmation, and cannot be used as fallback after classroom message bytes may have been written.
 
-Identity policy Q-D04-P and message-size Q-D06 remain open. Do not silently choose P1/P2 or an L default. Existing keys may be inspected; loss or mismatch never causes automatic replacement. No deployment, release, install, firewall changes or main merge authorization.
+D-04 uses classroom LAN/IP attribution, without product key/pairing/recovery flows. D-06 is confirmed: 65,536 UTF-8 bytes per message. Draft persistence has its own 1,048,576-byte bound (CM-12), preserving over-message-limit text without truncation. Signed/P1 sources and tests are archived-superseded. The classroom transport/store/UI integration is still in progress; these requirements are not a completed runtime claim. No deployment, release, install, firewall changes or main merge authorization.
 
 ## Brand Commitments
 
