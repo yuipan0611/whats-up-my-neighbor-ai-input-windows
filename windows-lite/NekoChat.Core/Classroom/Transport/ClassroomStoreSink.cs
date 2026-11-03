@@ -68,6 +68,12 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
         CancellationToken cancellation)
     {
         var result = _store.ApplyClassroomReceipt(sourceIp, request.MessageId!, RemoteReceiptKind.Read);
+        if (!result.Changed && result.Reason == "pending-local-confirmation")
+        {
+            var (errStatus, body) = ClassroomPacketWriter.Error(ClassroomCodes.Transient);
+            return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(errStatus, body));
+        }
+
         string status = result.Changed ? "ok" : result.Reason == "unchanged" ? "duplicate" : "discarded";
         byte[] ack = ClassroomPacketWriter.ReceiptAck(status, request.MessageId!, request.Session!, sourceIp, localIp);
         return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(200, ack));

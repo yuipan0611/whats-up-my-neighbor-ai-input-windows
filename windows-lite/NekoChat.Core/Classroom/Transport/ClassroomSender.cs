@@ -7,12 +7,15 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using NekoChat.Core.Classroom.Wire;
+using NekoChat.Core.Roster;
 using NekoChat.Core.Storage;
 using ClassroomRoute = NekoChat.Core.Storage.ClassroomRoute;
 
 namespace NekoChat.Core.Classroom.Transport;
 
 public sealed record ClassroomSendResult(bool Success, string Code, CompleteResult? Completion, ClassroomRoute Route);
+
+public sealed record ClassroomReceiptSendResult(bool Completed, string Status, string? ErrorCode = null);
 
 public sealed class ClassroomSender
 {
@@ -180,6 +183,137 @@ public sealed class ClassroomSender
                 var unconfirmed = _store.CompleteClassroomAttempt(prepared.MessageId, new UnconfirmedOutcome(), targetIp, prepared.TryCount);
                 return new ClassroomSendResult(false, "network_unconfirmed", unconfirmed, ClassroomRoute.Legacy);
             }
+        }
+    }
+
+    public async Task<ClassroomReceiptSendResult> SendReceiptAsync(
+        PendingClassroomReceipt receipt,
+        int port,
+        string ownIp,
+        Func<bool> stillCurrent,
+        CancellationToken cancellation = default)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        ArgumentNullException.ThrowIfNull(stillCurrent);
+
+        if (!stillCurrent())
+        {
+            return new ClassroomReceiptSendResult(false, "stale_policy");
+        }
+
+        string targetIp = receipt.TargetIp;
+        if (!IPAddress.TryParse(targetIp, out var ip) || ClassroomSource.Canonical(ip) is null)
+        {
+            return new ClassroomReceiptSendResult(false, "invalid_target");
+        }
+
+        // 1. Mandatory Hello Probe
+        string clientNonce = ClassroomPacketWriter.NewToken();
+        byte[] helloBytes = ClassroomPacketWriter.HelloRequest(clientNonce);
+        string? session = null;
+
+        try
+        {
+            using var helloRequest = new HttpRequestMessage(HttpMethod.Post, $"http://{targetIp}:{port}/nekochat/classroom/v1/hello");
+            helloRequest.Content = new ByteArrayContent(helloBytes);
+            helloRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+
+            using var helloResponse = await _http.SendAsync(helloRequest, cancellation).ConfigureAwait(false);
+            if (!helloResponse.IsSuccessStatusCode)
+            {
+                return new ClassroomReceiptSendResult(false, "transient", "hello_failed");
+            }
+
+            byte[] helloRespBytes = await helloResponse.Content.ReadAsByteArrayAsync(cancellation).ConfigureAwait(false);
+            var helloContext = new ClassroomResponseContext(
+                targetIp,
+                ownIp,
+                new ClassroomSentRequest(clientNonce, "", "", null, ""),
+                null);
+            var helloResult = ClassroomResponseValidator.Validate(ClassroomResponseKind.HelloOk, (int)helloResponse.StatusCode, helloRespBytes, helloContext);
+            if (!helloResult.Ok || helloResult.Hello is null)
+            {
+                return new ClassroomReceiptSendResult(false, "transient", "hello_validation_failed");
+            }
+
+            // CM-13 §9: Only send if hello.ok supports "receipt.read" or "receipts"
+            bool supportsReadReceipt = false;
+            foreach (var kind in helloResult.Hello.Capabilities)
+            {
+                if (kind is "receipt.read" or "receipts")
+                {
+                    supportsReadReceipt = true;
+                    break;
+                }
+            }
+            if (!supportsReadReceipt)
+            {
+                return new ClassroomReceiptSendResult(false, "capability_missing", "unsupported_kind");
+            }
+
+            session = helloResult.Hello.Session;
+        }
+        catch (Exception ex)
+        {
+            return new ClassroomReceiptSendResult(false, "transient", ex.Message);
+        }
+
+        if (!stillCurrent())
+        {
+            return new ClassroomReceiptSendResult(false, "stale_policy");
+        }
+
+        // 2. Send receipt
+        byte[] receiptBytes = ClassroomPacketWriter.ReceiptRequest(receipt.MessageId, session!, targetIp);
+
+        try
+        {
+            using var receiptRequest = new HttpRequestMessage(HttpMethod.Post, $"http://{targetIp}:{port}/nekochat/classroom/v1/receipt");
+            receiptRequest.Content = new ByteArrayContent(receiptBytes);
+            receiptRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+
+            using var receiptResponse = await _http.SendAsync(receiptRequest, cancellation).ConfigureAwait(false);
+            int statusCode = (int)receiptResponse.StatusCode;
+            byte[] respBytes = await receiptResponse.Content.ReadAsByteArrayAsync(cancellation).ConfigureAwait(false);
+
+            if (statusCode == 200)
+            {
+                var ackContext = new ClassroomResponseContext(
+                    targetIp,
+                    ownIp,
+                    new ClassroomSentRequest(clientNonce, session!, receipt.MessageId, null, ""),
+                    null);
+                var ackResult = ClassroomResponseValidator.Validate(ClassroomResponseKind.ReceiptAck, 200, respBytes, ackContext);
+                if (ackResult.Ok && ackResult.Status is not null)
+                {
+                    string ackStatus = ackResult.Status;
+                    if (ackStatus is "ok" or "duplicate" or "discarded")
+                    {
+                        // CM-13 §9: Only verified ok/duplicate/discarded removes the outbox event
+                        _store.CompleteClassroomReadReceipt(receipt);
+                        return new ClassroomReceiptSendResult(true, ackStatus);
+                    }
+                }
+                return new ClassroomReceiptSendResult(false, "invalid_response", "invalid_ack_payload");
+            }
+            else if (statusCode == 503)
+            {
+                // transient (early-read)
+                return new ClassroomReceiptSendResult(false, "transient", "transient_early_read");
+            }
+            else if (statusCode == 409)
+            {
+                // stale_session
+                return new ClassroomReceiptSendResult(false, "transient", "stale_session");
+            }
+            else
+            {
+                return new ClassroomReceiptSendResult(false, "transient", $"http_{statusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            return new ClassroomReceiptSendResult(false, "transient", ex.Message);
         }
     }
 }

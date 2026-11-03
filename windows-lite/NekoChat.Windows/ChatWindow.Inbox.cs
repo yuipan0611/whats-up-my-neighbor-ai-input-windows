@@ -405,7 +405,7 @@ public partial class ChatWindow
     {
         if (_runtime is null) { ReadReceiptToggle.IsChecked = false; return; }
         bool enabled = ReadReceiptToggle.IsChecked == true; long edit = ++_readPolicyEdit;
-        try { var result = await _runtime.Worker.Run(s => s.SetReadReceiptPolicy(enabled)); if (edit == _readPolicyEdit) ReadReceiptToggle.IsChecked = result.Policy.Enabled; _runtime.Receipts?.Pulse(); SetStatus(result.Policy.Enabled ? "對外已讀回條已開啟；不補送先前已讀。" : $"對外已讀回條已關閉，移除 {result.DroppedReceipts} 筆未送回條。"); }
+        try { var result = await _runtime.Worker.Run(s => s.SetReadReceiptPolicy(enabled)); if (edit == _readPolicyEdit) ReadReceiptToggle.IsChecked = result.Policy.Enabled; _runtime.Receipts?.Pulse(); _runtime.ClassroomReceipts?.Pulse(); SetStatus(result.Policy.Enabled ? "對外已讀回條已開啟；不補送先前已讀。" : $"對外已讀回條已關閉，移除 {result.DroppedReceipts} 筆未送回條。"); }
         catch (Exception ex) { ReadReceiptToggle.IsEnabled = false; ShowStorageError(ex); }
     }
     private void InsertCodeClick(object sender, RoutedEventArgs e)

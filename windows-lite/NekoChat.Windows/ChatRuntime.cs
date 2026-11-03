@@ -38,6 +38,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal DirectLanListener Listener { get; }
     internal PresenceService? Presence { get; }
     internal ReadReceiptService? Receipts { get; }
+    internal ClassroomReceiptService? ClassroomReceipts { get; }
     internal IdentityRecoveryFlow? IdentityRecovery { get; }
     internal bool ArchivedIdentityFixture { get; }
     private readonly Task _maintenance;
@@ -87,6 +88,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
         }
         Listener = new(receiver, new V2ListenerOptions { Port = port }, store, Pairing);
         Worker = new(store, lifetime: _lifetime.Token);
+        ClassroomReceipts = new ClassroomReceiptService(store, ClassroomSender, port, "127.0.0.1");
+        ClassroomReceipts.ReceiptsChanged += () => DataChanged?.Invoke();
         _maintenance = Task.Run(MaintainBackups);
     }
     internal static string RootDirectory(Settings source, bool isolated) => UiTestOptions.ResolveRootDirectory(source, isolated);
@@ -108,7 +111,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
         }
         finally { store?.Dispose(); }
     });
-    internal void Start() { Listener.Start(); Presence?.Start(); Receipts?.Start(); }
+    internal void Start() { Listener.Start(); Presence?.Start(); Receipts?.Start(); ClassroomReceipts?.Start(); }
     internal Task<V2SendResult> SendAsync(PreparedSend send, string endpoint, int port, string conversation, DraftEditBuffer buffer, DraftWriteSnapshot sent)
     {
         lock (_gate)
@@ -191,9 +194,9 @@ internal sealed class ChatRuntime : IAsyncDisposable
         Interlocked.Increment(ref _wireGeneration);
         lock (_gate) return _pairingDrain = Pairing?.InvalidateAsync(reason) ?? Task.CompletedTask;
     }
-    internal void ResetAfterResume() { _ = InvalidatePairingAsync("resume"); Presence?.ResetAfterResume(); Receipts?.ResetAfterResume(); }
+    internal void ResetAfterResume() { _ = InvalidatePairingAsync("resume"); Presence?.ResetAfterResume(); Receipts?.ResetAfterResume(); ClassroomReceipts?.ResetAfterResume(); }
     internal async Task StopReceivingAsync()
-    { var pairingDrain = InvalidatePairingAsync("receiver_stopped"); await _lifetime.CancelAsync().ConfigureAwait(false); await pairingDrain.ConfigureAwait(false); await Listener.DisposeAsync().ConfigureAwait(false); if (Presence is not null) await Presence.DisposeAsync().ConfigureAwait(false); if (Receipts is not null) await Receipts.DisposeAsync().ConfigureAwait(false); await _maintenance.ConfigureAwait(false); }
+    { var pairingDrain = InvalidatePairingAsync("receiver_stopped"); await _lifetime.CancelAsync().ConfigureAwait(false); await pairingDrain.ConfigureAwait(false); await Listener.DisposeAsync().ConfigureAwait(false); if (Presence is not null) await Presence.DisposeAsync().ConfigureAwait(false); if (Receipts is not null) await Receipts.DisposeAsync().ConfigureAwait(false); if (ClassroomReceipts is not null) await ClassroomReceipts.DisposeAsync().ConfigureAwait(false); await _maintenance.ConfigureAwait(false); }
     internal async Task DrainNetworkAsync()
     { Task[] network; lock (_gate) network = _network.ToArray(); await Task.WhenAll(network).ConfigureAwait(false); }
     public ValueTask DisposeAsync()
