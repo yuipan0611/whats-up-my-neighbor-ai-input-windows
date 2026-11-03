@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
 using NekoChat.Core.Classroom.Transport;
 using NekoChat.Core.Classroom.Wire;
@@ -45,7 +46,7 @@ internal static class ClassroomSenderOutcomeIndependentChecks
     };
     private static WireReply Loopback_Json(byte[] body, int status = 200) => NekoChat.Tests.Loopback.Json(status, body);
 
-    private static async Task<Run> Exercise(Func<WireReq, WireReply>? script, string ownIpParameter, int? cancelAfterMs = null, bool cancelBefore = false)
+    private static async Task<Run> Exercise(Func<WireReq, WireReply>? script, string ownIpParameter, int? cancelAfterMs = null, bool cancelBefore = false, Func<int?, HttpClient>? clientFactory = null)
     {
         string dir = NekoChat.Tests.Loopback.TempDir("classroom-outcome-indep-");
         try
@@ -56,7 +57,7 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             var prepared = store.GetClassroomPreparedSend(started.MessageId) ?? throw new InvalidOperationException("no prepared send");
             var (proxy, recorder) = RecordingStore.Wrap(store);
             await using var peer = script is null ? null : new LoopbackPeer(script);
-            using var http = NekoChat.Tests.Loopback.Client(peer?.Port);
+            using var http = clientFactory is not null ? clientFactory(peer?.Port) : NekoChat.Tests.Loopback.Client(peer?.Port);
             var sender = new ClassroomSender(proxy, http);
             using var cancel = new CancellationTokenSource();
             if (cancelBefore) cancel.Cancel(); else if (cancelAfterMs is { } ms) cancel.CancelAfter(ms);
@@ -126,6 +127,33 @@ internal static class ClassroomSenderOutcomeIndependentChecks
         {
             var o = await Exercise(Peer(), Loopback); // control: guess happens to be right
             Check(o.Result is { Success: true } && o.Confirmed && o.Result.Route == ClassroomRoute.Classroom, "F4 control: caller's guess equal to the real address is accepted", Describe(o));
+        }
+
+        // ---- F4b: if the real local endpoint is NOT known for a request, the sender must not trust the reply (fail closed), never fall back to a guess. ----
+        // A handler that does not record the endpoint (a plain SocketsHttpHandler instead of the product's) simulates "endpoint unknown".
+        static HttpClient PlainClient(int? port, bool recordForHello)
+        {
+            var handler = new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false, ConnectCallback = async (ctx, cancellation) =>
+            {
+                if (recordForHello && ctx.InitialRequestMessage?.RequestUri?.AbsolutePath.EndsWith("/hello", StringComparison.Ordinal) == true)
+                    ctx.InitialRequestMessage.Options.Set(ClassroomSender.LocalEndpointOptionKey, Loopback);
+                if (port is not { } p) throw new SocketException((int)SocketError.ConnectionRefused);
+                var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                try { await socket.ConnectAsync(new IPEndPoint(IPAddress.Loopback, p), cancellation); return new NetworkStream(socket, ownsSocket: true); }
+                catch { socket.Dispose(); throw; }
+            } };
+            return new HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(1500) };
+        }
+        {
+            var o = await Exercise(Peer(), Loopback, clientFactory: p => PlainClient(p, recordForHello: false));
+            Check(o.Thrown is null && !o.Confirmed && o.Result is { Success: false }, "F4b hello with no recorded local endpoint: nothing is confirmed", Describe(o));
+            Check(!o.TextOnWire && !o.Calls.Any(c => c.Method == "RecordClassroomRoute"), "F4b hello with no recorded local endpoint: the text is never sent and no route is recorded", Describe(o));
+            Check(o.CompletionState == "unconfirmed" && o.DraftText == Text, "F4b hello with no recorded local endpoint: the attempt is unconfirmed and the draft is kept", Describe(o));
+        }
+        {
+            var o = await Exercise(Peer(), Loopback, clientFactory: p => PlainClient(p, recordForHello: true));
+            Check(o.Thrown is null && !o.Confirmed && o.Result is { Success: false }, "F4b message with no recorded local endpoint (hello had one): a well-formed stored ACK is still not trusted", Describe(o));
+            Check(o.CompletionState == "unconfirmed" && o.DraftText == Text, "F4b message with no recorded local endpoint: the attempt is unconfirmed and the draft is kept", Describe(o));
         }
 
         // ---- F5: cancellation never records a route and never sends the text (contract §11: cancelled is unconfirmed, nothing is retried). ----
