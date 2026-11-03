@@ -116,15 +116,22 @@ internal static class Limit64kChecks
         string root = Path.Combine(Path.GetTempPath(), "neko-limit64k-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
         try
         {
-            using var store = ChatStore.Open(new(root) { TextValidator = t => V2Text.Check(t, L) == V2TextProblem.None });
-            store.EnsureLocalIdentity(b.PeerId, Convert.FromBase64String(b.PublicSpkiBase64), "fixture");
-            string conversation = ((PeerRegistered)store.RegisterPeer(a.PeerId, PairingState.Paired, Convert.FromBase64String(a.PublicSpkiBase64))).Conversation.ConversationId;
-            string tooLong = new string('a', L - 3) + Cat;
-            store.SaveDraft(conversation, tooLong, 0, 1);
-            Check(store.BeginManualSend(conversation, tooLong, 0, 1) is InvalidSend && store.GetDraftState(conversation)!.RawText == tooLong, "L+1 refused by the store; draft kept byte-for-byte, not truncated");
-            string exact = new string('a', L - 4) + Cat;
-            store.SaveDraft(conversation, exact, 0, 2);
-            Check(store.BeginManualSend(conversation, exact, 0, 2) is AttemptStarted, "exactly L accepted by the store");
+            ChatStoreOptions Options() => new(root) { TextValidator = t => V2Text.Check(t, L) == V2TextProblem.None };
+            string conversation, tooLong = new string('a', L - 3) + Cat;
+            using (var store = ChatStore.Open(Options()))
+            {
+                store.EnsureLocalIdentity(b.PeerId, Convert.FromBase64String(b.PublicSpkiBase64), "fixture");
+                conversation = ((PeerRegistered)store.RegisterPeer(a.PeerId, PairingState.Paired, Convert.FromBase64String(a.PublicSpkiBase64))).Conversation.ConversationId;
+                Check(store.SaveDraft(conversation, tooLong, 0, 1).Saved, "an L+1 draft can be saved (draft limit is separate, CM-12)");
+                Check(store.BeginManualSend(conversation, tooLong, 0, 1) is InvalidSend && store.GetDraftState(conversation)!.RawText == tooLong, "L+1 refused by the store; draft kept byte-for-byte, not truncated");
+            }
+            using (var reopened = ChatStore.Open(Options()))
+            {
+                Check(reopened.GetDraftState(conversation)!.RawText == tooLong, "L+1 draft survives close/reopen byte-for-byte");
+                Check(reopened.BeginManualSend(conversation, tooLong, 0, 1) is InvalidSend && reopened.GetDraftState(conversation)!.RawText == tooLong, "after reopen L+1 is still refused and the draft is still kept");
+                string exact = new string('a', L - 4) + Cat;
+                Check(reopened.SaveDraft(conversation, exact, 0, 2).Saved && reopened.BeginManualSend(conversation, exact, 0, 2) is AttemptStarted, "exactly L accepted by the store");
+            }
         }
         finally { try { Directory.Delete(root, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
 

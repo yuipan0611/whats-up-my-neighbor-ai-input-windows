@@ -5,7 +5,10 @@ public sealed record ChatStoreOptions(string DataDirectory)
     /// <summary>The ONLY source of lock-wait time (connection-string Default Timeout). Do not add PRAGMA busy_timeout.</summary>
     public int CommandTimeoutSeconds { get; init; } = 5;
     public Func<string, bool> TextValidator { get; init; } = Protocol.ValidText;
-    /// <summary>Optional override of the draft size rule. When null, drafts follow TextValidator (same limit as sending; no separate number).</summary>
+    /// <summary>CM-12 (PM engineering default): a draft may hold up to 1 MiB of UTF-8, independent of the send limit (D-06, 65,536 bytes), so an over-limit draft is kept for editing.</summary>
+    public const int DefaultMaxDraftUtf8Bytes = 1_048_576;
+    public int MaxDraftUtf8Bytes { get; init; } = DefaultMaxDraftUtf8Bytes;
+    /// <summary>Optional override of the draft size rule; when null the byte limit above applies.</summary>
     public Func<string, bool>? DraftValidator { get; init; }
     public Func<DateTime> UtcNow { get; init; } = () => DateTime.UtcNow;
     public Func<string> NewId { get; init; } = () => Guid.NewGuid().ToString("D");

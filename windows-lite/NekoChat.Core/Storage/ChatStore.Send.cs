@@ -259,15 +259,14 @@ public sealed partial class ChatStore
         try { _ = new UTF8Encoding(false, true).GetByteCount(text); return true; } catch (EncoderFallbackException) { return false; }
     }
     /// <summary>
-    /// Draft size limit. No number is written here: by default a draft is acceptable when it is empty, or when the configured
-    /// TextValidator (the send limit, D-06) accepts it, or when it is only whitespace that the same validator would accept
-    /// next to one visible character. Inject ChatStoreOptions.DraftValidator to override.
+    /// Draft size limit (CM-12): at most <see cref="ChatStoreOptions.MaxDraftUtf8Bytes"/> UTF-8 bytes (default 1 MiB), counted in bytes so a 4-byte
+    /// character straddling the limit is judged by its real size. It is deliberately NOT the send limit: an over-limit draft stays editable and
+    /// is refused only when sending. Refusal returns "draft-too-large" and never truncates or consumes a revision.
     /// </summary>
     private bool DraftAllowed(string text)
     {
         if (_options.DraftValidator is { } custom) return custom(text);
-        if (text.Length == 0 || _options.TextValidator(text)) return true;
-        return string.IsNullOrWhiteSpace(text) && _options.TextValidator("x" + text);
+        return Encoding.UTF8.GetByteCount(text) <= _options.MaxDraftUtf8Bytes;
     }
 
     private static void ValidateDraftText(string text)
