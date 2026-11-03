@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 using NekoChat.Core;
 
 namespace NekoChat.Windows;
@@ -116,49 +118,158 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
             throw new DirectoryNotFoundException($"路徑根目錄不存在或無法解析：'{fullPath}'。");
         }
 
-        string current = root;
-        string remainder = fullPath[root.Length..];
-        var segments = remainder.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
-
-        bool stillExisting = true;
-        foreach (var seg in segments)
+        // 找尋現存的最深祖先目錄
+        string? existing = fullPath;
+        var missingSegments = new Stack<string>();
+        while (!string.IsNullOrEmpty(existing) && !Directory.Exists(existing) && !File.Exists(existing))
         {
-            if (stillExisting)
+            string seg = Path.GetFileName(existing);
+            if (string.IsNullOrEmpty(seg))
             {
-                string candidate = Path.Combine(current, seg);
-                if (Directory.Exists(candidate) || File.Exists(candidate))
+                break;
+            }
+            missingSegments.Push(seg);
+            existing = Path.GetDirectoryName(existing);
+        }
+
+        string resolvedExisting;
+        if (!string.IsNullOrEmpty(existing) && (Directory.Exists(existing) || File.Exists(existing)))
+        {
+            resolvedExisting = ResolveExistingPathViaOs(existing);
+        }
+        else
+        {
+            resolvedExisting = fullPath;
+        }
+
+        // 接回尚未建立的尾端 segments
+        string combined = resolvedExisting;
+        while (missingSegments.Count > 0)
+        {
+            combined = Path.Combine(combined, missingSegments.Pop());
+        }
+
+        return Path.GetFullPath(combined).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static string ResolveExistingPathViaOs(string path)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return ResolveWindowsFinalPath(path);
+        }
+        else
+        {
+            return ResolvePosixRealPath(path);
+        }
+    }
+
+    private static string ResolvePosixRealPath(string path)
+    {
+        IntPtr ptr = posix_realpath(path, IntPtr.Zero);
+        if (ptr != IntPtr.Zero)
+        {
+            try
+            {
+                string? res = Marshal.PtrToStringUTF8(ptr);
+                if (!string.IsNullOrEmpty(res))
                 {
-                    try
-                    {
-                        FileSystemInfo fsi = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
-                        int depth = 0;
-                        while (depth++ < 32)
-                        {
-                            var target = fsi.ResolveLinkTarget(returnFinalTarget: true);
-                            if (target is null) break;
-                            fsi = target;
-                        }
-                        current = fsi.FullName;
-                    }
-                    catch (Exception ex) when (ex is not InvalidOperationException)
-                    {
-                        throw new InvalidOperationException($"解析路徑 symlink 失敗：{ex.Message}", ex);
-                    }
-                }
-                else
-                {
-                    stillExisting = false;
-                    current = Path.Combine(current, seg);
+                    return res;
                 }
             }
-            else
+            finally
             {
-                current = Path.Combine(current, seg);
+                posix_free(ptr);
             }
         }
 
-        return Path.GetFullPath(current).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return ResolveViaDotNetLinkTarget(path);
     }
+
+    private static string ResolveWindowsFinalPath(string path)
+    {
+        try
+        {
+            const uint FILE_READ_ATTRIBUTES = 0x0080;
+            const uint FILE_SHARE_ALL = 1 | 2 | 4; // READ | WRITE | DELETE
+            const uint OPEN_EXISTING = 3;
+            const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+
+            using var handle = CreateFile(
+                path,
+                FILE_READ_ATTRIBUTES,
+                FILE_SHARE_ALL,
+                IntPtr.Zero,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                IntPtr.Zero);
+
+            if (!handle.IsInvalid)
+            {
+                var sb = new StringBuilder(1024);
+                uint res = GetFinalPathNameByHandle(handle, sb, (uint)sb.Capacity, 0);
+                if (res > 0 && res < sb.Capacity)
+                {
+                    string winPath = sb.ToString();
+                    if (winPath.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return @"\\" + winPath[8..];
+                    }
+                    if (winPath.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return winPath[4..];
+                    }
+                    return winPath;
+                }
+            }
+        }
+        catch { }
+
+        return ResolveViaDotNetLinkTarget(path);
+    }
+
+    private static string ResolveViaDotNetLinkTarget(string path)
+    {
+        try
+        {
+            FileSystemInfo fsi = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+            int depth = 0;
+            while (depth++ < 32)
+            {
+                var target = fsi.ResolveLinkTarget(returnFinalTarget: true);
+                if (target is null) break;
+                fsi = target;
+            }
+            return fsi.FullName;
+        }
+        catch
+        {
+            return path;
+        }
+    }
+
+    [DllImport("libc", EntryPoint = "realpath", SetLastError = true)]
+    private static extern IntPtr posix_realpath(string path, IntPtr resolved_path);
+
+    [DllImport("libc", EntryPoint = "free")]
+    private static extern void posix_free(IntPtr ptr);
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFile(
+        string lpFileName,
+        uint dwDesiredAccess,
+        uint dwShareMode,
+        IntPtr lpSecurityAttributes,
+        uint dwCreationDisposition,
+        uint dwFlagsAndAttributes,
+        IntPtr hTemplateFile);
+
+    [DllImport("kernel32.dll", EntryPoint = "GetFinalPathNameByHandleW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFinalPathNameByHandle(
+        SafeFileHandle hFile,
+        [Out] StringBuilder lpszFilePath,
+        uint cchFilePath,
+        uint dwFlags);
 
     public static void AssertSafeDataDirectory(string dataDirectory)
     {

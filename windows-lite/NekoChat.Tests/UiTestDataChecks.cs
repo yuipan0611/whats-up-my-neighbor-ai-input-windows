@@ -111,6 +111,14 @@ public static class UiTestDataChecks
             Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", viaParent }), "path traversing through parent symlink to official rejected");
             Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(viaParent, "deep", "nested") }), "subfolder traversing through parent symlink to official rejected");
 
+            // Case 4: Chained symlink (symlinkChain1 -> symlinkChain2 -> official)
+            string chain2 = Path.Combine(tempBase, "symlink-chain-2");
+            Directory.CreateSymbolicLink(chain2, official);
+            string chain1 = Path.Combine(tempBase, "symlink-chain-1");
+            Directory.CreateSymbolicLink(chain1, chain2);
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", chain1 }), "chained symlink to official directory rejected");
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(chain1, "nested-sub") }), "subfolder under chained symlink to official directory rejected");
+
             // Permitted safe symlink pointing outside official directory
             string safeTarget = Path.Combine(tempBase, "safe-target");
             Directory.CreateDirectory(safeTarget);
