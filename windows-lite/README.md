@@ -100,3 +100,5 @@ App 提供 `--restore-backup <獨立備份.db> <全新目錄>`，只在新目錄
 - [工程狀態與限制](PAIRING-IMPLEMENTATION.md)
 - [Windows 合成檢查及未執行清單](PAIRING-VERIFICATION.md)
 - [合成排版預覽](preview/pairing-dialog.html)（沒有配對能力，不是 WPF 驗收）
+
+最新本機整合交付與三種交叉包裝：[DELIVERY.md](DELIVERY.md)。Windows 實機未執行，身分模式與 L 尚未選定；不是新版本已發布。

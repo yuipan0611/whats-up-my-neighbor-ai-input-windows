@@ -112,7 +112,7 @@ Mac 的真 TCP／SQLite host checks 含 close、resume、supersede、reject、�
 
 Host／設定／SAS 視窗的來源與 cross-build 已完成，不等於 Windows／人類使用驗收。原生檢查入口與操作單見 [PAIRING-VERIFICATION.md](PAIRING-VERIFICATION.md)。仍須在 Windows 驗證 WPF 焦點／鍵盤／輔助工具、DPAPI／CNG／ACL、DPI／工作區、真睡眠恢復／OS／雙實機與教室。它們目前一律未執行。
 
-正常產品啟用仍須使用者的身分方案與訊息上限決定，不以 fixture 或 preview 代答。最終三包裝／DELIVERY 待所有來源固定後重建；舊包裝不代表這批來源。教材依使用者指示暫緩。原 N002P-v2 的設計審查缺陷記錄保留；新增工程證據不回寫成原提案已通過。
+正常產品啟用仍須使用者的身分方案與訊息上限決定，不以 fixture 或 preview 代答。本機三種交叉包裝及核對結果見 [DELIVERY.md](DELIVERY.md)，實際來源／hash 以同批 manifest 為準；Windows 安裝／執行仍未驗收。教材依使用者指示暫緩。原 N002P-v2 的設計審查缺陷記錄保留；新增工程證據不回寫成原提案已通過。
 
 ## 密碼學範圍
 
