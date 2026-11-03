@@ -142,17 +142,14 @@ internal static class ClassroomSenderIndependentChecks
     }
 
     /// <summary>Every connection goes to the fake peer on loopback (or is refused), whatever IP the sender targets.</summary>
-    private static HttpClient Client(int? peerPort) => new(new SocketsHttpHandler
+    private static HttpClient Client(int? peerPort) => new(ClassroomSender.CreateDefaultHandler(async (_, cancellation) =>
     {
-        UseProxy = false, AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(2),
-        ConnectCallback = async (_, cancellation) =>
-        {
-            if (peerPort is not { } port) throw new SocketException((int)SocketError.ConnectionRefused);
-            var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-            try { await socket.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port), cancellation); return new NetworkStream(socket, ownsSocket: true); }
-            catch { socket.Dispose(); throw; }
-        }
-    }) { Timeout = TimeSpan.FromMilliseconds(1500) };
+        // Only the way the connection is made changed: the product's own handler wraps this callback and records the real LocalEndPoint in the request Options.
+        if (peerPort is not { } port) throw new SocketException((int)SocketError.ConnectionRefused);
+        var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try { await socket.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port), cancellation); return new NetworkStream(socket, ownsSocket: true); }
+        catch { socket.Dispose(); throw; }
+    })) { Timeout = TimeSpan.FromMilliseconds(1500) };
 
     private sealed record Outcome(ClassroomSendResult? Result, string? Thrown, IReadOnlyList<Req> Seen, string? DraftText)
     {

@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using NekoChat.Core.Classroom.Transport;
 using NekoChat.Core.Classroom.Wire;
 using NekoChat.Core.Storage;
 
@@ -130,17 +131,14 @@ internal static class Loopback
     internal static byte[] Ascii(string s) => Encoding.ASCII.GetBytes(s);
 
     /// <summary>Every connection goes to the loopback peer (or is refused), whatever IP the sender targets.</summary>
-    internal static HttpClient Client(int? peerPort, int timeoutMs = 1500) => new(new SocketsHttpHandler
+    internal static HttpClient Client(int? peerPort, int timeoutMs = 1500) => new(ClassroomSender.CreateDefaultHandler(async (_, cancellation) =>
     {
-        UseProxy = false, AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(2),
-        ConnectCallback = async (_, cancellation) =>
-        {
-            if (peerPort is not { } port) throw new SocketException((int)SocketError.ConnectionRefused);
-            var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-            try { await socket.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port), cancellation); return new NetworkStream(socket, ownsSocket: true); }
-            catch { socket.Dispose(); throw; }
-        }
-    }) { Timeout = TimeSpan.FromMilliseconds(timeoutMs) };
+        // Only the way the connection is made changed: the product's own handler wraps this callback and records the real LocalEndPoint in the request Options.
+        if (peerPort is not { } port) throw new SocketException((int)SocketError.ConnectionRefused);
+        var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try { await socket.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port), cancellation); return new NetworkStream(socket, ownsSocket: true); }
+        catch { socket.Dispose(); throw; }
+    })) { Timeout = TimeSpan.FromMilliseconds(timeoutMs) };
 
     /// <summary>The store as the app configures it: 65,536 UTF-8 bytes of text (D-06). The store default would refuse more than 2,000 scalars.</summary>
     internal static ChatStore OpenStore(string dir) => ChatStore.Open(new(Path.Combine(dir, "data"))
