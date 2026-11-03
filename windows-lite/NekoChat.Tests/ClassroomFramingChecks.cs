@@ -12,6 +12,8 @@ internal static class ClassroomFramingChecks
     {
         int checks = 0;
         void Check(bool ok, string label) { checks++; if (!ok) throw new Exception("Classroom framing: " + label); }
+        Check(ClassroomStreamFraming.MaximumMessageBodyBytes == NekoChat.Core.Classroom.Wire.ClassroomWire.MessageBodyMaxBytes,
+            "Framing body bound matches wire contract MessageBodyMaxBytes");
         byte[] Header(int size = 160)
         {
             const string prefix = "POST /nekochat/classroom/v1/message HTTP/1.1\r\nX-Padding: ";

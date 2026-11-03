@@ -17,8 +17,8 @@ internal static class StorageBackupChecks
             if (!int.TryParse(args[2], out int delay) || delay is < 0 or > 10000) throw new ArgumentException("Invalid child startup delay.");
             Thread.Sleep(delay); // A controlled process-start delay, before the product lease operation begins.
         }
-        Console.Error.WriteLine("BACKUP-LEASE-READY"); Console.Error.Flush();
         using var store = ChatStore.Open(new(args[1]) { CommandTimeoutSeconds = 1 });
+        Console.Error.WriteLine("BACKUP-LEASE-READY"); Console.Error.Flush();
         try { _ = store.ListBackups(); Console.WriteLine("NOT-BUSY"); }
         catch (StoreException e) when (e.Kind == StoreErrorKind.StorageBusy) { Console.WriteLine("BUSY"); }
         return true;

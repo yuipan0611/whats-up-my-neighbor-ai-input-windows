@@ -209,5 +209,6 @@ static async Task<int> RunSharedRegressionGuards()
     checks += NekoChat.Tests.V2StorageFenceChecks.Run();
     checks += await NekoChat.Tests.PresenceWireChecks.Run();
     checks += await NekoChat.Tests.ReceiptServiceChecks.RunSharedPrivacy();
+    checks += await NekoChat.Tests.PassiveIdentityChecks.RunRestartDrainChecks();
     return checks;
 }

@@ -245,7 +245,7 @@ internal static class PassiveIdentityChecks
             svc.Refresh(); await Until(() => svc.TargetReads == afterInterval + 1);
             Check(svc.TargetReads == afterInterval + 1, "Refresh() triggers exactly one event-driven read");
         }
-        checks += await RunRestartDrainChecks();
+        // RunRestartDrainChecks is split out into RunSharedRegressionGuards so current suite keeps supervision/restart regressions.
         Console.WriteLine($"Passive activity and duplicate identity: {checks} cryptographic, SQLite, lifecycle and concurrency checks."); return checks;
     }
     internal static async Task<int> RunRestartDrainChecks()
