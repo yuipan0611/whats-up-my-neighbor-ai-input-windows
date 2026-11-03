@@ -1,5 +1,7 @@
 # 本機整合交付 — 2026-11-03
 
+> 完成稽核補正：下列53b983c產物是既有來源快照，未包含後續「進行中取消」修正；其 portable 仍是資料夾包，尚未滿足原定的單檔驗收。本輪正在補正並重新固定來源，不能把這三個舊產物當目前 HEAD。
+
 本批為 Mac 產生的 Windows x64 交叉產物，供 Windows 後續驗收。來源 SHA、每個檔案的大小與 SHA-256 以同批 `delivery-manifest.json` 為準；包裝輸出位於整合 worktree 的 `build/final-delivery-20261103/`。這不是安裝、簽章驗證、發布或 Windows 驗收通過。
 
 ## 三種包裝
@@ -25,4 +27,4 @@
 
 Windows WPF 實際字型／焦點／鍵盤／輔助工具、IME、DPI／多螢幕、DPAPI／CNG／ACL、OS 睡眠／重啟、安裝／更新／防火牆、雙實機／教室皆未執行。操作單：[PAIRING-VERIFICATION.md](PAIRING-VERIFICATION.md)、[IDENTITY-VERIFICATION.md](IDENTITY-VERIFICATION.md)、[BACKUP-RESTORE.md](BACKUP-RESTORE.md)。
 
-這份交付完成目前可在 Mac 執行的工程與包裝工作；完整 N002B／N008 與產品可用驗收仍受未決政策及 Windows 證據限制。沒有 push、PR、合併 main、安裝或發布。
+前次可在 Mac 完成之工作已收尾的結論範圍過寬；後續稽核仍發現當次網路取消與真正單檔包裝缺口。取消來源已補並見 [SEND-CANCELLATION.md](SEND-CANCELLATION.md)，單檔與最終重打仍須完成。完整 N002B／N008 與產品可用驗收另受未決政策及 Windows 證據限制。沒有 push、PR、合併 main、安裝或發布。

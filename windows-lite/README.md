@@ -102,3 +102,5 @@ App 提供 `--restore-backup <獨立備份.db> <全新目錄>`，只在新目錄
 - [合成排版預覽](preview/pairing-dialog.html)（沒有配對能力，不是 WPF 驗收）
 
 最新本機整合交付與三種交叉包裝：[DELIVERY.md](DELIVERY.md)。Windows 實機未執行，身分模式與 L 尚未選定；不是新版本已發布。
+
+續接完成稽核：[當次手動傳送取消](SEND-CANCELLATION.md) 已補 runtime／既有按鈕接線；53b983c包裝不包含這次修正。真正單檔包裝與最終重建仍在進行，以 DELIVERY 的來源界線為準。

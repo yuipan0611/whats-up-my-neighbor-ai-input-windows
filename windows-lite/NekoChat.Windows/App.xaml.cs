@@ -34,6 +34,12 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Length == 2 && e.Args[0] == "--manual-send-cancel-smoke-test")
+        {
+            Environment.Exit(await RunManualSendCancelSmokeAsync(e.Args[1]));
+            return;
+        }
+
         if (e.Args.Length == 2 && e.Args[0] == "--pairing-ui-smoke-test")
         {
             Environment.Exit(await RunPairingUiSmokeAsync(e.Args[1]));

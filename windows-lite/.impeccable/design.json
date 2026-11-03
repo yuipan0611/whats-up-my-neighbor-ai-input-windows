@@ -265,6 +265,23 @@
         "classroom two-machine execution"
       ],
       "ordinaryStartup": "配對未設定、入口停用、不自動建立金鑰；不選 identity 或 L 預設。隔離 smoke 僅為來源準備。"
+    },
+    "manualSendCancellation": {
+      "source": [
+        "NekoChat.Windows/ChatWindow.Actions.cs",
+        "NekoChat.Windows/ChatWindow.Inbox.cs",
+        "NekoChat.Windows/ChatRuntime.cs",
+        "NekoChat.Core/V2/ManualSendOperation.cs"
+      ],
+      "layout": "Existing AttemptBanner and Cancel button unchanged.",
+      "states": [
+        "sending/current-runtime-operation can cancel",
+        "cancel requested while physical work drains",
+        "cancelled attempt cannot repeat cancel",
+        "verified stored fact is retained; no withdrawal promise"
+      ],
+      "nativeDisposition": "fix/unexecuted",
+      "reviewScope": "Previous SAS source/browser review does not prove this new cancellation control on Windows."
     }
   },
   "components": [

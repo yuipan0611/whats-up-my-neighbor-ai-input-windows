@@ -19,6 +19,7 @@ if (args.SequenceEqual(new[] { "--presence-aba-probe" })) { NekoChat.Tests.Prese
 if (args.SequenceEqual(new[] { "--v2-vectors" })) { await NekoChat.Tests.V2VectorChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--v2-boundaries" })) { await NekoChat.Tests.V2BoundaryChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--v2-storage-fences" })) { NekoChat.Tests.V2StorageFenceChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--manual-send-cancel" })) { await NekoChat.Tests.V2TcpChecks.RunCancellation(); return; }
 if (args.SequenceEqual(new[] { "--v2-tcp" })) { await NekoChat.Tests.V2TcpChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--v2-tcp-crashes" })) { await NekoChat.Tests.V2CrashChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--shared-port" })) { await NekoChat.Tests.SharedPortChecks.Run(); return; }
@@ -173,6 +174,7 @@ checks += await NekoChat.Tests.V2VectorChecks.Run();
 checks += await NekoChat.Tests.V2BoundaryChecks.Run();
 checks += NekoChat.Tests.V2StorageFenceChecks.Run();
 checks += await NekoChat.Tests.V2TcpChecks.Run();
+checks += await NekoChat.Tests.V2TcpChecks.RunCancellation();
 checks += await NekoChat.Tests.V2CrashChecks.Run();
 checks += await NekoChat.Tests.SharedPortChecks.Run();
 checks += await NekoChat.Tests.LegacyMessageChecks.Run();

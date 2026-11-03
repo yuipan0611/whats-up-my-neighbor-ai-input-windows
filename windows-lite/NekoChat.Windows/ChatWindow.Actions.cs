@@ -39,10 +39,12 @@ public partial class ChatWindow
                 SetStatus("缺少對方位址，未傳送；草稿仍在本機。"); return;
             }
             SetStatus(started.ReusedId ? "手動重送中，沿用原訊息 id…" : "手動傳送中，等待對方儲存確認…");
-            await RefreshInboxAsync(); var outcome = await runtime.SendAsync(prepared, endpoint, _peerPort, conversation, buffer, sent);
+            await RefreshInboxAsync(); var transmission = runtime.SendAsync(prepared, endpoint, _peerPort, conversation, buffer, sent);
+            UpdateComposer(); var outcome = await transmission;
             if (outcome.Completion is Confirmed { DraftCleared: true } && _selected?.ConversationId == conversation) SetDraftText(buffer.Text);
             SetStatus(outcome.Code == "ok" ? "已驗證對方的儲存確認。" : outcome.Code switch {
                 "unpaired_sender" or "identity_conflict" or "hello_key_mismatch" => "身分或配對不符，請重新核對；未確認送達。",
+                "cancelled" => "已取消當次網路操作；取消不會清除草稿，對方可能已收到。不會自動重送。",
                 "payload_too_large" => "訊息超過對方可接受的上限，請修改後手動傳送。",
                 "storage_unavailable" => "本機無法儲存確認；對方可能已收到，請檢查後手動重送。",
                 _ => "尚未確認送達；不會自動重送。要再送請按重送。" });
@@ -53,9 +55,17 @@ public partial class ChatWindow
     private async void RetryAttemptClick(object sender, RoutedEventArgs e) => await SendCurrentAsync(true);
     private async void CancelAttemptClick(object sender, RoutedEventArgs e)
     {
-        if (_runtime is null || _selected?.Attempt is not { } attempt || _sending) return;
-        try { var result = await _runtime.Worker.Run(s => s.CancelAttempt(attempt.MessageId, attempt.TryCount)); SetStatus(result.Cancelled ? "已取消當次嘗試；草稿保留。若訊息已送到對方，無法撤回。" : "當次嘗試已改變，請重新讀取。"); await RefreshInboxAsync(); }
+        if (_runtime is not { } runtime || _selected?.Attempt is not { } attempt || _closingRequested || !CancelAttemptButton.IsEnabled) return;
+        try
+        {
+            var cancellation = runtime.CancelAttemptAsync(attempt.MessageId, attempt.TryCount); UpdateComposer();
+            SetStatus("已要求取消當次網路操作；等待工作結束，對方可能已收到。");
+            var result = await cancellation;
+            SetStatus(result.Cancelled || result.Reason == "already-cancelled" ? "已記錄取消當次嘗試；若已有有效確認，仍會保留送達事實。請查看對話與草稿。" : result.Reason == "terminal" ? "這次傳送可能已確認或被取代；取消不能撤回，請查看對話狀態。" : "當次嘗試已改變，未取消新的嘗試。請重新讀取。");
+            await RefreshInboxAsync();
+        }
         catch (Exception ex) { ShowStorageError(ex); }
+        finally { UpdateComposer(); }
     }
     private async void ClearConversationClick(object sender, RoutedEventArgs e)
     {

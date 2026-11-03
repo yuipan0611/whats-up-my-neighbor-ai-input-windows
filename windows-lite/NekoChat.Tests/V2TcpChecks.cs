@@ -209,6 +209,95 @@ internal static class V2TcpChecks
         }
         Console.WriteLine($"Product V2 actual TCP: {checks} delivery, signatures, privacy, retry, framing and resource checks."); return checks;
     }
+    internal static async Task<int> RunCancellation()
+    {
+        int checks = 0;
+        void Check(bool ok, string label) { checks++; if (!ok) throw new Exception("Manual send cancellation: " + label); }
+        await using (var f = new Fixture())
+        {
+            var prepared = f.A.Prepare("合成取消範圍"); var operation = new ManualSendOperation(prepared);
+            Check(!await operation.CancelAsync("another-message", prepared.TryCount) && !await operation.CancelAsync(prepared.MessageId, prepared.TryCount + 1) && operation.CanCancel && !operation.Token.IsCancellationRequested, "wrong message/try cannot stop current network operation");
+            using var arrived = new ManualResetEventSlim(); using var release = new ManualResetEventSlim(); int callbacks = 0;
+            using var registration = operation.Token.Register(() => { Interlocked.Increment(ref callbacks); _ = operation.CanCancel; arrived.Set(); if (!release.Wait(TimeSpan.FromSeconds(4))) throw new TimeoutException("Synthetic cancellation callback barrier"); });
+            Task<bool>? requested = null; Task? disposed = null;
+            try
+            {
+                requested = operation.CancelAsync(prepared.MessageId, prepared.TryCount);
+                Check(operation.CancellationRequested && operation.UserCancellationRequested && !operation.CanCancel, "cancel intent is synchronous before callback drain");
+                Check(await Task.Run(() => arrived.Wait(TimeSpan.FromSeconds(2))) && !requested.IsCompleted, "callbacks run outside caller/operation lock");
+                var duplicate = operation.CancelAsync(prepared.MessageId, prepared.TryCount); disposed = operation.DisposeAsync().AsTask();
+                Check(!disposed.IsCompleted && !await operation.CancelAsync(prepared.MessageId, prepared.TryCount), "dispose closes operation before waiting physical callback");
+                release.Set(); Check(await requested && await duplicate, "duplicate cancellation drains same accepted intent"); await disposed;
+                Check(callbacks == 1 && !operation.CanCancel && operation.Token.IsCancellationRequested, "finished operation/cached token cannot be reused");
+            }
+            finally { release.Set(); await operation.DisposeAsync(); }
+        }
+        foreach (string phase in new[] { "hello", "committed", "cancel-store-failure" })
+        {
+            await using var f = new Fixture(); var prepared = f.A.Prepare("合成取消 " + phase); await using var operation = new ManualSendOperation(prepared);
+            var arrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); int hellos = 0, messages = 0;
+            await using var proxy = new ScriptedServer(async (path, body) => {
+                bool hello = path.EndsWith("/hello", StringComparison.Ordinal); if (hello) Interlocked.Increment(ref hellos); else Interlocked.Increment(ref messages);
+                var response = await Post(f.B.Port, path, body);
+                if (hello == (phase != "committed")) { arrived.TrySetResult(); await release.Task; }
+                return response;
+            });
+            var transmission = f.A.Client.SendPreparedAsync(prepared, "127.0.0.1", proxy.Port, () => true, operation.Token);
+            try
+            {
+                await arrived.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                var stopping = operation.CancelAsync(prepared.MessageId, prepared.TryCount);
+                if (phase == "cancel-store-failure") f.A.Faults.Before = op => { if (op == "cancel-attempt") throw new IOException("Synthetic cancellation persistence failure"); };
+                bool storageFailed = false; CancelResult? persisted = null;
+                try { persisted = await Task.Run(() => f.A.Store.CancelAttempt(prepared.MessageId, prepared.TryCount)); } catch (IOException) { storageFailed = true; }
+                f.A.Faults.Before = null; Check(await stopping, "current exact attempt accepts network cancellation " + phase);
+                var outcome = await transmission.WaitAsync(TimeSpan.FromSeconds(2));
+                Check(outcome.Code == "cancelled" && f.A.Rows.Count == 0 && f.A.Store.GetDraftState(f.A.Conversation)!.RawText == prepared.RawText && (phase == "cancel-store-failure" ? storageFailed : persisted?.Cancelled == true), "network stops and draft is retained even if cancel SQL fails " + phase);
+                Check(AttemptState(f.A, prepared.MessageId) == (storageFailed ? "unconfirmed" : "cancelled") && f.B.Rows.Count == (phase == "committed" ? 1 : 0) && f.B.Notices == (phase == "committed" ? 1 : 0), "direct SQL and remote commit truth after cancellation " + phase);
+                int oldHellos = hellos, oldMessages = messages; await Task.Delay(80);
+                Check(hellos == oldHellos && messages == oldMessages, "completed cancelled operation never schedules another request " + phase);
+                var draft = f.A.Store.GetDraftState(f.A.Conversation)!;
+                var retry = (AttemptStarted)f.A.Store.BeginManualRetry(prepared.MessageId, prepared.RawText, f.A.Conversation, draft.Epoch, draft.Revision);
+                var next = f.A.Store.GetPreparedSend(retry.MessageId)!; await using var fresh = new ManualSendOperation(next);
+                Check(retry.MessageId == prepared.MessageId && next.TryCount == prepared.TryCount + 1 && !await operation.CancelAsync(next.MessageId, next.TryCount) && fresh.CanCancel && !f.A.Store.CancelAttempt(prepared.MessageId, prepared.TryCount).Cancelled && AttemptState(f.A, prepared.MessageId) == "sending", "stale cancel cannot stop/mark later retry using same message id " + phase);
+                var sent = await f.A.Client.SendPreparedAsync(next, "127.0.0.1", f.B.Port, () => true, fresh.Token);
+                Check(sent.Code == "ok" && f.A.Rows.Count == 1 && f.B.Rows.Count == 1 && f.B.Notices == 1 && f.A.Store.GetDraftState(f.A.Conversation)!.RawText is null, "only explicit retry confirms same id without duplicate notification " + phase);
+            }
+            finally { f.A.Faults.Before = null; release.TrySetResult(); await transmission.WaitAsync(TimeSpan.FromSeconds(5)); }
+        }
+        foreach (bool edit in new[] { false, true })
+        {
+            await using var f = new Fixture(); var prepared = f.A.Prepare("合成已驗證確認"); await using var operation = new ManualSendOperation(prepared);
+            var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); var wire = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var entered = new ManualResetEventSlim(); using var release = new ManualResetEventSlim();
+            await using var proxy = new ScriptedServer(async (path, body) => { var response = await Post(f.B.Port, path, body); if (path.EndsWith("/message", StringComparison.Ordinal)) { received.TrySetResult(); await wire.Task; } return response; });
+            f.A.Faults.Before = op => { if (op == "complete-attempt") { entered.Set(); if (!release.Wait(TimeSpan.FromSeconds(5))) throw new IOException("Synthetic verified ACK transaction barrier"); } };
+            var transmission = f.A.Client.SendPreparedAsync(prepared, "127.0.0.1", proxy.Port, () => true, operation.Token); Task<CancelResult>? cancelled = null;
+            try
+            {
+                await received.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                if (edit) { var d = f.A.Store.GetDraftState(f.A.Conversation)!; Check(f.A.Store.SaveDraft(f.A.Conversation, "合成後續草稿", d.Epoch, d.Revision + 1).Saved, "newer draft saved before signed ACK"); }
+                wire.TrySetResult(); Check(await Task.Run(() => entered.Wait(TimeSpan.FromSeconds(3))), "actual verified ACK reached final SQL");
+                var stopping = operation.CancelAsync(prepared.MessageId, prepared.TryCount); cancelled = Task.Run(() => f.A.Store.CancelAttempt(prepared.MessageId, prepared.TryCount));
+                Check(operation.UserCancellationRequested && await stopping, "I/O cancellation does not wait for blocked verified-ACK SQL");
+                release.Set(); var outcome = await transmission.WaitAsync(TimeSpan.FromSeconds(3)); var cancelResult = await cancelled;
+                Check(outcome is { Code: "ok", Completion: Confirmed } && !cancelResult.Cancelled && cancelResult.Reason == "terminal" && AttemptState(f.A, prepared.MessageId) == "confirmed", "cancellation cannot erase already verified storage fact");
+                Check(f.A.Rows.Count == 1 && f.B.Rows.Count == 1 && f.A.Store.GetDraftState(f.A.Conversation)!.RawText == (edit ? "合成後續草稿" : null) && ((Confirmed)outcome.Completion!).DraftCleared == !edit, "late verified fact keeps exact newer-draft/clear behavior");
+            }
+            finally { wire.TrySetResult(); release.Set(); f.A.Faults.Before = null; await transmission.WaitAsync(TimeSpan.FromSeconds(5)); if (cancelled is not null) await cancelled; }
+        }
+        await using (var f = new Fixture())
+        {
+            using var lifetime = new CancellationTokenSource(); await using var operation = new ManualSendOperation(f.A.Prepare("合成生命週期"), lifetime.Token);
+            await lifetime.CancelAsync(); Check(operation.Token.IsCancellationRequested && !operation.UserCancellationRequested && !operation.CanCancel, "runtime lifetime independently stops I/O without inventing a user cancel");
+        }
+        Console.WriteLine($"Manual send cancellation: {checks} exact-attempt, callback drain, actual TCP/SQLite cancel/retry and verified-ACK race checks; native button unexecuted."); return checks;
+    }
+    private static string AttemptState(Side side, string messageId)
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = side.Store.DatabasePath, Pooling = false }.ToString()); connection.Open();
+        using var query = connection.CreateCommand(); query.CommandText = "SELECT attemptState FROM ManualSendAttempt WHERE messageId=@id"; query.Parameters.AddWithValue("@id", messageId); return (string)query.ExecuteScalar()!;
+    }
     private static async Task Until(Func<bool> condition)
     { for (int i = 0; i < 150; i++) { if (condition()) return; await Task.Delay(10); } throw new TimeoutException("TCP fixture condition"); }
     private static string Code(V2HttpResponse response) { using var p = JsonDocument.Parse(response.Body); return p.RootElement.TryGetProperty("code", out var c) ? c.GetString()! : ""; }

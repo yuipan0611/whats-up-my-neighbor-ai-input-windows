@@ -23,6 +23,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     private readonly ChatStore _store;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly HashSet<Task> _network = [];
+    private readonly Dictionary<(string Id, int Try), ManualSendOperation> _manualSends = [];
     private readonly V2PacketWriter? _writer;
     private readonly V2LanClient? _client;
     private Task? _disposal;
@@ -101,18 +102,51 @@ internal sealed class ChatRuntime : IAsyncDisposable
             _lifetime.Token.ThrowIfCancellationRequested();
             if (_client is null) throw new InvalidOperationException("身分與訊息上限尚未設定，無法傳送私訊。");
             long generation = Volatile.Read(ref _wireGeneration);
+            var key = (send.MessageId, send.TryCount);
+            if (_manualSends.ContainsKey(key)) throw new InvalidOperationException("This manual attempt is already active.");
+            var operation = new ManualSendOperation(send, _lifetime.Token); _manualSends.Add(key, operation);
             var task = Task.Run(async () => {
-                var outcome = await _client.SendPreparedAsync(send, endpoint, port, () => !_lifetime.IsCancellationRequested && generation == Volatile.Read(ref _wireGeneration), _lifetime.Token).ConfigureAwait(false);
-                // Finish genuine post-send edits before publishing network completion, independent of the WPF dispatcher or exit.
-                if (outcome.Completion is Confirmed { DraftCleared: true } && _store.GetDraftState(conversation) is { } fresh)
+                try
                 {
-                    var update = buffer.ApplyOwnAckClear(sent, fresh);
-                    if (update.PreserveEdit is { } edited) buffer.CompleteWrite(edited, edited.Persist(_store, conversation));
+                    // User cancellation aborts I/O, not the verified-ACK security/lifetime fence.
+                    var outcome = await _client.SendPreparedAsync(send, endpoint, port, () => !_lifetime.IsCancellationRequested && generation == Volatile.Read(ref _wireGeneration), operation.Token).ConfigureAwait(false);
+                    // Finish genuine post-send edits before publishing network completion, independent of the WPF dispatcher or exit.
+                    if (outcome.Completion is Confirmed { DraftCleared: true } && _store.GetDraftState(conversation) is { } fresh)
+                    {
+                        var update = buffer.ApplyOwnAckClear(sent, fresh);
+                        if (update.PreserveEdit is { } edited) buffer.CompleteWrite(edited, edited.Persist(_store, conversation));
+                    }
+                    return outcome;
                 }
-                return outcome;
+                finally
+                {
+                    try { await operation.DisposeAsync().ConfigureAwait(false); }
+                    finally { lock (_gate) _manualSends.Remove(key); }
+                }
             });
             _network.Add(task); return Finish(task);
         }
+    }
+    internal bool CanCancelAttempt(string messageId, int tryCount)
+    { lock (_gate) return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.CanCancel; }
+    internal bool IsAttemptCancellationRequested(string messageId, int tryCount)
+    { lock (_gate) return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.UserCancellationRequested; }
+    internal Task<CancelResult> CancelAttemptAsync(string messageId, int tryCount)
+    {
+        Task<bool>? cancel;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            cancel = _manualSends.TryGetValue((messageId, tryCount), out var operation) ? operation.CancelAsync(messageId, tryCount) : null;
+        }
+        // Do not wait for transport callbacks before persisting the exact user intent off the dispatcher.
+        var stored = Worker.Run(s => s.CancelAttempt(messageId, tryCount), CancellationToken.None);
+        return FinishCancellation(cancel, stored);
+    }
+    private static async Task<CancelResult> FinishCancellation(Task<bool>? cancellation, Task<CancelResult> stored)
+    {
+        if (cancellation is not null) await Task.WhenAll(cancellation, stored).ConfigureAwait(false);
+        return await stored.ConfigureAwait(false);
     }
     private async Task<T> Finish<T>(Task<T> task)
     { try { return await task.ConfigureAwait(false); } finally { lock (_gate) _network.Remove(task); } }
