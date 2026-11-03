@@ -144,7 +144,73 @@ internal static class PairingCrossChecks
             current = 0; release.Set();
             Check(!await opening && f.Big.Coordinator.View.Stage != PairingStage.Listening && f.Big.Number("SELECT count(*) FROM Peer") == 0, "scope loss during real SQL read completion cannot publish a newly ready responder");
         }
+        await using (var f = new Pair(timers: false))
+        {
+            f.Small.Endpoint.Release.TrySetResult(); f.Big.Endpoint.Release.TrySetResult();
+            await f.Small.Coordinator.OpenWindowAsync(f.Big.Identity.PeerId, () => true);
+            await f.Big.Coordinator.BeginAsync("127.0.0.1", f.Small.Port, f.Small.Identity.PeerId, () => true);
+            string old = f.Big.Coordinator.View.SessionId!; using var entered = new ManualResetEventSlim(); using var release = new ManualResetEventSlim();
+            f.Big.Faults.Read = op => { if (op == "GetLocalIdentitySnapshot") { entered.Set(); if (!release.Wait(TimeSpan.FromSeconds(5))) throw new Exception("New-intent display readiness barrier timeout"); } };
+            var beginning = f.Big.Coordinator.BeginAsync("127.0.0.1", f.Small.Port, f.Small.Identity.PeerId, () => true);
+            if (!await Task.Run(() => entered.Wait(TimeSpan.FromSeconds(4)))) throw new Exception("New-intent display real metadata read barrier missing");
+            var displayed = f.Big.Coordinator.View; release.Set(); await beginning;
+            Check(displayed is { Sas: null, SessionId: null, Consent: null } && displayed.Stage != PairingStage.Paired, "new intent awaiting actual SQL readiness cannot display the prior actor SAS/session/paired state: " + old);
+        }
+        await using (var f = new Pair(timers: false))
+        {
+            f.Small.Endpoint.Release.TrySetResult(); f.Big.Endpoint.Release.TrySetResult();
+            await f.Small.Coordinator.OpenWindowAsync(f.Big.Identity.PeerId, () => true);
+            await f.Big.Coordinator.BeginAsync("127.0.0.1", f.Small.Port, f.Small.Identity.PeerId, () => true);
+            string old = f.Big.Coordinator.View.SessionId!;
+            using (var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = f.Big.Store.DatabasePath, Pooling = false }.ToString()))
+            { c.Open(); using var q = c.CreateCommand(); q.CommandText = "UPDATE LocalIdentity SET credentialRef='changed-synthetic-reference'"; q.ExecuteNonQuery(); }
+            var next = await f.Big.Coordinator.BeginAsync("127.0.0.1", f.Small.Port, f.Small.Identity.PeerId, () => true);
+            Check(next.Code != "awaiting_user" && f.Big.Coordinator.View is { Sas: null, SessionId: null, Consent: null } && f.Big.Coordinator.View.Stage != PairingStage.Paired,
+                "failed fresh intent after durable identity change cannot redisplay the old SAS/session/result: " + old);
+        }
         Console.WriteLine($"Conditional P1 cross-initiation: {checks} actual TCP/P256/two-store role ordering, intent deadline, cancellation, stale ticket and physical-drain checks; no human/WPF claim."); return checks;
+    }
+    internal static async Task<int> RunMitm()
+    {
+        int checks = 0; bool sawMismatch = false;
+        void Check(bool value, string label) { checks++; if (!value) throw new Exception("P1 actual MITM: " + label); }
+        // Real CSPRNG can legitimately collide in a six-digit SAS. At most3 independent fixture scenarios; this is not a collision-rate/security proof.
+        for (int scenario = 0; scenario < 3 && !sawMismatch; scenario++)
+        {
+            await using var a = new Node(ECDsa.Create(ECCurve.NamedCurves.nistP256), TimeProvider.System, false);
+            await using var b = new Node(ECDsa.Create(ECCurve.NamedCurves.nistP256), TimeProvider.System, false);
+            await using var mr = new Node(ECDsa.Create(ECCurve.NamedCurves.nistP256), TimeProvider.System, false);
+            await using var mi = new Node(ECDsa.Create(ECCurve.NamedCurves.nistP256), TimeProvider.System, false);
+            foreach (var n in new[] { a, b, mr, mi }) n.Endpoint.Release.TrySetResult();
+            await mr.Coordinator.OpenWindowAsync(a.Identity.PeerId, () => true); await b.Coordinator.OpenWindowAsync(null, () => true);
+            Check((await a.Coordinator.BeginAsync("127.0.0.1", mr.Port, null, () => true)).Code == "awaiting_user" &&
+                (await mi.Coordinator.BeginAsync("127.0.0.1", b.Port, b.Identity.PeerId, () => true)).Code == "awaiting_user", "malicious two-identity relay legitimately completes both real commitment/reveal handshakes");
+            Check(a.Coordinator.View.PeerId == mr.Identity.PeerId && b.Coordinator.View.PeerId == mi.Identity.PeerId && a.Coordinator.View.Sas == mr.Coordinator.View.Sas && b.Coordinator.View.Sas == mi.Coordinator.View.Sas,
+                "real substituted public keys are bound to each separate transcript, not to the users' intended A/B identity");
+            Check(a.State(mr) == PairingState.Pending && b.State(mi) == PairingState.Pending && a.State(b) is null && b.State(a) is null, "unknown expected identity never bypasses human consent or creates intended-peer trust");
+            if (a.Coordinator.View.Sas == b.Coordinator.View.Sas)
+            { await a.Coordinator.CancelAsync(); await b.Coordinator.CancelAsync(); await mr.Coordinator.CancelAsync(); await mi.Coordinator.CancelAsync(); continue; }
+            sawMismatch = true;
+            Check((await mr.Coordinator.ConfirmAsync(mr.Coordinator.View.Consent!)).Code == "local_confirmed", "attacker may confirm its own R leg without obtaining user's I action");
+            var forgedLocalAction = mi.Coordinator.ConfirmAsync(mi.Coordinator.View.Consent!);
+            try
+            {
+                await Until(() => b.Coordinator.View.RemoteConfirmed && Volatile.Read(ref b.Endpoint.LastIConfirmation) is not null);
+                Check(a.State(mr) == PairingState.Pending && b.State(mi) == PairingState.Pending && !a.Coordinator.View.LocalConfirmed && !b.Coordinator.View.LocalConfirmed, "valid remote proofs/attacker local actions do not replace A/B human comparison");
+                byte[] other = Volatile.Read(ref b.Endpoint.LastIConfirmation)!; PairingWire.TryParse(other, out var packet);
+                Check((await Post(mr.Port, other)).StatusCode == 409, "actual other-leg confirmation cannot splice the session id");
+                Check((await Post(mr.Port, PairingWire.ConfirmationSignature(a.Coordinator.View.SessionId!, packet!.SignatureBase64!))).StatusCode == 403 && mr.State(a) == PairingState.Pending,
+                    "rebinding the other-leg signature to current sid still fails real role/key/transcript verification");
+                Check(await a.Coordinator.RejectAsync(a.Coordinator.View.Consent!) && await b.Coordinator.RejectAsync(b.Coordinator.View.Consent!), "both intended users explicitly reject their different displayed SAS values");
+                await mi.Coordinator.CancelAsync(); await forgedLocalAction.WaitAsync(TimeSpan.FromSeconds(5));
+                Check(a.State(mr) == PairingState.Unpaired && b.State(mi) == PairingState.Unpaired && mr.State(a) == PairingState.Unpaired && mi.State(b) == PairingState.Unpaired && a.State(b) is null && b.State(a) is null,
+                    "different-SAS rejection leaves no paired identity on either real network leg");
+                Check(new[] { a, b, mr, mi }.All(n => n.Number("SELECT count(*) FROM Message") == 0 && n.Number("SELECT count(*) FROM ManualSendAttempt") == 0), "malicious pairing control creates no private message or send attempt");
+            }
+            finally { await mi.Coordinator.CancelAsync(); await forgedLocalAction.WaitAsync(TimeSpan.FromSeconds(5)); }
+        }
+        Check(sawMismatch, "bounded real-CSPRNG fixture produced at least one unequal-SAS MITM case, not a claimed exhaustive security proof");
+        Console.WriteLine($"Conditional P1 actual MITM: {checks} real four-node/two-leg TCP/P256/SQLite key-substitution, signature-splice and explicit mismatch-rejection checks; no human/collision-rate proof."); return checks;
     }
     private static async Task Until(Func<bool> predicate) { using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4)); while (!predicate()) await Task.Delay(10, timeout.Token); }
     private static async Task<V2HttpResponse> Post(int port, byte[] body)
@@ -201,12 +267,14 @@ internal static class PairingCrossChecks
         internal TaskCompletionSource Arrived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal string? FirstSession;
+        internal byte[]? LastIConfirmation;
         internal TaskCompletionSource ConfirmationUnavailable { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _first;
         public async Task<V2HttpResponse> HandleAsync(ReadOnlyMemory<byte> body, string source, CancellationToken cancellation = default)
         {
             if (PairingWire.TryParse(body.Span, out var packet) && packet!.Kind == PairingKind.Request && Interlocked.CompareExchange(ref _first, 1, 0) == 0)
             { FirstSession = packet.SessionId; Arrived.TrySetResult(); await Release.Task; }
+            if (packet?.Kind == PairingKind.Confirmation) Volatile.Write(ref LastIConfirmation, body.ToArray());
             var response = await inner.HandleAsync(body, source, cancellation);
             if (response.StatusCode == 403 && packet?.Kind == PairingKind.Confirmation) ConfirmationUnavailable.TrySetResult();
             return response;

@@ -56,13 +56,33 @@ route generation、caller cancellation、120秒lifetime及外部fast scope predi
 
 較大者先收到較小者403、稍後交叉request才到時，也可沿用原明確意圖接收；在原期限內顯示awaiting_cross_request，不自動重送request。這不保證先前request已在對方尚未有任何本機意圖時被拒絕的兩次循序操作自動收斂，該情況仍需明確新動作。confirm階段的generic pair_unavailable可能只是R local-action／physical slot暫忙，現在與pending等同樣每5秒重送已核准的同一confirm，直到有效簽章、409、期限或取消；Begin的403依舊不自動重開session。
 
-66項checks含真TCP／P256／兩份SQLite。合成私鑰只在RAM產生，特選PeerId '_'與小寫字首，構成Ordinal與case-folding順序相反的實際例子；以兩個受控real-HTTP request arrival gates驗reject-first／yield-first／同時放行／unknown expected的角色收斂、單一存活SAS、舊sid cancel、雙方ticket、配對後真signed message/storage ACK。另驗舊cancel回覆卡住仍能新R握手、cancel擁有並排空notification、119秒轉R只剩1秒／exact120拒確認、cancel/scope/dispose後不復活、無關key／logical-source注入不觸發轉換、舊SAS不能確認或拒絕新session，以及current mismatch rejection。
+原66項checks加上準備中／失敗後的新意圖顯示守衛，共68項真TCP／P256／兩份SQLite檢查。合成私鑰只在RAM產生，特選PeerId '_'與小寫字首，構成Ordinal與case-folding順序相反的實際例子；以兩個受控real-HTTP request arrival gates驗reject-first／yield-first／同時放行／unknown expected的角色收斂、單一存活SAS、舊sid cancel、雙方ticket、配對後真signed message/storage ACK。另驗舊cancel回覆卡住仍能新R握手、cancel擁有並排空notification、119秒轉R只剩1秒／exact120拒確認、cancel/scope/dispose後不復活、無關key／logical-source注入不觸發轉換、舊SAS不能確認或拒絕新session，以及current mismatch rejection。
 
 真並行確認測試以AfterRead hook在**真正GetPeerSecuritySnapshot完成後**暫停R local action，確保network confirm實際得到403；釋放後原confirm五秒retry完成，R PeerRevision恰加1。這抓到先前client把暫忙403當作terminal remote_ended的真問題，沒有降低assert或改成手動fixture重試。另有R final BeforeCommit翻scope／revocation、scope在ready read完成時失效。四個negative controls分別反轉角色比較、移除R final scope、移除403 retry、移除R ready scope，各在精確對應assert失敗；finally還原production原文再完整回歸。詳見 `build/wire-evidence/pairing-cross-delivery.json`。
 
+## 崩潰／重啟及不確定結果（已驗證）
+
+`PairingCrashChecks` 使用真正子程序、TCP、P256及SQLite，不以RegisterPeer直接設paired。I與R各在 `security-change` 的BeforeCommit／AfterCommit精確停點被強制終止，共4次kill及4次正常重啟。父程序在產品重新開啟資料庫**之前**以read-only SQLite讀取：before仍pending，after已paired，integrity_check正常，獨立草稿保留，沒有pairing製造的Message／ManualSendAttempt。after不代表兩台資料庫原子完成：R可能已paired而I未確認；I在其CAS前被kill時，R也可能早已paired。
+
+重啟沿用同一測試身分／public metadata／revision，只保留已提交的local trust；coordinator仍closed／RoleNone、沒有SID／SAS／consent，舊confirm重播409、新request在未明確開窗時403，不能自動恢復人類核對。before的實際SEND因peer-not-paired被拒；Rafter但另一邊unpaired的實際signed SEND也被拒且保留draft。原Iafter、兩端都已提交時可正常signed storage ACK。需要修復的case必須明確重新開窗／新Begin／新SID與SAS／兩次新確認，之後實際訊息收發、ACK與清草稿才成功。正常App未因本測試啟用P1或provision。
+
+最終92個checks也驗證restart不會繞過仍活著的R來源2秒新request間隔：先在父端注入clock的原時間實際收403，再明確新動作、advance該monotonic clock2秒後才成功；沒有清掉或放寬production limiter，也沒有自動重開session。其他socket deadline仍真實wall-clock。最初fixture在正常wall-clock下太快嘗試repair而被原anti-grinding規則正確拒絕，已修fixture並追加上述真TCP反例，原失敗log保留。
+
+合成私鑰只在RAM產生，子程序透過匿名stdin收取，不放argv／env／檔案／stdout；DER暫存array清零。stdout只有bounded public狀態、代碼及boundary，stderr應為空；檔案掃描確認兩邊fixture都沒有raw PKCS8或其base64。測試只能證明這個隔離fixture的檔案與輸出，沒有冒稱Windows DPAPI／CNG／實際使用者profile／整機記憶體驗證。
+
+兩類新的**產品問題**有三個原碼失敗反例，修正後納入回歸：(1) I確認後結果未明，原coordinator關閉會抹掉MayBeAsymmetric；現在terminal保留不確定結果，轉角色亦保留已發confirm的不確定性，不能把本機close說成遠端已取消。(2) 同actor的新意圖還在真identity-read completion等待時，原View可露出舊SID／SAS／paired狀態；現在每個intent有自己的DisplayReady，準備期間不公開舊session／ticket，過期／scope失效會顯示ended。新意圖因durable identity版本變更而啟動失敗時，terminal亦不複製先前actor的SID／SAS／結果，只回本輪失敗代碼與captured expected hint。readiness發佈與角色切換共用短lifecycle邊界，沒有把SQL放進該鎖。第二項測試在真SQL讀完、回傳前阻塞，不使用WAL writer可擋reader的錯誤假設。
+
+## 實際換鑰中間人案例（已驗證）
+
+11項check使用A、B及惡意程式控制的兩個合成身分M-R／M-I，共四個真TCP／P256／SQLite節點；M向A用自己的R key，向B用另一個I key。兩條各自合法的commit／reveal都成功，A與B（未知expected身份的首次配對）各顯示對應M key的SAS，沒有自動把公鑰當成已配對。即使M在兩腿按自己的確認並送有效I簽章，A／B仍需自己比較。把另一腿的confirm直接搬過來因SID不符409，改成當前SID仍因key／transcript不符403。
+
+當A與B看到不同SAS並明確reject，兩腿都回unpaired，A/B彼此亦未建立Peer，沒有Message或send attempt。使用的是可信local rejection API，**不是人類實際比較／Windows畫面驗收**。六位SAS可能碰撞；fixture最多3個獨立場景以取得一個不同SAS實例，沒有把該案例當成碰撞率估計、窮舉安全證明或保證所有換鑰都被密碼學自動拒絕。公式固定向量及風險範圍仍見前述章節。
+
+本批原始baseline failures、process exit／命令／source及log hash見 `build/wire-evidence/pairing-crash-mitm-delivery.json`。首次proxy fixture沒有把被kill的socket EOF轉成沒有ACK，dispose時掩蓋了原本assert；已修為真斷線且無response，不是假200，該log保留但不當作產品因果證據。真正三個產品baseline分別精確在close uncertainty／preparing-intent display／failed-intent display assert失敗，修正後通過。
+
 ## 後續完成條件
 
-仍須完成host／設定與實際窗口接線、resume／rebind等事件的意圖撤銷，以及COMMIT前後真process-kill／重啟與更完整的雙向並發網路情境。若host把session綁到一筆名單，還須把captured roster revision納入最後交易的scope守衛與綁定，不能只依靠UI事件或把Row重新讀成最新值；目前actors只承諾local／peer revision原子守衛與明確傳入的volatile scope predicate。
+仍須完成host／設定與實際窗口接線、resume／rebind等事件的意圖撤銷。配對COMMIT前後真process-kill／重啟、雙向並行確認與不同SAS的換鑰MITM實例已有產品證據，但不能代替最終host／UI整合。若host把session綁到一筆名單，還須把captured roster revision納入最後交易的scope守衛與綁定，不能只依靠UI事件或把Row重新讀成最新值；目前actors只承諾local／peer revision原子守衛與明確傳入的volatile scope predicate。
 
 只有剩餘條件全部有證據，才能稱為條件式P1完成；正常產品啟用仍須使用者的身分方案與訊息上限決定。最終三包裝／DELIVERY待所有來源固定後重建；目前舊包裝不代表這批來源。Windows CNG／DPAPI／WPF／可用性與雙實機教室另列未執行。教材依使用者指示暫緩。
 

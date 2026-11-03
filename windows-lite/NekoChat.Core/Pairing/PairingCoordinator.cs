@@ -27,11 +27,13 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
         {
             var intent = Volatile.Read(ref _intent);
             if (intent is null) return Volatile.Read(ref _terminal);
+            if (!intent.DisplayReady) return Current(intent) ? new(PairingStage.Closed, "preparing", MayBeAsymmetric: intent.PriorUncertainty) : new(PairingStage.Ended, "scope_ended", MayBeAsymmetric: intent.PriorUncertainty);
             var view = intent.Role switch {
                 PairingSessionRole.Initiator => _initiator.View,
                 PairingSessionRole.Responder => _responder.View,
                 _ => new PairingView(PairingStage.Ended, "superseded")
             };
+            if (intent.PriorUncertainty) view = view with { MayBeAsymmetric = true };
             if (view.Stage == PairingStage.Paired) return view;
             if (!Current(intent)) return new(PairingStage.Ended, "scope_ended", MayBeAsymmetric: view.MayBeAsymmetric);
             TimeSpan left = PairingTiming.Window - _clock.GetElapsedTime(intent.Start);
@@ -65,14 +67,19 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
             if (!Current(intent, PairingSessionRole.Initiator)) return new("role_changed");
             intent.OutgoingReady = true;
             var result = await _client.BeginAsync(ip, port, expectedPeerId, () => Current(intent, PairingSessionRole.Initiator), cancellation).ConfigureAwait(false);
-            if (!Current(intent, PairingSessionRole.Initiator)) return new("role_changed");
-            if (result.Code == "awaiting_user") intent.RevealedPeer = _initiator.View.PeerId;
-            // A crossed request may arrive just after the smaller peer's403. Retain only that explicit bounded intent, no automatic outgoing retry.
-            if (result.Code is not ("awaiting_user" or "remote_ended"))
+            lock (_lifecycle)
             {
-                lock (_lifecycle) if (ReferenceEquals(_intent, intent)) { intent.Ended = true; Volatile.Write(ref _terminal, _initiator.View); Volatile.Write(ref _intent, null); }
+                if (!Current(intent, PairingSessionRole.Initiator)) return new("role_changed");
+                // Only this intent's successful readiness may expose the actor view. Failed Begin never briefly publishes an old actor result.
+                if (result.Code is "awaiting_user" or "remote_ended")
+                {
+                    if (result.Code == "awaiting_user") intent.RevealedPeer = _initiator.View.PeerId;
+                    intent.DisplayReady = true;
+                }
+                // A crossed request may arrive just after the smaller peer's403. Retain only that explicit bounded intent, no automatic outgoing retry.
+                else { intent.Ended = true; Volatile.Write(ref _terminal, new(PairingStage.Ended, result.Code, PeerId: intent.ExpectedPeer)); Volatile.Write(ref _intent, null); }
+                return result;
             }
-            return result;
         }
         finally { _actions.Release(); }
     }
@@ -92,7 +99,8 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
             }
             await preparation.ConfigureAwait(false);
             if (!Current(intent, PairingSessionRole.Responder)) return false;
-            return await _responder.OpenWindowAsync(expectedPeerId, intent.Start, () => Current(intent, PairingSessionRole.Responder)).ConfigureAwait(false);
+            bool opened = await _responder.OpenWindowAsync(expectedPeerId, intent.Start, () => Current(intent, PairingSessionRole.Responder)).ConfigureAwait(false);
+            lock (_lifecycle) { intent.DisplayReady = opened && Current(intent, PairingSessionRole.Responder); return intent.DisplayReady; }
         }
         finally { _actions.Release(); }
     }
@@ -125,8 +133,9 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
     public Task InvalidateAsync() { lock (_lifecycle) return _stopped == 0 ? CloseLocked("scope_changed") : _disposal ?? _closing; }
     private Task CloseLocked(string reason)
     {
+        bool uncertain = View.MayBeAsymmetric;
         if (_intent is { } old) old.Ended = true;
-        Volatile.Write(ref _intent, null); Interlocked.Increment(ref _generation); Volatile.Write(ref _terminal, new(PairingStage.Closed, reason));
+        Volatile.Write(ref _intent, null); Interlocked.Increment(ref _generation); Volatile.Write(ref _terminal, new(PairingStage.Closed, reason, MayBeAsymmetric: uncertain));
         if (!_closing.IsCompleted) return _closing;
         // Both calls invalidate actor intent synchronously before returning their drain task. Their callbacks never acquire this coordinator lock.
         return _closing = Task.WhenAll(_client.CancelAsync(), _responder.CloseWindowAsync());
@@ -149,6 +158,7 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
                         (knownPeer is null || knownPeer == peer))
                     {
                         if (string.CompareOrdinal(_identity.PeerId, peer) < 0) return PairingResponses.Error("pair_unavailable");
+                        intent.PriorUncertainty = _initiator.View.MayBeAsymmetric; intent.DisplayReady = false;
                         intent.Role = PairingSessionRole.Switching; yielded = intent;
                         stop = _client.YieldAsync();
                     }
@@ -162,6 +172,11 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
                         yielded.Role = PairingSessionRole.Responder;
                     }
                     if (!await _responder.OpenWindowAsync(peer, yielded.Start, () => Current(yielded, PairingSessionRole.Responder)).ConfigureAwait(false)) return PairingResponses.Error("pair_cancelled");
+                    lock (_lifecycle)
+                    {
+                        yielded.DisplayReady = Current(yielded, PairingSessionRole.Responder);
+                        if (!yielded.DisplayReady) return PairingResponses.Error("pair_cancelled");
+                    }
                 }
             }
             return await _responder.HandleAsync(body, source, cancellation).ConfigureAwait(false);
@@ -196,7 +211,9 @@ public sealed class PairingCoordinator : IPairingEndpoint, IAsyncDisposable
         internal readonly string? Ip = ip, ExpectedPeer = expectedPeer;
         internal readonly Func<bool> ScopeCurrent = scopeCurrent;
         internal readonly CancellationToken Cancellation = cancellation;
-        private int _role = (int)role, _ended, _outgoingReady;
+        private int _role = (int)role, _ended, _outgoingReady, _displayReady, _priorUncertainty;
+        internal bool DisplayReady { get => Volatile.Read(ref _displayReady) != 0; set => Volatile.Write(ref _displayReady, value ? 1 : 0); }
+        internal bool PriorUncertainty { get => Volatile.Read(ref _priorUncertainty) != 0; set => Volatile.Write(ref _priorUncertainty, value ? 1 : 0); }
         private string? _revealedPeer;
         internal bool OutgoingReady { get => Volatile.Read(ref _outgoingReady) != 0; set => Volatile.Write(ref _outgoingReady, value ? 1 : 0); }
         internal string? RevealedPeer { get => Volatile.Read(ref _revealedPeer); set => Volatile.Write(ref _revealedPeer, value); }
