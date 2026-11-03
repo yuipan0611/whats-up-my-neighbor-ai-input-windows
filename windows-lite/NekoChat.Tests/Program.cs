@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using NekoChat.Core;
 
+if (NekoChat.Tests.ClassroomKillChecks.RunChild(args)) return;
 if (NekoChat.Tests.IdentityRecoveryChecks.RunChild(args)) return;
 if (NekoChat.Tests.BackupRestoreChecks.RunChild(args)) return;
 if (await NekoChat.Tests.PairingCrashChecks.RunChild(args)) return;
@@ -83,6 +84,7 @@ if (args.SequenceEqual(new[] { "--classroom-store" })) { NekoChat.Tests.Classroo
 if (args.SequenceEqual(new[] { "--ui-test-data" })) { NekoChat.Tests.UiTestDataChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-send" })) { await NekoChat.Tests.ClassroomSendChecks.RunAsync(); return; }
 if (args.SequenceEqual(new[] { "--classroom-receipt" })) { await NekoChat.Tests.ClassroomReceiptChecks.RunAsync(); return; }
+if (args.SequenceEqual(new[] { "--classroom-kill" })) { try { await NekoChat.Tests.ClassroomKillChecks.RunAsync(); } catch (InvalidOperationException e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); } return; }
 if (args.SequenceEqual(new[] { "--classroom-sender-independent" })) { try { await NekoChat.Tests.ClassroomSenderIndependentChecks.RunAsync(); } catch (InvalidOperationException e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); } return; }
 if (args.SequenceEqual(new[] { "--classroom-sender-outcome-independent" })) { try { await NekoChat.Tests.ClassroomSenderOutcomeIndependentChecks.RunAsync(); } catch (InvalidOperationException e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); } return; }
 if (args.SequenceEqual(new[] { "--classroom-adapter-independent" })) { try { await NekoChat.Tests.ClassroomAdapterIndependentChecks.RunAsync(); } catch (InvalidOperationException e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); } return; }
