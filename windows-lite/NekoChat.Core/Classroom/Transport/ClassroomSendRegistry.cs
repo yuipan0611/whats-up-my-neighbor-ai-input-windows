@@ -47,43 +47,6 @@ public sealed class ClassroomSendRegistry
         }
     }
 
-    public void CheckNotRunning(string messageId, int tryCount)
-    {
-        lock (_gate)
-        {
-            if (_sends.ContainsKey((messageId, tryCount)))
-            {
-                throw new ClassroomSendAlreadyRunningException(messageId, tryCount);
-            }
-        }
-    }
-
-    public void Register(string messageId, int tryCount, CancellationTokenSource cts, Task<ClassroomSendResult> task)
-    {
-        ArgumentNullException.ThrowIfNull(messageId);
-        ArgumentNullException.ThrowIfNull(cts);
-        ArgumentNullException.ThrowIfNull(task);
-
-        lock (_gate)
-        {
-            var key = (messageId, tryCount);
-            if (_sends.ContainsKey(key))
-            {
-                throw new ClassroomSendAlreadyRunningException(messageId, tryCount);
-            }
-
-            _sends.Add(key, (cts, task));
-        }
-    }
-
-    public bool TryRemove(string messageId, int tryCount)
-    {
-        lock (_gate)
-        {
-            return _sends.Remove((messageId, tryCount));
-        }
-    }
-
     public bool TryBeginCancel(string messageId, int tryCount, out CancellationTokenSource? cts, out Task<ClassroomSendResult>? sendTask)
     {
         lock (_gate)
@@ -101,8 +64,8 @@ public sealed class ClassroomSendRegistry
     }
 
     /// <summary>
-    /// PM 定修法 B：原子登記佔位 -> 啟動 work -> 完成時先移除登記再 Dispose CTS，最後回報結果給 TCS。
-    /// 徹底解決 Task.Run 瞬間結束時 finally 早於 Register 執行的競態缺陷。
+    /// PM 定修法 B：原子登記佔位 -> 啟動 work -> 完成時先移除登記與 Dispose CTS，最後回報結果給 TCS。
+    /// 徹底解決完成時通知 awaiter 與 finally 清理之間的競態缺陷（Ben 1 & Tom REG 壓力測試）。
     /// </summary>
     public Task<ClassroomSendResult> Start(
         string messageId,
@@ -131,18 +94,21 @@ public sealed class ClassroomSendRegistry
         // 在 lock 外啟動 work
         _ = Task.Run(async () =>
         {
+            ClassroomSendResult? sendResult = null;
+            Exception? caughtException = null;
+            OperationCanceledException? caughtCanceled = null;
+
             try
             {
-                var result = await work(cts.Token).ConfigureAwait(false);
-                tcs.TrySetResult(result);
+                sendResult = await work(cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException oce)
             {
-                tcs.TrySetCanceled(oce.CancellationToken);
+                caughtCanceled = oce;
             }
             catch (Exception ex)
             {
-                tcs.TrySetException(ex);
+                caughtException = ex;
             }
             finally
             {
@@ -151,6 +117,19 @@ public sealed class ClassroomSendRegistry
                     _sends.Remove(key);
                 }
                 cts.Dispose();
+            }
+
+            if (caughtCanceled != null)
+            {
+                tcs.TrySetCanceled(caughtCanceled.CancellationToken);
+            }
+            else if (caughtException != null)
+            {
+                tcs.TrySetException(caughtException);
+            }
+            else
+            {
+                tcs.TrySetResult(sendResult!);
             }
         }, CancellationToken.None);
 

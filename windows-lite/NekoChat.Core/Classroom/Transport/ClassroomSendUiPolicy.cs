@@ -138,7 +138,7 @@ public static class ClassroomSendUiPolicy
             return new ClassroomSendDecision(
                 AttemptActionKind.None,
                 null,
-                "對方無法儲存確認；對方可能已收到，請檢查後手動重送。",
+                "對方無法儲存確認，尚未確認送達；對方可能已收到，請檢查後手動重送。",
                 false);
         }
 
