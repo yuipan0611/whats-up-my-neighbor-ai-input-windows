@@ -36,6 +36,10 @@ internal static class ClassroomInboxChecks
             store.SaveClassroomDraft(pw, "will be unconfirmed", 0, 1);
             var begin = (AttemptStarted)store.BeginClassroomSend(pw, "will be unconfirmed", 0, 1);
             Check(store.RecordClassroomRoute(begin.MessageId, 1, ClassroomRoute.Legacy, Clock).Recorded, "fixture: route recorded");
+            var pq = ClassroomPrincipalKey.ForSourceIp("10.0.0.20");   // attempt only: the draft is emptied after the send began
+            store.SaveClassroomDraft(pq, "attempt without a draft", 0, 1);
+            var onlyAttempt = (AttemptStarted)store.BeginClassroomSend(pq, "attempt without a draft", 0, 1);
+            store.SaveClassroomDraft(pq, "", 0, 2);
             string hashBefore = Hash(f.Db);
             var snap = store.GetClassroomInboxSnapshot();
             Check(snap.Entries.Single(e => e.RosterEntryId == a) is { ClassroomUnread: 2, LegacyUnread: 3, TotalUnread: 5 }, "classroom and v1 unread of the same row are both counted, once each");
@@ -43,7 +47,8 @@ internal static class ClassroomInboxChecks
                 "a draft-only 名單外 conversation is listed with its draft epoch, revision and text");
             Check(snap.Entries.Single(e => e.Principal.Value == "ip:" + W) is { Attempt: { State: "sending", RawSnapshot: "will be unconfirmed", TryCount: 1, Route: ClassroomRoute.Legacy }, Draft.RawText: "will be unconfirmed" },
                 "an attempt-only 名單外 conversation is listed with the attempt, its try count and its recorded route");
-            Check(snap.Entries.Count == 5 && snap.Entries.Take(3).All(e => e.RosterEntryId is not null) && snap.Entries.Skip(3).All(e => e.Principal.SourceIp is not null), "roster rows first, then 名單外 conversations");
+            Check(snap.Entries.Single(e => e.Principal == pq) is { Draft.RawText: null, Attempt: { State: "sending", RawSnapshot: "attempt without a draft" }, LatestText: null } && onlyAttempt.TryCount == 1, "a conversation with only an attempt (no draft, no message) is listed");
+            Check(snap.Entries.Count == 6 && snap.Entries.Take(3).All(e => e.RosterEntryId is not null) && snap.Entries.Skip(3).All(e => e.Principal.SourceIp is not null), "roster rows first, then 名單外 conversations");
             Check(Hash(f.Db) == hashBefore, "reading the inbox does not change the database file");
         }
         using (var store = ChatStore.Open(f.Options))
