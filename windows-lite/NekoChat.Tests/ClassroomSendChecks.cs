@@ -60,7 +60,7 @@ public static class ClassroomSendChecks
                     SessionId,
                     TargetIp,
                     OwnIp,
-                    new[] { "receipts" });
+                    new[] { "msg.plain", "receipt.read" });
 
                 var resp = new HttpResponseMessage(HttpStatusCode.OK)
                 {

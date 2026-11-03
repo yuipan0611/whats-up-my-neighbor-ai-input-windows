@@ -112,7 +112,7 @@ internal static class ClassroomStoreChecks
             var third = (AttemptStarted)store.BeginClassroomSend(pa, "edited meanwhile", 1, 3);
             Check(store.CancelClassroomAttempt(third.MessageId).Cancelled && store.CancelClassroomAttempt(third.MessageId).Reason == "already-cancelled", "cancel is idempotent");
             var fourth = (AttemptStarted)((store.BeginClassroomRetry(third.MessageId, pa, "edited meanwhile", 1, 3)));
-            Check(fourth.MessageId == third.MessageId && fourth.PreviousAttemptMayHaveDelivered, "a cancelled attempt can be retried by hand with the same id");
+            Check(fourth.MessageId == third.MessageId && !fourth.PreviousAttemptMayHaveDelivered, "a cancelled attempt can be retried by hand with the same id");
             store.Dispose();
             using var reopened = ChatStore.Open(f.Options);
             Check(Text(f.Db, "SELECT attemptState FROM ClassroomAttempt WHERE messageId='" + fourth.MessageId + "'") == "unconfirmed" && reopened.GetClassroomPreparedSend(fourth.MessageId) is null, "reopening turns a half-sent attempt into unconfirmed; nothing is sent automatically");

@@ -27,6 +27,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly HashSet<Task> _network = [];
     private readonly Dictionary<(string Id, int Try), ManualSendOperation> _manualSends = [];
+    private readonly Dictionary<(string Id, int Try), CancellationTokenSource> _classroomSends = [];
     private readonly V2PacketWriter? _writer;
     private readonly V2LanClient? _client;
     private Task? _disposal;
@@ -168,26 +169,60 @@ internal sealed class ChatRuntime : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
             _lifetime.Token.ThrowIfCancellationRequested();
             string ownIp = ResolveLocalEndpointIp(prepared.TargetIp, port);
+            var key = (prepared.MessageId, prepared.TryCount);
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+            _classroomSends[key] = cts;
             var task = Task.Run(async () =>
             {
-                var outcome = await ClassroomSender.SendPreparedAsync(prepared, port, ownIp, () => !_lifetime.IsCancellationRequested, _lifetime.Token).ConfigureAwait(false);
-                if (outcome.Completion is Confirmed { DraftCleared: true } && _store.GetClassroomDraftState(prepared.Principal) is { } fresh)
+                try
                 {
-                    var update = buffer.ApplyOwnAckClear(sent, fresh);
-                    if (update.PreserveEdit is { } edited) buffer.CompleteWrite(edited, edited.Persist(_store, conversation));
+                    var outcome = await ClassroomSender.SendPreparedAsync(prepared, port, ownIp, () => !_lifetime.IsCancellationRequested, cts.Token).ConfigureAwait(false);
+                    if (outcome.Completion is Confirmed { DraftCleared: true } && _store.GetClassroomDraftState(prepared.Principal) is { } fresh)
+                    {
+                        var update = buffer.ApplyOwnAckClear(sent, fresh);
+                        if (update.PreserveEdit is { } edited) buffer.CompleteWrite(edited, edited.Persist(_store, conversation));
+                    }
+                    return outcome;
                 }
-                return outcome;
+                finally
+                {
+                    lock (_gate) _classroomSends.Remove(key);
+                    cts.Dispose();
+                }
             });
             _network.Add(task);
             return Finish(task);
         }
     }
     internal bool CanCancelAttempt(string messageId, int tryCount)
-    { lock (_gate) return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.CanCancel; }
+    {
+        lock (_gate)
+        {
+            if (_classroomSends.TryGetValue((messageId, tryCount), out var cts)) return !cts.IsCancellationRequested;
+            return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.CanCancel;
+        }
+    }
     internal bool IsAttemptCancellationRequested(string messageId, int tryCount)
-    { lock (_gate) return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.UserCancellationRequested; }
+    {
+        lock (_gate)
+        {
+            if (_classroomSends.TryGetValue((messageId, tryCount), out var cts)) return cts.IsCancellationRequested;
+            return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.UserCancellationRequested;
+        }
+    }
     internal Task<CancelResult> CancelAttemptAsync(string messageId, int tryCount)
     {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposal is not null, this);
+            if (_classroomSends.TryGetValue((messageId, tryCount), out var cts))
+            {
+                cts.Cancel();
+                // 依 PM 指示：不再呼叫 v1 的 CancelAttempt，由 sender 依 message 位元組是否已寫出自行結束
+                return Task.FromResult<CancelResult>(new Cancelled(messageId, tryCount));
+            }
+        }
+
         Task<bool>? cancel;
         lock (_gate)
         {

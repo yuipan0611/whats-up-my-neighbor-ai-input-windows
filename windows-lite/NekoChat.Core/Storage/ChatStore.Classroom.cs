@@ -188,7 +188,7 @@ public sealed partial class ChatStore
             if (old.State == "confirmed") return (new InvalidSend("already-confirmed"), false);
             if (old.State == "sending") return (new AlreadySending(messageId), false);
             bool same = old.Principal == principal.Value && old.Text == currentText && old.Kind == kind && old.Reaction == reaction;
-            bool mayHave = old.State is "unconfirmed" or "cancelled";
+            bool mayHave = old.State == "unconfirmed";
             if (!same) return StartClassroomAttempt(ctx, principal, currentText, kind, reaction, draftEpoch, draftRevision, mayHave);
             if (old.Count >= int.MaxValue) return (new InvalidSend("try-count-exhausted"), false);
             if (!EnsureClassroomConversation(ctx, principal)) return (new InvalidSend(NoTargetReason(ctx, principal)), false);
