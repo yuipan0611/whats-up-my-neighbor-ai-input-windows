@@ -288,6 +288,50 @@ public static class ClassroomSendUiPolicyChecks
         C(!sendingBanner.Contains("未送出"), "9. Tom (c) sending banner must not contain '未送出'", sendingBanner);
         C(sendingBanner.Contains("手動傳送中"), "9. Tom (c) sending banner contains '手動傳送中'", sendingBanner);
 
+        // =========================================================================
+        // 項目 10（Ben 複審必修）：補回 8 條精確文案與 DraftCleared 旗標斷言
+        // (a) Confirmed＋Classroom＝「已驗證對方的儲存確認。」，Confirmed＋Legacy＝「已送達（舊版同學）。」，驗 DraftCleared
+        // (b) UI-S Discarded 的精確文案，驗 DraftCleared=false
+        // (c) failed 帶 reasonCode、不帶 reasonCode 的精確格式，驗 DraftCleared=false
+        // (d) cancel-before、cancel-after 的精確文案，驗 DraftCleared=false
+        // =========================================================================
+        // (a) Confirmed 文案與 DraftCleared 旗標
+        var dConfClassroom = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(true, "ok", new Confirmed(1, true), ClassroomRoute.Classroom));
+        C(dConfClassroom.StatusText == "已驗證對方的儲存確認。", "10a. Confirmed classroom route exact status text match");
+        C(dConfClassroom.DraftCleared, "10a. Confirmed classroom route with DraftCleared=true reports true");
+
+        var dConfLegacy = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(true, "ok", new Confirmed(1, false), ClassroomRoute.Legacy));
+        C(dConfLegacy.StatusText == "已送達（舊版同學）。", "10a. Confirmed legacy route exact status text match");
+        C(!dConfLegacy.DraftCleared, "10a. Confirmed legacy route with DraftCleared=false reports false");
+
+        // (b) UI-S Discarded 精確文案與草稿保留
+        var dDiscarded = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(false, "stale_attempt", new Discarded("stale"), ClassroomRoute.Classroom));
+        C(dDiscarded.StatusText == "這次嘗試已中斷，訊息未送出；請重新讀取後再送。", "10b. UI-S Discarded exact status text match");
+        C(!dDiscarded.DraftCleared, "10b. UI-S Discarded preserves draft");
+
+        // (c) Failed 帶與不帶 reasonCode 之精確格式
+        var dFailedCode = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(false, "network_error", new StateUpdated("failed"), ClassroomRoute.Classroom));
+        C(dFailedCode.StatusText == "未送出（network_error）；草稿仍在本機。", "10c. Failed with reasonCode exact text match");
+        C(!dFailedCode.DraftCleared, "10c. Failed with reasonCode preserves draft");
+
+        var dFailedNoCode = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(false, "failed", new StateUpdated("failed"), ClassroomRoute.Classroom));
+        C(dFailedNoCode.StatusText == "未送出；草稿仍在本機。", "10c. Failed without specific code exact text match");
+        C(!dFailedNoCode.DraftCleared, "10c. Failed without specific code preserves draft");
+
+        // (d) cancel-before 與 cancel-after 精確文案
+        var dCancelBefore = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(false, "cancelled", new StateUpdated("cancelled"), ClassroomRoute.Classroom));
+        C(dCancelBefore.StatusText == "已取消，訊息未送出", "10d. Cancel-before-write (StateUpdated cancelled) exact status text match");
+        C(!dCancelBefore.DraftCleared, "10d. Cancel-before-write (StateUpdated cancelled) preserves draft");
+
+        var dCancelAfter = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(false, "cancelled", new StateUpdated("unconfirmed"), ClassroomRoute.Classroom));
+        C(dCancelAfter.StatusText == "已取消，但對方可能已收到；不會自動重送。", "10d. Cancel-after-write exact status text match");
+        C(!dCancelAfter.DraftCleared, "10d. Cancel-after-write preserves draft");
+
+        // (e) Code=="cancelled" 而且 Completion==null（hello 階段取消，Tom C5）
+        var dHelloCancel = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(false, "cancelled", null, ClassroomRoute.Classroom));
+        C(dHelloCancel.StatusText == "已取消，訊息未送出", "10e. Hello-stage cancel (Code==cancelled, Completion==null) exact status text match");
+        C(!dHelloCancel.DraftCleared, "10e. Hello-stage cancel (Code==cancelled, Completion==null) preserves draft");
+
         if (failures.Count > 0)
         {
             foreach (var f in failures) Console.Error.WriteLine($"FAIL: {f}");
