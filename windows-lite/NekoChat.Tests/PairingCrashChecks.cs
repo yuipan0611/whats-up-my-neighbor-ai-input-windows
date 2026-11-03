@@ -177,7 +177,8 @@ internal static class PairingCrashChecks
                             if (role == "responder")
                             {
                                 Check((await Ask(next, new("OPEN"))).Code == "opened", "explicit repair reopens R window");
-                                Check((await parent.Begin(reopened.Port, ready.PeerId)).Code == "awaiting_user", "explicit repair starts fresh outgoing session");
+                                var repair = await parent.Begin(reopened.Port, ready.PeerId);
+                                Check(repair.Code == "awaiting_user", "explicit repair starts fresh outgoing session: code=" + repair.Code + ", stage=" + parent.Coordinator.View.Stage + ", reason=" + parent.Coordinator.View.Reason + ", scoped=" + scoped + ", point=" + point);
                                 fresh = await Ask(next, new("VIEW"));
                                 Check(fresh.HasConsent && fresh.SessionId != oldSid && fresh.Sas == parent.Coordinator.View.Sas && !parent.Coordinator.View.LocalConfirmed, "repair has fresh transcript/tickets; old human actions never inherited");
                                 Check((await Ask(next, new("CONFIRM"))).Code == "local_confirmed", "repair requires fresh R human action");
