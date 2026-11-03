@@ -29,16 +29,24 @@ public static class UiTestDataChecks
         string tempBase = Path.Combine(Path.GetTempPath(), "nekochat-ui-test-check-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempBase);
 
+        string official = Settings.DirectoryPath;
+        bool officialExisted = Directory.Exists(official);
+        if (!officialExisted)
+        {
+            Directory.CreateDirectory(official);
+        }
+
         try
         {
             string testDir = Path.Combine(tempBase, "isolated-data");
             Directory.CreateDirectory(testDir);
 
-            // 1. Basic parsing with default port
+            // 1. Basic parsing with default port (8765, distinct from official 8768)
             var opt1 = UiTestOptions.Parse(new[] { "--ui-test-data", testDir });
             Check(opt1 is not null, "parsed --ui-test-data");
             Check(opt1!.DataDirectory == Path.GetFullPath(testDir), "data directory matches normalized path");
-            Check(opt1.Port == DirectLanMessaging.DefaultPort, "default port is DirectLanMessaging.DefaultPort");
+            Check(UiTestOptions.DefaultUiTestPort == 8765, "DefaultUiTestPort is 8765");
+            Check(opt1.Port == 8765, "default port is 8765 (not official 8768)");
             Check(opt1.SettingsFilePath == Path.Combine(Path.GetFullPath(testDir), "settings.json"), "settings path has fixed name");
             Check(opt1.DatabaseDirectory == Path.Combine(Path.GetFullPath(testDir), "data"), "database directory has fixed name");
             Check(opt1.DatabaseFilePath == Path.Combine(Path.GetFullPath(testDir), "data", "nekochat.db"), "database file has fixed name");
@@ -66,8 +74,13 @@ public static class UiTestDataChecks
             Check(UiTestOptions.Parse(Array.Empty<string>()) is null, "empty args returns null");
             Check(UiTestOptions.Parse(new[] { "--startup-smoke-test", testDir }) is null, "smoke args return null");
 
-            // 4. Safety guard: rejection if located inside official %LOCALAPPDATA%\NekoChat.WindowsLite
-            string official = Settings.DirectoryPath;
+            // 4. Extended prefix and 8.3 short name rejection
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", @"\\?\C:\some\dir" }), "extended-length prefix \\\\?\\ rejected");
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", @"//?/C:/some/dir" }), "extended-length prefix //?/ rejected");
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(tempBase, "PROGRA~1") }), "8.3 short name PROGRA~1 rejected");
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(tempBase, "sub", "NEKOCH~1") }), "8.3 short name in subfolder rejected");
+
+            // 5. Safety guard: rejection if located inside official directory
             Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", official }), "exact official directory rejected");
             Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(official, "subfolder") }), "subfolder of official directory rejected");
             Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(official, "a", "b", "c") }), "nested subfolder of official directory rejected");
@@ -80,7 +93,36 @@ public static class UiTestDataChecks
             var optSibling = UiTestOptions.Parse(new[] { "--ui-test-data", prefixSibling });
             Check(optSibling is not null, "sibling directory permitted");
 
-            // 5. Mutex derivation and isolation
+            // 6. Symlink bypass prevention (all three cases requested by Ben)
+            // Case 1: Symlink itself points directly to official directory
+            string symlinkToOfficial = Path.Combine(tempBase, "symlink-to-official");
+            Directory.CreateSymbolicLink(symlinkToOfficial, official);
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", symlinkToOfficial }), "symlink to official directory rejected");
+
+            // Case 2: Subfolder under symlink to official directory
+            string subUnderSymlink = Path.Combine(symlinkToOfficial, "sub-data");
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", subUnderSymlink }), "subfolder under symlink to official directory rejected");
+
+            // Case 3: Parent directory is a symlink pointing to parent of official directory
+            string officialParent = Path.GetDirectoryName(official)!;
+            string symlinkToParent = Path.Combine(tempBase, "symlink-to-parent");
+            Directory.CreateSymbolicLink(symlinkToParent, officialParent);
+            string viaParent = Path.Combine(symlinkToParent, Path.GetFileName(official));
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", viaParent }), "path traversing through parent symlink to official rejected");
+            Expect<InvalidOperationException>(() => UiTestOptions.Parse(new[] { "--ui-test-data", Path.Combine(viaParent, "deep", "nested") }), "subfolder traversing through parent symlink to official rejected");
+
+            // Permitted safe symlink pointing outside official directory
+            string safeTarget = Path.Combine(tempBase, "safe-target");
+            Directory.CreateDirectory(safeTarget);
+            string safeLink = Path.Combine(tempBase, "safe-link");
+            Directory.CreateSymbolicLink(safeLink, safeTarget);
+            var optSafe = UiTestOptions.Parse(new[] { "--ui-test-data", safeLink });
+            Check(optSafe is not null, "safe symlink permitted");
+
+            // Note on Windows junction:
+            Console.WriteLine("Windows junction checks: not supported on macOS host, marked UNEXECUTED.");
+
+            // 7. Mutex derivation and isolation
             string mutex1 = UiTestOptions.DeriveMutexName(testDir);
             Check(mutex1.StartsWith("Local\\NekoChat.WindowsLite.UiTest.", StringComparison.Ordinal), "mutex format starts with expected prefix");
             Check(mutex1 != "Local\\NekoChat.WindowsLite.App", "mutex does not collide with official app mutex");
@@ -96,7 +138,7 @@ public static class UiTestDataChecks
             string mutex2 = UiTestOptions.DeriveMutexName(testDir2);
             Check(mutex1 != mutex2, "different directories produce distinct mutexes");
 
-            // 6. Fixed filenames without Guid
+            // 8. Fixed filenames without Guid
             var uiSettings = Settings.ForUiTest(testDir);
             Check(uiSettings.PersistencePath == Path.Combine(Path.GetFullPath(testDir), "settings.json"), "persistence path is settings.json");
             Check(!uiSettings.AutoStartOnLogin, "AutoStartOnLogin is disabled for ui-test");
@@ -119,6 +161,10 @@ public static class UiTestDataChecks
         finally
         {
             try { Directory.Delete(tempBase, recursive: true); } catch { }
+            if (!officialExisted)
+            {
+                try { Directory.Delete(official, recursive: true); } catch { }
+            }
         }
     }
 }

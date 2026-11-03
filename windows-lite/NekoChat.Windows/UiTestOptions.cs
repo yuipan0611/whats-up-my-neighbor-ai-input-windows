@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -10,6 +11,7 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
 {
     public const string DataArg = "--ui-test-data";
     public const string PortArg = "--ui-test-port";
+    public const int DefaultUiTestPort = 8765;
 
     public string SettingsFilePath => Path.Combine(DataDirectory, "settings.json");
     public string DatabaseDirectory => Path.Combine(DataDirectory, "data");
@@ -68,18 +70,102 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
             throw new ArgumentException("UI 測試資料目錄不可為空。");
         }
 
+        AssertSafePathFormat(dataDir);
         string fullPath = Path.GetFullPath(dataDir);
         AssertSafeDataDirectory(fullPath);
 
-        int resolvedPort = port ?? DirectLanMessaging.DefaultPort;
+        int resolvedPort = port ?? DefaultUiTestPort;
         string mutexName = DeriveMutexName(fullPath);
 
         return new UiTestOptions(fullPath, resolvedPort, mutexName);
     }
 
+    public static void AssertSafePathFormat(string rawPath)
+    {
+        if (string.IsNullOrWhiteSpace(rawPath))
+            throw new ArgumentException("路徑不可為空。");
+
+        // 1. 阻擋 extended-length path prefix (\\?\)
+        if (rawPath.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase) ||
+            rawPath.StartsWith(@"//?/", StringComparison.OrdinalIgnoreCase) ||
+            rawPath.Contains(@"\\?\") ||
+            rawPath.Contains(@"//?/"))
+        {
+            throw new InvalidOperationException("不允許使用 extended-length path prefix (\\\\?\\)。");
+        }
+
+        // 2. 阻擋 8.3 短檔名特徵 ('~')
+        var rawSegments = rawPath.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var seg in rawSegments)
+        {
+            if (seg.Contains('~'))
+            {
+                throw new InvalidOperationException($"不允許使用包含 8.3 短檔名特徵 ('~') 的路徑：'{seg}'。");
+            }
+        }
+    }
+
+    public static string ResolveRealPath(string rawPath)
+    {
+        AssertSafePathFormat(rawPath);
+
+        string fullPath = Path.GetFullPath(rawPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string? root = Path.GetPathRoot(fullPath);
+        if (string.IsNullOrEmpty(root))
+        {
+            throw new DirectoryNotFoundException($"路徑根目錄不存在或無法解析：'{fullPath}'。");
+        }
+
+        string current = root;
+        string remainder = fullPath[root.Length..];
+        var segments = remainder.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+
+        bool stillExisting = true;
+        foreach (var seg in segments)
+        {
+            if (stillExisting)
+            {
+                string candidate = Path.Combine(current, seg);
+                if (Directory.Exists(candidate) || File.Exists(candidate))
+                {
+                    try
+                    {
+                        FileSystemInfo fsi = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
+                        int depth = 0;
+                        while (depth++ < 32)
+                        {
+                            var target = fsi.ResolveLinkTarget(returnFinalTarget: true);
+                            if (target is null) break;
+                            fsi = target;
+                        }
+                        current = fsi.FullName;
+                    }
+                    catch (Exception ex) when (ex is not InvalidOperationException)
+                    {
+                        throw new InvalidOperationException($"解析路徑 symlink 失敗：{ex.Message}", ex);
+                    }
+                }
+                else
+                {
+                    stillExisting = false;
+                    current = Path.Combine(current, seg);
+                }
+            }
+            else
+            {
+                current = Path.Combine(current, seg);
+            }
+        }
+
+        return Path.GetFullPath(current).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
     public static void AssertSafeDataDirectory(string dataDirectory)
     {
-        if (IsInsideOrEqual(dataDirectory, Settings.DirectoryPath))
+        string resolvedTarget = ResolveRealPath(dataDirectory);
+        string resolvedBase = ResolveRealPath(Settings.DirectoryPath);
+
+        if (IsInsideOrEqual(resolvedTarget, resolvedBase))
         {
             throw new InvalidOperationException($"UI 測試資料目錄不可設於正式資料目錄（{Settings.DirectoryPath}）底下。");
         }
@@ -115,8 +201,8 @@ internal sealed record UiTestOptions(string DataDirectory, int Port, string Mute
 
     public static string DeriveMutexName(string dataDirectory)
     {
-        string full = Path.GetFullPath(dataDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        string normalized = full.ToUpperInvariant();
+        string resolved = ResolveRealPath(dataDirectory);
+        string normalized = resolved.ToUpperInvariant();
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
         string hex = Convert.ToHexString(hash)[..16];
         return $"Local\\NekoChat.WindowsLite.UiTest.{hex}";

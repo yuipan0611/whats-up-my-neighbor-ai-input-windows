@@ -24,6 +24,7 @@ public partial class PetWindow : Window
 
     internal readonly Dictionary<string, MenuItem> CoatMenuItems = new();
     private readonly MenuItem autoStartMenuItem;
+    private readonly MenuItem checkUpdateMenuItem;
     private string? sender;
     private sealed record ChatNotice(string Text, string From, string Name);
     private readonly LinkedList<ChatNotice> chatNotices = new();
@@ -93,9 +94,9 @@ public partial class PetWindow : Window
         import.Click += (_, _) => ImportCoat?.Invoke();
         menu.Items.Add(import);
 
-        var checkUpdate = new MenuItem { Header = "🔄 檢查更新…" };
-        checkUpdate.Click += (_, _) => CheckUpdates?.Invoke();
-        menu.Items.Add(checkUpdate);
+        checkUpdateMenuItem = new MenuItem { Header = "🔄 檢查更新…" };
+        checkUpdateMenuItem.Click += (_, _) => CheckUpdates?.Invoke();
+        menu.Items.Add(checkUpdateMenuItem);
 
         menu.Items.Add(new Separator());
 
@@ -115,6 +116,12 @@ public partial class PetWindow : Window
     internal void UpdateAutoStartChecked(bool isChecked)
     {
         autoStartMenuItem.IsChecked = isChecked;
+    }
+
+    internal void DisableCheckUpdates()
+    {
+        checkUpdateMenuItem.IsEnabled = false;
+        checkUpdateMenuItem.ToolTip = "UI 測試模式已停用檢查更新。";
     }
 
     internal void SetArt(ImageSource image) => UseStaticArtwork(image);

@@ -18,6 +18,7 @@ public partial class App : Application
     private int directSendPort = DirectLanMessaging.DefaultPort;
     private Mutex? instanceGate;
     private bool checkingUpdate;
+    private UiTestOptions? _uiTestOptions;
     private ChatRuntime? chatRuntime;
     private SettingsLoadResult? startupSource;
     private bool isolatedData, startingData, closingApp;
@@ -67,6 +68,7 @@ public partial class App : Application
         try
         {
             var uiTestOptions = UiTestOptions.Parse(e.Args);
+            _uiTestOptions = uiTestOptions;
             var messagingSmoke = MessagingSmokeOptions.Parse(e.Args);
             bool keyboardSmoke = e.Args.Length == 2 && e.Args[0] == "--keyboard-smoke-test";
             bool gestureSmoke = e.Args.Length == 2 && e.Args[0] == "--interaction-smoke-test";
@@ -158,7 +160,14 @@ public partial class App : Application
                     chat.SetStatus(SafeError(ex));
                 }
             };
-            pet.CheckUpdates += () => _ = CheckForUpdatesAsync(true);
+            if (uiTestOptions is not null)
+            {
+                pet.DisableCheckUpdates();
+            }
+            else
+            {
+                pet.CheckUpdates += () => _ = CheckForUpdatesAsync(true);
+            }
 
             chat.AutoStartChanged += enabled =>
             {
@@ -291,6 +300,11 @@ public partial class App : Application
 
     private async Task CheckForUpdatesAsync(bool manual)
     {
+        if (_uiTestOptions is not null)
+        {
+            if (manual) chat.SetStatus("UI 測試模式已停用檢查更新。");
+            return;
+        }
         if (checkingUpdate) { if (manual) chat.SetStatus("正在檢查或下載更新，請稍候。"); return; }
         checkingUpdate = true;
         try
