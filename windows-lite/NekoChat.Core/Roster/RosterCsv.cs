@@ -3,7 +3,9 @@ using System.Text;
 namespace NekoChat.Core.Roster;
 
 public enum RosterCsvEncoding { Utf8, Big5 }
-public sealed record RosterCsvRow(int Line, string? StudentNumber, string Name, string? Endpoint, bool IsTeacher);
+/// <summary>EndpointProvided=false means the CSV had no ip column: an update keeps the existing address (CM-05).
+/// With the column present, an empty cell (Endpoint=null) means the address is cleared.</summary>
+public sealed record RosterCsvRow(int Line, string? StudentNumber, string Name, string? Endpoint, bool IsTeacher, bool EndpointProvided = true);
 public sealed record RosterCsvError(int Line, string Field, string Code);
 
 public sealed class RosterCsvResult
@@ -79,7 +81,7 @@ public static class RosterCsv
             // Even an otherwise invalid row participates in duplicates: removing it must not silently pick a winner.
             allKeys.Add((record.Line, RosterFields.ValidStudent(number) ? RosterFields.StudentKey(number) : null,
                 ip is not null && RosterFields.ValidEndpoint(ip) ? ip : null));
-            if (errors.Count == before) rows.Add(new(record.Line, number, name, ip, role == "teacher"));
+            if (errors.Count == before) rows.Add(new(record.Line, number, name, ip, role == "teacher", Array.IndexOf(header, "ip") >= 0));
         }
         foreach (var group in allKeys.Where(k => k.Student is not null).GroupBy(k => k.Student, StringComparer.Ordinal).Where(g => g.Count() > 1))
             foreach (var key in group) errors.Add(new(key.Line, "student_number", "duplicate_student_number"));

@@ -75,8 +75,12 @@ internal static class StorageRosterChecks
             using var store = ChatStore.Open(f.Options); Seed(store);
             var partial = Preview(store, "student_number,name,ip\n1,Conflict,10.0.0.2\n2,\u0001invalid,10.0.0.1\n3,Valid,10.0.0.3");
             Check(partial.Items.Count(i => i.Action == RosterImportAction.Error) == 2 && partial.Changes.Count == 1, "failed row still owns endpoint; conflict fixed point excludes dependent change");
-            Check(store.ApplyRosterPreview(partial) is { Applied: true, Added: 1, Updated: 0, Skipped: 2 } && Text(f.Db, "SELECT endpoint FROM RosterEntry WHERE studentNumberKey='1'") == "10.0.0.1" &&
-                Text(f.Db, "SELECT endpoint FROM RosterEntry WHERE studentNumberKey='2'") == "10.0.0.2", "partial acceptance never clears endpoints of rejected rows");
+            // CM-03 (engineering default): an address collision blocks the whole apply; nothing is partially accepted.
+            Check(!partial.CanApply && store.ApplyRosterPreview(partial) is { Applied: false, Reason: "ip_conflict" } && Text(f.Db, "SELECT endpoint FROM RosterEntry WHERE studentNumberKey='1'") == "10.0.0.1" &&
+                Text(f.Db, "SELECT endpoint FROM RosterEntry WHERE studentNumberKey='2'") == "10.0.0.2" && Number(f.Db, "SELECT count(*) FROM RosterEntry") == 2, "address conflict blocks apply and changes nothing");
+            var invalidOnly = Preview(store, "student_number,name,ip\n2,\u0001invalid,10.0.0.2\n3,Valid,10.0.0.3");
+            Check(invalidOnly.CanApply && store.ApplyRosterPreview(invalidOnly) is { Applied: true, Added: 1, Updated: 0, Skipped: 1 } &&
+                Text(f.Db, "SELECT endpoint FROM RosterEntry WHERE studentNumberKey='2'") == "10.0.0.2", "non-address errors still skip only that row and never clear its endpoint");
             Add(store, new("Same")); Add(store, new("Same"));
             var ambiguous = Preview(store, "student_number,name\n,Same");
             Check(store.ApplyRosterPreview(ambiguous) is { Applied: true, Reason: "no-changes", Skipped: 1 }, "ambiguous row skipped by default");

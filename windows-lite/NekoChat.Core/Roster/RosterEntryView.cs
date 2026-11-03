@@ -31,6 +31,14 @@ public sealed class RosterEntryView
         PeerId = peerId;
     }
 
+    /// <summary>Classroom mode: the roster address is the only thing a message needs (CM-01/04). No address means no sending.</summary>
+    public const string NoAddressText = "未設定位址";
+    public bool HasAddress => Endpoint is not null;
+    public bool CanSend => HasAddress;
+    public string AddressStatus => Endpoint ?? NoAddressText;
+    /// <summary>Label for the conversation of a source address that is not on the roster; such a source is never added automatically (CM-02).</summary>
+    public static string OutOfRosterLabel(string ip) => "名單外・" + ip;
+
     public static IReadOnlyList<RosterEntryView> SortAndFilter(IEnumerable<RosterEntryView> entries, string query = "")
     {
         ArgumentNullException.ThrowIfNull(entries);

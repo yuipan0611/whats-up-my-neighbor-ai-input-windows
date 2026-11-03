@@ -14,26 +14,39 @@ public sealed partial class ChatStore
         return rows.AsReadOnly();
     });
 
-    public RosterMutationResult SaveManualRosterEntry(string? entryId, RosterEdit edit, string expectedSnapshotToken)
+    public RosterMutationResult SaveManualRosterEntry(string? entryId, RosterEdit edit, string expectedSnapshotToken) =>
+        SaveManualRosterEntry(entryId, edit, expectedSnapshotToken, null).Mutation;
+
+    /// <summary>
+    /// Same as the three-argument save, plus an optional confirmed merge of "名單外" messages from the row's new address (CM-02).
+    /// With <paramref name="mergeConsent"/>=null the unknown-source history stays where it is.
+    /// </summary>
+    public RosterSaveResult SaveManualRosterEntry(string? entryId, RosterEdit edit, string expectedSnapshotToken, LegacyMergeConsent? mergeConsent)
     {
         ArgumentNullException.ThrowIfNull(edit); ValidateRosterToken(expectedSnapshotToken);
         if (entryId is not null) ValidateRosterId(entryId);
         string? name = edit.Name?.Trim(), number = NullIfEmpty(edit.StudentNumber), endpoint = NullIfEmpty(edit.Endpoint);
         string? error = !RosterFields.ValidName(name) ? "invalid-name" : !RosterFields.ValidStudent(number) ? "invalid-student-number" :
             endpoint is not null && !AllowedRosterEndpoint(endpoint) ? "invalid-endpoint" : null;
-        if (error is not null) return new(false, error, entryId, expectedSnapshotToken);
+        if (error is not null) return new(new(false, error, entryId, expectedSnapshotToken), 0);
         return Write("save-roster", ctx => {
             var snapshot = ReadRoster(ctx); string token = RosterImportPreview.ComputeSnapshotToken(snapshot);
-            if (token != expectedSnapshotToken) return (new RosterMutationResult(false, "roster_changed", entryId, token), false);
-            if (endpoint is not null && !AllowedRosterEndpoint(endpoint)) return (new RosterMutationResult(false, "invalid-endpoint", entryId, token), false);
+            RosterSaveResult Refuse(string reason) => new(new(false, reason, entryId, token), 0);
+            if (token != expectedSnapshotToken) return (Refuse("roster_changed"), false);
+            if (endpoint is not null && !AllowedRosterEndpoint(endpoint)) return (Refuse("invalid-endpoint"), false);
             var old = snapshot.SingleOrDefault(r => r.Entry.Id == entryId);
-            if (entryId is not null && old is null) return (new RosterMutationResult(false, "not-found", entryId, token), false);
+            if (entryId is not null && old is null) return (Refuse("not-found"), false);
             if (snapshot.Any(r => r.Entry.Id != entryId && number is not null && r.Entry.StudentNumberKey == RosterFields.StudentKey(number)))
-                return (new RosterMutationResult(false, "duplicate-student-number", entryId, token), false);
+                return (Refuse("duplicate-student-number"), false);
             if (snapshot.Any(r => r.Entry.Id != entryId && endpoint is not null && r.Entry.Endpoint == endpoint))
-                return (new RosterMutationResult(false, "duplicate-endpoint", entryId, token), false);
+                return (Refuse("duplicate-endpoint"), false);
             if (old is not null && old.Entry.DisplayName == name && old.Entry.StudentNumber == number && old.Entry.IsTeacher == edit.IsTeacher && old.Entry.Endpoint == endpoint)
-                return (new RosterMutationResult(false, "unchanged", entryId, token), false);
+                return (Refuse("unchanged"), false);
+            if (mergeConsent is not null)
+            {
+                if (endpoint is null || mergeConsent.Endpoint != endpoint) return (Refuse("legacy_merge_mismatch"), false);
+                if (CountUnknownLegacy(ctx, endpoint) != mergeConsent.ExpectedMessages) return (Refuse("legacy_merge_changed"), false);
+            }
             string id = entryId ?? NewRosterId(ctx);
             if (entryId is null)
                 ctx.Exec("INSERT INTO RosterEntry(id,displayName,studentNumber,isTeacher,endpoint,source) VALUES(@id,@name,@number,@teacher,@endpoint,'manual')",
@@ -41,7 +54,8 @@ public sealed partial class ChatStore
             else
                 ctx.Exec("UPDATE RosterEntry SET displayName=@name,studentNumber=@number,isTeacher=@teacher,endpoint=@endpoint,source='manual',importBatchId=NULL WHERE id=@id",
                     ("@id", id), ("@name", name), ("@number", number), ("@teacher", edit.IsTeacher ? 1 : 0), ("@endpoint", endpoint));
-            return (new RosterMutationResult(true, entryId is null ? "added" : "updated", id, RosterImportPreview.ComputeSnapshotToken(ReadRoster(ctx))), true);
+            int merged = mergeConsent is { ExpectedMessages: > 0 } ? MergeUnknownLegacy(ctx, id, mergeConsent.Endpoint) : 0;
+            return (new RosterSaveResult(new(true, entryId is null ? "added" : "updated", id, RosterImportPreview.ComputeSnapshotToken(ReadRoster(ctx))), merged), true);
         });
     }
 
@@ -100,13 +114,15 @@ public sealed partial class ChatStore
                 new(applied, reason, added, updated, unchanged, skipped, next ?? token);
             // The roster may have changed between the pre-flight and the lock: the backup is kept, nothing is applied.
             if (!preview.MatchesSnapshot(snapshot)) return (Result(false, "roster_changed"), false);
+            // CM-03: one seat, one person. An address collision blocks the whole import until the file is corrected.
+            if (!preview.CanApply) return (Result(false, "ip_conflict"), false);
             if (preview.Changes.Count == 0) return (Result(true, "no-changes"), false);
             if (!RowsStillValid()) return (Result(false, "endpoint-or-row-no-longer-valid"), false);
             string batch = NewUuid();
             foreach (var item in preview.Changes.Where(i => i.Action == RosterImportAction.Update))
             {
                 var old = snapshot.Single(s => s.Entry.Id == item.TargetId);
-                if (old.Entry.Endpoint != item.Row!.Endpoint)
+                if (old.Entry.Endpoint != RosterImportPreview.EffectiveEndpoint(item.Row!, old.Entry))
                     ctx.Exec("UPDATE RosterEntry SET endpoint=NULL WHERE id=@id", ("@id", item.TargetId));
             }
             int added = 0, updated = 0;
@@ -121,8 +137,10 @@ public sealed partial class ChatStore
                 }
                 else
                 {
+                    // No ip column in the file: keep the stored address (CM-05); an empty ip cell is the only thing that clears it.
+                    string? endpoint = RosterImportPreview.EffectiveEndpoint(row, snapshot.Single(s => s.Entry.Id == item.TargetId).Entry);
                     ctx.Exec("UPDATE RosterEntry SET displayName=@name,studentNumber=@number,isTeacher=@teacher,endpoint=@endpoint,source='csv',importBatchId=@batch WHERE id=@id",
-                        ("@id", item.TargetId), ("@name", row.Name), ("@number", row.StudentNumber), ("@teacher", row.IsTeacher ? 1 : 0), ("@endpoint", row.Endpoint), ("@batch", batch));
+                        ("@id", item.TargetId), ("@name", row.Name), ("@number", row.StudentNumber), ("@teacher", row.IsTeacher ? 1 : 0), ("@endpoint", endpoint), ("@batch", batch));
                     updated++;
                 }
             }

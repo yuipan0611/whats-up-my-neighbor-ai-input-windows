@@ -47,6 +47,9 @@ public interface IChatStore : IDisposable
     bool CompleteReadReceipt(PendingReadReceipt receipt);
     IReadOnlyList<NekoChat.Core.Roster.RosterSnapshotRow> GetRosterSnapshot();
     RosterMutationResult SaveManualRosterEntry(string? entryId, RosterEdit edit, string expectedSnapshotToken);
+    RosterSaveResult SaveManualRosterEntry(string? entryId, RosterEdit edit, string expectedSnapshotToken, LegacyMergeConsent? mergeConsent);
+    RosterEditPreview PreviewManualRosterEntry(string? entryId, RosterEdit edit);
+    RosterSendTarget ResolveRosterSendTarget(string rowId);
     RosterMutationResult DeleteRosterEntry(string entryId, string expectedSnapshotToken);
     RosterMutationResult BindPairedRosterPeer(string entryId, string? peerId, string expectedSnapshotToken);
     RosterApplyResult ApplyRosterPreview(NekoChat.Core.Roster.RosterImportPreview preview);

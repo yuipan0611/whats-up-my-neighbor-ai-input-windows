@@ -8,8 +8,21 @@ public sealed record RosterSnapshotRow(RosterEntryView Entry, string? Source = n
 /// <summary>ExistingId=null explicitly chooses a new row; choices never change peer bindings.</summary>
 public sealed record RosterImportChoice(int Line, string? ExistingId);
 public enum RosterImportAction { Add, Update, Unchanged, Ambiguous, Error }
+/// <summary>How an import line changes the row's address. Cleared must be shown to the user as "清除位址" (CM-05).</summary>
+public enum RosterAddressChange { None, Set, Changed, Cleared }
 public sealed record RosterImportItem(int Line, RosterImportAction Action, RosterCsvRow? Row,
-    string? TargetId, IReadOnlyList<string> CandidateIds, IReadOnlyList<string> ErrorCodes);
+    string? TargetId, IReadOnlyList<string> CandidateIds, IReadOnlyList<string> ErrorCodes,
+    RosterAddressChange AddressChange = RosterAddressChange.None)
+{
+    public const string ClearAddressText = "清除位址";
+    public string? AddressChangeText => AddressChange switch
+    {
+        RosterAddressChange.Cleared => ClearAddressText,
+        RosterAddressChange.Set => "設定位址",
+        RosterAddressChange.Changed => "變更位址",
+        _ => null
+    };
+}
 
 /// <summary>A pure preview. The storage adapter must recheck the snapshot and apply all changes in one transaction.</summary>
 public sealed class RosterImportPreview
@@ -18,10 +31,18 @@ public sealed class RosterImportPreview
     public IReadOnlyList<RosterImportItem> Items { get; }
     public IReadOnlyList<RosterImportItem> Changes { get; }
     public IReadOnlyList<string> NotReferencedIds { get; }
+    /// <summary>Lines whose address collides with another row or line (CM-03). Any entry here blocks the whole apply.</summary>
+    public IReadOnlyList<int> IpConflictLines { get; }
+    /// <summary>Lines that would clear an existing address; the preview must list them explicitly.</summary>
+    public IReadOnlyList<RosterImportItem> ClearedAddresses { get; }
+    public bool CanApply => IpConflictLines.Count == 0;
 
     private RosterImportPreview(string token, RosterImportItem[] items, string[] notReferenced)
     {
         SnapshotToken = token;
+        IpConflictLines = Array.AsReadOnly(items.Where(i => i.ErrorCodes.Any(c => c is "duplicate_endpoint" or "endpoint_conflict"))
+            .Select(i => i.Line).Distinct().Order().ToArray());
+        ClearedAddresses = Array.AsReadOnly(items.Where(i => i.Action == RosterImportAction.Update && i.AddressChange == RosterAddressChange.Cleared).ToArray());
         Items = Array.AsReadOnly(items);
         Changes = Array.AsReadOnly(items.Where(i => i.Action is RosterImportAction.Add or RosterImportAction.Update).ToArray());
         NotReferencedIds = Array.AsReadOnly(notReferenced);
@@ -83,7 +104,7 @@ public sealed class RosterImportPreview
             }
             var action = target is null ? RosterImportAction.Add : SameValues(target, row)
                 ? RosterImportAction.Unchanged : RosterImportAction.Update;
-            items.Add(Item(row, action, target?.Id, ids));
+            items.Add(Item(row, action, target?.Id, ids) with { AddressChange = AddressChangeOf(target, row) });
         }
         foreach (var group in csv.Errors.GroupBy(e => e.Line))
             items.Add(new(group.Key, RosterImportAction.Error, null, null, Array.AsReadOnly(Array.Empty<string>()),
@@ -105,7 +126,8 @@ public sealed class RosterImportPreview
             var changedIds = changes.Where(x => x.item.TargetId is not null).Select(x => x.item.TargetId!).ToHashSet(StringComparer.Ordinal);
             var endpoints = snapshot.Where(s => !changedIds.Contains(s.Entry.Id) && s.Entry.Endpoint is not null)
                 .Select(s => (Endpoint: s.Entry.Endpoint!, Index: -1))
-                .Concat(changes.Where(x => x.item.Row!.Endpoint is not null).Select(x => (Endpoint: x.item.Row!.Endpoint!, Index: x.index)));
+                .Concat(changes.Select(x => (Endpoint: EffectiveEndpoint(x.item.Row!, x.item.TargetId is null ? null : byId[x.item.TargetId]), Index: x.index))
+                    .Where(x => x.Endpoint is not null).Select(x => (Endpoint: x.Endpoint!, Index: x.Index)));
             var conflicts = endpoints.GroupBy(x => x.Endpoint, StringComparer.Ordinal).Where(g => g.Count() > 1)
                 .SelectMany(g => g.Where(x => x.Index >= 0).Select(x => x.Index)).Distinct().ToArray();
             if (conflicts.Length == 0) break;
@@ -160,10 +182,21 @@ public sealed class RosterImportPreview
     }
 
     private static bool SameValues(RosterEntryView entry, RosterCsvRow row) => entry.DisplayName == row.Name &&
-        entry.StudentNumber == row.StudentNumber && entry.IsTeacher == row.IsTeacher && entry.Endpoint == row.Endpoint;
+        entry.StudentNumber == row.StudentNumber && entry.IsTeacher == row.IsTeacher && entry.Endpoint == EffectiveEndpoint(row, entry);
+
+    /// <summary>The address a row ends up with: the CSV value when an ip column exists, otherwise whatever the row already has.</summary>
+    internal static string? EffectiveEndpoint(RosterCsvRow row, RosterEntryView? target) => row.EndpointProvided ? row.Endpoint : target?.Endpoint;
+
+    private static RosterAddressChange AddressChangeOf(RosterEntryView? target, RosterCsvRow row)
+    {
+        if (!row.EndpointProvided) return RosterAddressChange.None;
+        string? old = target?.Endpoint;
+        if (old == row.Endpoint) return RosterAddressChange.None;
+        return row.Endpoint is null ? RosterAddressChange.Cleared : old is null ? RosterAddressChange.Set : RosterAddressChange.Changed;
+    }
 
     private static RosterImportItem Item(RosterCsvRow row, RosterImportAction action, string? id, IReadOnlyList<string> candidates, string? error = null) =>
         new(row.Line, action, row, id, candidates, Array.AsReadOnly(error is null ? Array.Empty<string>() : [error]));
     private static RosterImportItem Error(RosterImportItem item, string code) =>
-        item with { Action = RosterImportAction.Error, ErrorCodes = Array.AsReadOnly(new[] { code }) };
+        item with { Action = RosterImportAction.Error, ErrorCodes = Array.AsReadOnly(new[] { code }), AddressChange = RosterAddressChange.None };
 }
