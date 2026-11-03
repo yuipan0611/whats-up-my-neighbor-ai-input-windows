@@ -134,7 +134,7 @@ public sealed class PairingInitiator : IAsyncDisposable
     public Task<PairingStep> CancelAsync() => Cancel(null, "user_cancelled");
     public Task<PairingStep> AbortAsync(PairingFailure failure) => Cancel(null, failure switch {
         PairingFailure.Transport => "transport_error", PairingFailure.RemoteEnded => "remote_ended", PairingFailure.InvalidResponse => "invalid_response",
-        PairingFailure.ScopeChanged => "scope_changed", _ => throw new ArgumentOutOfRangeException(nameof(failure)) });
+        PairingFailure.ScopeChanged => "scope_changed", PairingFailure.Superseded => "superseded", _ => throw new ArgumentOutOfRangeException(nameof(failure)) });
     public Task<PairingStep> RejectAsync(PairingConsent consent) { ArgumentNullException.ThrowIfNull(consent); return Cancel(consent, "user_rejected"); }
     private Task<PairingStep> Cancel(PairingConsent? consent, string reason)
     {
@@ -150,7 +150,7 @@ public sealed class PairingInitiator : IAsyncDisposable
                     if (_cancelEpoch != Volatile.Read(ref _epoch)) return new PairingStep("superseded");
                     var session = _session;
                     if (session is null && View.Stage == PairingStage.Paired) return new PairingStep("already_complete");
-                    byte[]? packet = session is null ? null : PairingWire.Cancel(session.Id, _cancelReason == "user_rejected" || _cancelReason == "user_cancelled" ? "user_rejected" : "error");
+                    byte[]? packet = session is null ? null : PairingWire.Cancel(session.Id, _cancelReason == "user_rejected" || _cancelReason == "user_cancelled" ? "user_rejected" : _cancelReason == "superseded" ? "superseded" : "error");
                     End(_cancelReason, invalidate: false); return new PairingStep(_cancelReason, packet);
                 }
                 finally { _serial.Release(); }

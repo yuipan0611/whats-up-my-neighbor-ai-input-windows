@@ -30,7 +30,7 @@
 
 每actor同時最多1個physical protocol/storage工作；網路呼叫忙碌時立即拒絕，使用者確認與清理等待均有界，快照意圖在等SQL/state lock前即失效。完成／中止cache最多最近64筆、10分鐘，成功confirm只回原簽章副本，不寫DB；呼叫端改動回傳byte陣列不會污染cache。matching-session處理上限200、confirm最短1秒。身分檢查可能延遲；讀取完成後會以同一短lifecycle邊界重核取消，再發布ready／request。以內部fault hook在真SQLite查詢完成、結果返回前延遲，兩個negative control已先紅，恢復guard後兩端87項皆通過。最初以WAL寫鎖阻擋讀取的fixture假設不成立，該批紀錄保留但不作取消證據；已移除觀察counter，沒有把它當成安全權威。native host仍必須把關窗、resume、rebind與trust事件傳入invalidate，並在dispose資料前drain。
 
-87個新增檢查是本機兩份真SQLite、真P256、實際產品封包驅動兩actor；有雙向consent順序、真並行確認、SQL boundary阻塞時取消／新開窗、commit前後IO fault、錯role／key／session、有效遠端簽章不能取代本機動作、確認遺失／exact deadline／五秒poll與既有quota、cache／reveal／request上限、timer與資料保留。測試呼叫可信的本機確認入口，**不是人類實際比對或WPF驗收，也不是TCP傳輸驗收**。在網路admission之外被busy拒絕的呼叫不佔新的physical工作；transport仍須限制pair類別1槽與2秒wire回覆，不能把actor serial鎖當成全部listener的隔離。
+87個新增檢查是本機兩份真SQLite、真P256、實際產品封包驅動兩actor；有雙向consent順序、真並行確認、SQL boundary阻塞時取消／新開窗、commit前後IO fault、錯role／key／session、有效遠端簽章不能取代本機動作、確認遺失／exact deadline／五秒poll與既有quota、cache／reveal／request上限、timer與資料保留。測試呼叫可信的本機確認入口，**不是人類實際比對或WPF驗收，也不是TCP傳輸驗收**。在網路admission之外被busy拒絕的呼叫不佔新的physical工作；transport另有pair類別1槽與2秒wire回覆，不能把actor serial鎖當成全部listener的隔離。
 
 ## 條件式 TCP 傳輸（已實作）
 
@@ -38,7 +38,7 @@
 
 listener 在完整配對 request line 到達時先保留單一 class slot，含慢 headers／body 的 wire budget 最多2秒，body最多1KiB。尚無完整 request line 的連線沿用原一般 connection budget；所有路由仍共用原8條連線及20/source/min admission，沒有提高限制。wire逾時後會關閉 socket，但 detached protocol／SQLite job 真正完成前，class slot不釋出；第二個pair請求被拒絕，其他路由仍可使用。停止會先撤銷 endpoint 意圖、取消 connection token，再 drain 一般 workers、真正的pair job及其lease continuation，最後才讓host釋放借用的store/key。endpoint實作者必須在自己的最終trust transaction核對token。
 
-`PairingLanClient` 借用 initiator，持有自己的 HTTP／session lifetime；只接受 canonical private IPv4 literal，拒絕DNS／publicIP／縮寫IPv4／IPv6，不走proxy、不follow redirect。connect最多2秒、每個request最多4秒；headers最多8KiB，回覆body最多1KiB（包括無Content-Length的chunked），只接受未編碼的UTF-8 JSON。非200必須exact error envelope及status/code對應，200仍須actor驗packet／commitment／SID／role／key。只在明確Begin送request、nonce；SAS尚未本機確認時不送confirm。人類ticket確認後，暫時斷線／pending等只會每5秒重送相同confirm bytes，絕不自動新建session或送私訊。一次physical outbound操作、busy不排隊；Cancel可立即撤銷generation與HTTP，然後drain及best-effort forward cancel。
+`PairingLanClient` 借用 initiator，持有自己的 HTTP／session lifetime；只接受 canonical private IPv4 literal，拒絕DNS／publicIP／縮寫IPv4／IPv6，不走proxy、不follow redirect。connect最多2秒、每個request最多4秒；headers最多8KiB，回覆body最多1KiB（包括無Content-Length的chunked），只接受未編碼的UTF-8 JSON。非200必須exact error envelope及status/code對應，200仍須actor驗packet／commitment／SID／role／key。只在明確Begin送request、nonce；SAS尚未本機確認時不送confirm。人類ticket確認後，暫時斷線／pending／pair_unavailable暫忙等只會每5秒重送相同confirm bytes，絕不自動新建session或送私訊。一次physical outbound操作、busy不排隊；Cancel可立即撤銷generation與HTTP，然後drain及best-effort forward cancel。
 
 route generation、caller cancellation、120秒lifetime及外部fast scope predicate共同約束actor。predicate亦進入candidate與final SQLite commit guard；它必須thread-safe、無I/O，不可在guard內重新取得資料庫鎖。取消／dispose的同步token callbacks不在client lifecycle鎖內執行；user cancel與background failure發佈採同一短邊界，避免背景取消蓋掉明確user-cancel原因。這是volatile scope守衛，**還不是名單row的持久revision fence**。
 
@@ -46,9 +46,23 @@ route generation、caller cancellation、120秒lifetime及外部fast scope predi
 
 最後local COMMIT的scope test另做negative control：只暫時移除 initiator Live 的scope predicate，實際TCP收到有效R簽章後在BeforeCommit翻轉scope，測試精確失敗；還原guard後納入完整回歸。原始log與source hashes見 `build/wire-evidence/pairing-tcp-delivery.json`。來源未改schema、固定269／41vectors或核准素材，無新套件。
 
+## 同時發起的角色協調（已實作）
+
+可選的 `PairingCoordinator` 持有 initiator／responder／client，借用既有PairingIdentity與store。初始沒有使用者意圖、兩actor不接受新配對。明確Begin或Open建立一個有generation、scope／caller token和原始monotonic start的120秒意圖；新操作先排空舊工作。Begin／Open一個physical action、不排隊；incoming協調一個physical工作。cancel／invalidate／stop先讓scope失效，再排空工作。listener明確配置coordinator才會使用，正常App未配置它。
+
+若兩個明確outbound意圖的request交叉，收到的來源須符合captured目標IP，公鑰導出的PeerId須符合expected／已揭露PeerId（未知對象時只作來源及公開claim的角色提示）。**依ASCII Ordinal byte順序，較小者保持I並回403，較大者放棄舊I、取消其HTTP並drain實際工作，轉為R。**這不是大小寫折疊／顯示名稱排序；公開claim只可能干擾角色，不能取得配對／老師權限。新操作還在等舊工作時不參與cross arbitration，避免前一個對象狀態滲入新意圖。
+
+較大者沿用同一個原始120秒意圖來開R window，scope進入readiness、request candidate與最終transaction guard；角色轉換不增加期限，不自動產生新的outbound session。舊I取消只清自己unchanged pending，既有paired／revoked等不降級。其best-effort舊sid cancel使用client的唯一outbound slot，可以在背景等待最多4秒；R不等待這個通知回覆才接受新request。slot仍有owner並會在cancel／dispose drain，沒有unbounded fire-and-forget。新R的nonce／transcript／SAS／ticket是新session，舊I的ticket、確認旗標、cancel sid都不能沿用；兩邊仍須各自核對並確認。
+
+較大者先收到較小者403、稍後交叉request才到時，也可沿用原明確意圖接收；在原期限內顯示awaiting_cross_request，不自動重送request。這不保證先前request已在對方尚未有任何本機意圖時被拒絕的兩次循序操作自動收斂，該情況仍需明確新動作。confirm階段的generic pair_unavailable可能只是R local-action／physical slot暫忙，現在與pending等同樣每5秒重送已核准的同一confirm，直到有效簽章、409、期限或取消；Begin的403依舊不自動重開session。
+
+66項checks含真TCP／P256／兩份SQLite。合成私鑰只在RAM產生，特選PeerId '_'與小寫字首，構成Ordinal與case-folding順序相反的實際例子；以兩個受控real-HTTP request arrival gates驗reject-first／yield-first／同時放行／unknown expected的角色收斂、單一存活SAS、舊sid cancel、雙方ticket、配對後真signed message/storage ACK。另驗舊cancel回覆卡住仍能新R握手、cancel擁有並排空notification、119秒轉R只剩1秒／exact120拒確認、cancel/scope/dispose後不復活、無關key／logical-source注入不觸發轉換、舊SAS不能確認或拒絕新session，以及current mismatch rejection。
+
+真並行確認測試以AfterRead hook在**真正GetPeerSecuritySnapshot完成後**暫停R local action，確保network confirm實際得到403；釋放後原confirm五秒retry完成，R PeerRevision恰加1。這抓到先前client把暫忙403當作terminal remote_ended的真問題，沒有降低assert或改成手動fixture重試。另有R final BeforeCommit翻scope／revocation、scope在ready read完成時失效。四個negative controls分別反轉角色比較、移除R final scope、移除403 retry、移除R ready scope，各在精確對應assert失敗；finally還原production原文再完整回歸。詳見 `build/wire-evidence/pairing-cross-delivery.json`。
+
 ## 後續完成條件
 
-仍須完成同時發起的角色協調、host／設定與實際窗口接線、resume／rebind等事件的意圖撤銷，以及COMMIT前後真process-kill／重啟與更完整的雙向並發網路情境。若host把session綁到一筆名單，還須把captured roster revision納入最後交易的scope守衛與綁定，不能只依靠UI事件或把Row重新讀成最新值；目前actors只承諾local／peer revision原子守衛與明確傳入的volatile scope predicate。
+仍須完成host／設定與實際窗口接線、resume／rebind等事件的意圖撤銷，以及COMMIT前後真process-kill／重啟與更完整的雙向並發網路情境。若host把session綁到一筆名單，還須把captured roster revision納入最後交易的scope守衛與綁定，不能只依靠UI事件或把Row重新讀成最新值；目前actors只承諾local／peer revision原子守衛與明確傳入的volatile scope predicate。
 
 只有剩餘條件全部有證據，才能稱為條件式P1完成；正常產品啟用仍須使用者的身分方案與訊息上限決定。最終三包裝／DELIVERY待所有來源固定後重建；目前舊包裝不代表這批來源。Windows CNG／DPAPI／WPF／可用性與雙實機教室另列未執行。教材依使用者指示暫緩。
 

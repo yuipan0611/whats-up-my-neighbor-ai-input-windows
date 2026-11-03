@@ -23,6 +23,7 @@ public sealed class PairingLanClient : IAsyncDisposable
     private long _generation;
     private int _stopped;
     private Task? _disposal;
+    private Task _yieldNotice = Task.CompletedTask;
     public PairingView View => _actor.View;
     public PairingLanClient(PairingInitiator actor, PairingClientOptions? options = null) : this(actor, options ?? new(), new SocketsHttpHandler()) { }
     internal PairingLanClient(PairingInitiator actor, PairingClientOptions options, SocketsHttpHandler handler)
@@ -100,7 +101,7 @@ public sealed class PairingLanClient : IAsyncDisposable
                     var progress = await _actor.AdvanceAsync(response.Body, active.Token).ConfigureAwait(false);
                     if (progress.Code != "pending") return progress;
                 }
-                else if (response.Error is not ("transport_error" or "rate_limited" or "storage_unavailable" or "receiver_not_ready"))
+                else if (response.Error is not ("transport_error" or "rate_limited" or "storage_unavailable" or "receiver_not_ready" or "pair_unavailable"))
                     return await Fail(route, Failure(response.Error)).ConfigureAwait(false);
                 // Retries are only the already human-approved identical pair.confirm, never a new request/session or user message.
                 await Task.Delay(PairingTiming.Poll, active.Token).ConfigureAwait(false);
@@ -113,26 +114,41 @@ public sealed class PairingLanClient : IAsyncDisposable
         { return await Fail(route, PairingFailure.ScopeChanged).ConfigureAwait(false); }
         finally { _io.Release(); }
     }
-    public async Task<PairingStep> CancelAsync()
+    public Task<PairingStep> CancelAsync() => CancelCore(false);
+    internal Task<PairingStep> YieldAsync() => CancelCore(true);
+    private async Task<PairingStep> CancelCore(bool superseded)
     {
         Task<PairingStep> stop; Route? route;
         lock (_lifecycle)
         {
             if (Volatile.Read(ref _stopped) != 0) return new("stopped");
-            Interlocked.Increment(ref _generation); route = _route; stop = _actor.CancelAsync();
+            Interlocked.Increment(ref _generation); route = _route; stop = superseded ? _actor.AbortAsync(PairingFailure.Superseded) : _actor.CancelAsync();
         }
         route?.Cancel();
         var result = await stop.ConfigureAwait(false);
         await _io.WaitAsync().ConfigureAwait(false);
+        bool releasedByNotice = false;
         try
         {
             if (Volatile.Read(ref _stopped) == 0 && route is not null && ReferenceEquals(Volatile.Read(ref _route), route))
             {
-                if (result.Packet is not null) await BestEffort(route.Ip, route.Port, result.Packet, _shutdown.Token).ConfigureAwait(false);
-                await Drop(route).ConfigureAwait(false);
+                if (superseded)
+                {
+                    // Old I has physically drained. R may accept now; the single outbound slot still owns this bounded notification.
+                    lock (_lifecycle) _yieldNotice = Task.Run(async () => {
+                        try { if (result.Packet is not null) await BestEffort(route.Ip, route.Port, result.Packet, _shutdown.Token).ConfigureAwait(false); await Drop(route).ConfigureAwait(false); }
+                        finally { _io.Release(); }
+                    });
+                    releasedByNotice = true;
+                }
+                else
+                {
+                    if (result.Packet is not null) await BestEffort(route.Ip, route.Port, result.Packet, _shutdown.Token).ConfigureAwait(false);
+                    await Drop(route).ConfigureAwait(false);
+                }
             }
         }
-        finally { _io.Release(); }
+        finally { if (!releasedByNotice) _io.Release(); }
         return result;
     }
     private bool Current(Route route)
@@ -194,7 +210,7 @@ public sealed class PairingLanClient : IAsyncDisposable
         ["invalid_payload"] = 400, ["unsupported_version"] = 400, ["payload_too_large"] = 413, ["pair_unavailable"] = 403,
         ["pair_state"] = 409, ["pair_cancelled"] = 409, ["rate_limited"] = 429, ["storage_unavailable"] = 503, ["receiver_not_ready"] = 503
     };
-    private static void ValidateEndpoint(string ip, int port)
+    internal static void ValidateEndpoint(string ip, int port)
     { if (!IPAddress.TryParse(ip, out var parsed) || parsed.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork || parsed.ToString() != ip || !LanInvitation.PrivateIPv4(ip) || port is < 1 or > 65535) throw new ArgumentException("A canonical private IPv4 endpoint is required."); }
     public ValueTask DisposeAsync()
     {
@@ -208,7 +224,12 @@ public sealed class PairingLanClient : IAsyncDisposable
                 route?.Cancel(); _shutdown.Cancel();
                 await _actor.AbortAsync(PairingFailure.ScopeChanged).ConfigureAwait(false);
                 await _io.WaitAsync().ConfigureAwait(false);
-                try { if (route is not null) await Drop(route).ConfigureAwait(false); _http.Dispose(); _shutdown.Dispose(); }
+                try
+                {
+                    Task notice; lock (_lifecycle) notice = _yieldNotice;
+                    try { await notice.ConfigureAwait(false); }
+                    finally { try { if (route is not null) await Drop(route).ConfigureAwait(false); } finally { _http.Dispose(); _shutdown.Dispose(); } }
+                }
                 finally { _io.Release(); }
             }));
         }

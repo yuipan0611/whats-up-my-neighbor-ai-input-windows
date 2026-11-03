@@ -21,6 +21,7 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
     private int _accepting, _desiredOpen, _reveals, _userPending, _opening, _stopped;
     private long _historySequence;
     private string? _expected;
+    private Func<bool> _windowScope = () => true;
     private Task? _closing, _disposal;
     public PairingView View => Volatile.Read(ref _view);
     public int RetainedSessions => Volatile.Read(ref _retained);
@@ -28,11 +29,13 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
     public PairingResponder(PairingIdentity identity, TimeProvider? clock = null) : this(identity, clock ?? TimeProvider.System, true) { }
     internal PairingResponder(PairingIdentity identity, TimeProvider clock, bool startTimer)
     { _identity = identity ?? throw new ArgumentNullException(nameof(identity)); _clock = clock ?? throw new ArgumentNullException(nameof(clock)); _timer = startTimer ? Task.Run(Timer) : Task.CompletedTask; }
-    public async Task<bool> OpenWindowAsync(string? expectedPeerId = null)
+    public Task<bool> OpenWindowAsync(string? expectedPeerId = null) => OpenWindowAsync(expectedPeerId, _clock.GetTimestamp(), () => true);
+    internal async Task<bool> OpenWindowAsync(string? expectedPeerId, long openedAt, Func<bool> scopeCurrent)
     {
+        ArgumentNullException.ThrowIfNull(scopeCurrent);
         if (expectedPeerId is not null && !V2Format.IsPeerId(expectedPeerId)) throw new ArgumentException("Invalid expected peer.");
         if (Volatile.Read(ref _stopped) != 0 || Interlocked.CompareExchange(ref _opening, 1, 0) != 0) return false;
-        long intent, openedAt = _clock.GetTimestamp();
+        long intent;
         lock (_lifecycle) { Volatile.Write(ref _desiredOpen, 1); intent = Interlocked.Increment(ref _intentSequence); Interlocked.Increment(ref _epoch); Volatile.Write(ref _accepting, 0); }
         try
         {
@@ -45,8 +48,8 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
                     // The metadata read may have waited behind SQL. Publish readiness atomically with the latest UI/lifecycle intent, after that wait.
                     lock (_lifecycle)
                     {
-                        if (Volatile.Read(ref _desiredOpen) == 0 || intent != Volatile.Read(ref _intentSequence) || Volatile.Read(ref _stopped) != 0) return false;
-                        _windowStart = openedAt; _reveals = 0; _expected = expectedPeerId;
+                        if (Volatile.Read(ref _desiredOpen) == 0 || intent != Volatile.Read(ref _intentSequence) || Volatile.Read(ref _stopped) != 0 || !scopeCurrent()) return false;
+                        _windowStart = openedAt; _reveals = 0; _expected = expectedPeerId; _windowScope = scopeCurrent;
                         if (_clock.GetElapsedTime(openedAt) >= PairingTiming.Window) { Publish(new(PairingStage.Ended, "timeout")); return false; }
                         Volatile.Write(ref _accepting, 1); Publish(new(PairingStage.Listening, Remaining: PairingTiming.Window - _clock.GetElapsedTime(openedAt))); return true;
                     }
@@ -133,14 +136,14 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
             { if (++existing.Requests > PairingTiming.MaxRequests) { End("too_many_requests"); return PairingResponses.Error("pair_cancelled"); } return PairingResponses.Ok(existing.Commitment); }
             return PairingResponses.Error("pair_unavailable");
         }
-        if (Volatile.Read(ref _accepting) == 0 || Volatile.Read(ref _desiredOpen) == 0 || _clock.GetElapsedTime(_windowStart) >= PairingTiming.Window) return PairingResponses.Error("pair_unavailable");
+        if (Volatile.Read(ref _accepting) == 0 || Volatile.Read(ref _desiredOpen) == 0 || _clock.GetElapsedTime(_windowStart) >= PairingTiming.Window || !_windowScope()) return PairingResponses.Error("pair_unavailable");
         byte[] key = Convert.FromBase64String(packet.PublicSpkiBase64!); string peer = V2Crypto.PeerId(key);
         if (peer == _identity.PeerId || _expected is not null && _expected != peer) return PairingResponses.Error("pair_unavailable");
         long now = _clock.GetTimestamp();
         foreach (string expired in _sources.Where(p => _clock.GetElapsedTime(p.Value, now) >= TimeSpan.FromSeconds(2)).Select(p => p.Key).ToArray()) _sources.Remove(expired);
         if (_sources.ContainsKey(source) || _sources.Count >= 1024) return PairingResponses.Error("pair_unavailable");
         _sources[source] = now; long epoch = Volatile.Read(ref _epoch);
-        bool LiveRequest() => epoch == Volatile.Read(ref _epoch) && Volatile.Read(ref _accepting) != 0 && Volatile.Read(ref _desiredOpen) != 0 && Volatile.Read(ref _stopped) == 0 && !cancellation.IsCancellationRequested && _clock.GetElapsedTime(_windowStart) < PairingTiming.Window;
+        bool LiveRequest() => epoch == Volatile.Read(ref _epoch) && Volatile.Read(ref _accepting) != 0 && Volatile.Read(ref _desiredOpen) != 0 && Volatile.Read(ref _stopped) == 0 && !cancellation.IsCancellationRequested && _clock.GetElapsedTime(_windowStart) < PairingTiming.Window && _windowScope();
         var candidate = _identity.Candidate(key, LiveRequest);
         if (!candidate.Ready) return PairingResponses.Error("pair_unavailable");
         string nb = PairingWire.NewNonce(); V2Format.TryDecodeNonce22(packet.SessionId, out var sid); V2Format.TryDecodeNonce22(nb, out var nbBytes);
@@ -196,7 +199,7 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
         return PairingResponses.Ok(confirmation);
     }
     private bool Live(Session session) => Volatile.Read(ref _stopped) == 0 && session.Epoch == Volatile.Read(ref _epoch) &&
-        _clock.GetElapsedTime(session.Start) < PairingTiming.Session && _clock.GetElapsedTime(_windowStart) < PairingTiming.Window;
+        _clock.GetElapsedTime(session.Start) < PairingTiming.Session && _clock.GetElapsedTime(_windowStart) < PairingTiming.Window && _windowScope();
     private bool CurrentSecurity(Session session) => _identity.IsCurrent() && _identity.Store.GetPeerSecuritySnapshot(session.Expected.PeerId) == session.Expected;
     private void PublishSession(Session session) => Publish(new(session.Na is null ? PairingStage.Committed : session.LocalConfirmed ? PairingStage.Waiting : PairingStage.SasShown,
         SessionId: session.Id, PeerId: session.Expected.PeerId, Sas: session.Consent?.Sas, LocalConfirmed: session.LocalConfirmed, RemoteConfirmed: session.RemoteSignature is not null,
@@ -207,7 +210,7 @@ public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
     {
         foreach (string expired in _finished.Where(p => _clock.GetElapsedTime(p.Value.When) >= PairingTiming.History).Select(p => p.Key).ToArray()) _finished.Remove(expired);
         Volatile.Write(ref _retained, _finished.Count);
-        if (Volatile.Read(ref _accepting) != 0 && _clock.GetElapsedTime(_windowStart) >= PairingTiming.Window) Volatile.Write(ref _accepting, 0);
+        if (Volatile.Read(ref _accepting) != 0 && (_clock.GetElapsedTime(_windowStart) >= PairingTiming.Window || !_windowScope())) Volatile.Write(ref _accepting, 0);
         if (_session is { } session)
         {
             if (!Live(session) || session.Na is null && _clock.GetElapsedTime(session.Start) >= PairingTiming.Idle) End("timeout");

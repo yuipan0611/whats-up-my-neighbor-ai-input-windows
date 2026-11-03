@@ -3,7 +3,7 @@ using NekoChat.Core.V2;
 
 namespace NekoChat.Core.Pairing;
 
-public enum PairingFailure { Transport, RemoteEnded, InvalidResponse, ScopeChanged }
+public enum PairingFailure { Transport, RemoteEnded, InvalidResponse, ScopeChanged, Superseded }
 public enum PairingStage { Closed, Listening, Requested, Committed, SasShown, Waiting, Paired, Ended }
 
 /// <summary>One user action for the exact actor/session/SAS that was rendered. It does not itself establish a peer's consent.</summary>
