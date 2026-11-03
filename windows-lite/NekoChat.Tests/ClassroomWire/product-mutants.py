@@ -18,7 +18,7 @@ M = [
  ("ClassroomWire.cs", "b is >= 16 and <= 31", "b is >= 16 and <= 32", "private range accepts 172.32"),
  ("ClassroomWire.cs", "!messagePossiblyWritten && ", "", "legacy probe ignores 'message may be written'"),
  ("ClassroomWire.cs", "httpStatus == 400 && ", "", "legacy probe accepts any HTTP status"),
- ("ClassroomWire.cs", "ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4().ToString() : null", "ip.ToString()", "any IPv6 accepted as a source"),
+ ("ClassroomWire.cs", "ip.AddressFamily == AddressFamily.InterNetworkV6 && ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4().ToString() : null", "ip.AddressFamily == AddressFamily.InterNetworkV6 ? ip.ToString() : null", "any IPv6 accepted as a source"),
  ("ClassroomWire.cs", "if (len > 1 && s[start] == '0') return false;", "", "IPv4 accepts leading zeros"),
  ("ClassroomHead.cs", "head.Length > ClassroomWire.HeadMaxBytes", "false", "head block unbounded"),
  ("ClassroomHead.cs", 'headers.ContainsKey("Transfer-Encoding") ||', "false ||", "chunked tolerated"),
