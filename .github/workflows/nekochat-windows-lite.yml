@@ -62,11 +62,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Copy-Item windows-lite/README.md build/windows-lite-package/README.md
           Copy-Item windows-lite/DELIVERY.md build/windows-lite-package/DELIVERY.md
-          Copy-Item windows-lite/PAIRING-IMPLEMENTATION.md build/windows-lite-package/PAIRING-IMPLEMENTATION.md
-          Copy-Item windows-lite/PAIRING-VERIFICATION.md build/windows-lite-package/PAIRING-VERIFICATION.md
           Copy-Item windows-lite/SEND-CANCELLATION.md build/windows-lite-package/SEND-CANCELLATION.md
           Copy-Item windows-lite/BACKUP-RESTORE.md build/windows-lite-package/BACKUP-RESTORE.md
-          Copy-Item windows-lite/IDENTITY-VERIFICATION.md build/windows-lite-package/IDENTITY-VERIFICATION.md
           Copy-Item LICENSE build/windows-lite-package/LICENSE
           Copy-Item windows-lite/THIRD-PARTY.md build/windows-lite-package/THIRD-PARTY.md
           New-Item -ItemType Directory -Force build/windows-lite-package/tools | Out-Null

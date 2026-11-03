@@ -8,7 +8,7 @@ TC-05／SDS API-02 要求取消目前的網路操作；它不能撤回對方已�
 
 `ChatRuntime` 註冊真正正在傳送的 operation；`CancelAttemptAsync` 先取消該工作，再於 worker 以同一 try 寫入取消狀態。SQLite 拒絕寫入也不能恢復已取消的 I/O。WPF 既有「取消當次」在目前工作進行中可用；已取消、確認或被取代的嘗試不反覆取消。
 
-**使用者取消和身分／信任失效不同。** Cancel token 只控制 I/O，不能加進保存已驗證 ACK 的 security/lifetime predicate。若完整且驗證正確的 ACK 已先抵達，仍保存送達事實；只有與該次快照相符的草稿才清除，新稿不受影響。介面不保證撤回，也不把已驗證的送達改成失敗。
+**使用者取消只控制 I/O。** 已驗證的 ACK 到達就保存送達事實；只有與快照相符的草稿才清除，新稿不受影響。介面不保證撤回，也不把已驗證的送達改成失敗。
 
 ## Mac 已執行
 
@@ -24,6 +24,6 @@ dotnet run --project windows-lite/NekoChat.Tests -- --manual-send-cancel
 .\NekoChat.Windows.exe --manual-send-cancel-smoke-test C:\NekoChat-QA\manual-cancel-run1
 ```
 
-這個入口屬 archived-superseded 簽章測試，建立全新的隔離 DPAPI／SQLite profile，以合成公鑰和已確認的正文上限 `L=65536` 啟用歷史 sender；不讀／更改日常設定，也不代表教室產品仍需配對或已完成新版 transport。實際 ChatWindow 的 Send／Cancel routed controls 透過 ChatRuntime 發送到一個刻意不回 hello 的 loopback socket；成功才會檢查取消狀態、0筆歷史與原稿保留。輸出 `manual-send-cancel-result.json`、96-DPI WPF RenderTargetBitmap 截圖，並報告 fixture 清理是否成功。它不是 native input injection／物理 DPI／真鍵盤驗收。
+這個入口屬歷史測試，建立全新的隔離 SQLite profile，啟用手動傳送取消驗證；不讀／更改日常設定，也不代表教室產品完成新版 transport。實際 ChatWindow 的 Send／Cancel routed controls 透過 ChatRuntime 發送到一個刻意不回 hello 的 loopback socket；成功才會檢查取消狀態、0筆歷史與原稿保留。輸出 `manual-send-cancel-result.json`、96-DPI WPF RenderTargetBitmap 截圖，並報告 fixture 清理是否成功。它不是 native input injection／物理 DPI／真鍵盤驗收。
 
-另需在 Windows 驗收：按鈕／Tab／Enter／IME、對話切換中的舊 callback、真斷網與 receiver COMMIT 前後、睡眠／身分替換／關閉、存檔失敗、DPI／輔助工具。未執行維持未執行，不填 PASS。
+另需在 Windows 驗收：按鈕／Tab／Enter／IME、對話切換中的舊 callback、真斷網與 receiver COMMIT 前後、睡眠／關閉、存檔失敗、DPI／輔助工具。未執行維持未執行，不填 PASS。

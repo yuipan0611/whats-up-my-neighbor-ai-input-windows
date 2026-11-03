@@ -12,8 +12,7 @@ import subprocess
 import zipfile
 from verify_bundle import Bundle, verify_portable, required_content
 
-DOCS = ['README.md', 'DELIVERY.md', 'BACKUP-RESTORE.md', 'IDENTITY-VERIFICATION.md',
-        'PAIRING-IMPLEMENTATION.md', 'PAIRING-VERIFICATION.md', 'SEND-CANCELLATION.md', 'THIRD-PARTY.md']
+DOCS = ['README.md', 'DELIVERY.md', 'BACKUP-RESTORE.md', 'SEND-CANCELLATION.md', 'THIRD-PARTY.md']
 
 
 def digest(path):

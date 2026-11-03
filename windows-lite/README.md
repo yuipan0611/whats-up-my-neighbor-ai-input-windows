@@ -70,8 +70,8 @@
 `NekoChat Windows Lite` CI 必須執行訊息測試後，才能回報聊天功能通過：
 
 - 核心測試使用真實 TCP：雙向中文、emoji、多行文字、來源 IP、送達回覆、連接埠被占用、對方離線，以及 HTTP 成功但沒有送達確認的情況。
-- Windows 測試對完整套件、免安裝 EXE、安裝器實際解壓後的 App，各啟動兩個獨立程序，以隔離測試金鑰明確互相 pin，觸發實際 Enter 與「傳送」按鈕，走 SQLite attempt、簽章 TCP 與儲存 ACK。檢查正文原文、預設提醒僅顯示姓名與「新訊息」、以身分回覆、ACK 後草稿清空；逾時保留草稿與單次嘗試，再關閉重開資料庫驗證。此入口已列 archived-superseded 簽章測試，fixture 上限跟隨已確認的 D-06：65,536 UTF-8 bytes；不代表新版教室 transport 或 Windows 原生流程已通過。
-- 反應測試先驗證隱私預設，再從實際設定勾選允許反應圖片後，檢查五款素材、恢復位置與舊版來源的獨立未驗證紀錄。普通私訊不會退回無簽章傳送。
+- Windows 測試對完整套件、免安裝 EXE、安裝器實際解壓後的 App，各啟動兩個獨立程序，觸發實際 Enter 與「傳送」按鈕，走 SQLite attempt 與儲存 ACK。檢查正文原文、預設提醒僅顯示姓名與「新訊息」、ACK 後草稿清空；逾時保留草稿與單次嘗試，再關閉重開資料庫驗證。此入口已列歷史測試，fixture 上限跟隨已確認的 D-06：65,536 UTF-8 bytes；不代表新版教室 transport 或 Windows 原生流程已通過。
+- 反應測試先驗證隱私預設，再從實際設定勾選允許反應圖片後，檢查五款素材、恢復位置與舊版來源的獨立未驗證紀錄。
 - 每一種包裝也使用 Windows 原生滑鼠輸入，驗證單擊貓咪不開視窗、雙擊只開一次，以及第二次按住拖曳後放開不誤開視窗。
 - 兩端報告與聊天／氣泡／錯誤畫面保存於 `nekochat-windows-smoke-captures` artifact；原先的 `--smoke-test` 只涵蓋 UI 與素材，不能當成訊息已送達的證據。
 
@@ -81,7 +81,7 @@
 ./scripts/test-lite-messaging.ps1 -App ./build/windows-lite-package/NekoChat.Windows.exe -OutputDirectory ./build/windows-lite-smoke/manual-messaging
 ```
 
-測試使用同台 Windows 的兩個程序和不同本機測試埠；正常聊天仍使用 TCP 8768。這項結果不代表教室 AP／VLAN／防火牆已通過。發布前仍需兩台實體 Windows 電腦互傳、點氣泡回覆，並確認對方離線時不顯示成功。測試使用輸出目錄內獨立的 SQLite、設定與 DPAPI 測試金鑰，不讀寫日常設定或身分。請仍使用拋棄式 Windows 測試帳號驗證原生視窗與 DPAPI。
+測試使用同台 Windows 的兩個程序和不同本機測試埠；正常聊天仍使用 TCP 8768。這項結果不代表教室 AP／VLAN／防火牆已通過。發布前仍需兩台實體 Windows 電腦互傳、點氣泡回覆，並確認對方離線時不顯示成功。測試使用輸出目錄內獨立的 SQLite 與設定，不讀寫日常設定。請仍使用拋棄式 Windows 測試帳號驗證原生視窗。
 
 
 ## 離線備份還原
@@ -89,18 +89,10 @@
 App 提供 `--restore-backup <獨立備份.db> <全新目錄>`，只在新目錄產生經驗證、升級與重開的副本。既有資料與原備份均不覆寫。操作方式與安全切換步驟見 [BACKUP-RESTORE.md](BACKUP-RESTORE.md)。Mac 核心測試已實際涵蓋複製／驗證／發布前後的程序終止；Windows CLI、檔案權限與人工切換尚待原生驗收。
 
 
-## 本機身分遺失
+## 身分與配對：已依 D-04 撤除
 
-教室產品依固定名單與實際 socket 來源 IPv4 歸屬，不需要產生金鑰或核對數字；一般啟動不開啟 credential vault，也沒有配對／重建身分入口。正文上限為已確認的 65,536 UTF-8 bytes，草稿另採 1,048,576-byte 上限。新版教室 transport／store／UI 尚在整合，不把既有 signed fixture 當作新版驗收。舊身分程式、文件與測試保留在 archived-superseded 範圍，見 [ARCHIVED-SUPERSEDED.md](ARCHIVED-SUPERSEDED.md)；Windows 原生未執行。
+教室產品依固定名單與實際 socket 來源 IPv4 歸屬，不需要產生金鑰或核對數字；一般啟動不開啟 credential vault，也沒有配對／重建身分入口。正文上限為已確認的 65,536 UTF-8 bytes，草稿另採 1,048,576-byte 上限。
 
-## 條件式配對來源與預覽
-
-已補設定入口、選定名單的核對／綁定視窗與生命週期守衛。一般啟動仍未選定身分方案及訊息上限，不會自動建立金鑰或啟用配對。
-
-- [工程狀態與限制](PAIRING-IMPLEMENTATION.md)
-- [Windows 合成檢查及未執行清單](PAIRING-VERIFICATION.md)
-- [合成排版預覽](preview/pairing-dialog.html)（沒有配對能力，不是 WPF 驗收）
-
-最新本機整合交付與三種交叉包裝：[DELIVERY.md](DELIVERY.md)。Windows 實機未執行，身分模式與 L 尚未選定；不是新版本已發布。
+最新本機整合交付與三種交叉包裝：[DELIVERY.md](DELIVERY.md)。Windows 實機未執行；不是新版本已發布。
 
 續接完成稽核：[當次手動傳送取消](SEND-CANCELLATION.md) 已補 runtime／既有按鈕接線；53b983c包裝不包含這次修正。真正單檔 profile 已補 all-content bundling 與 metadata／Mac console proof，可用 tools/build_delivery.py 在新目錄重建三種產物；實際來源／結果以同批 manifest 為準。Windows 原生仍未驗收。
