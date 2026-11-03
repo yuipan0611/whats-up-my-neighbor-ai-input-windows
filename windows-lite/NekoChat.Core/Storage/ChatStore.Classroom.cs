@@ -44,9 +44,9 @@ public sealed partial class ChatStore
     /// <paramref name="observedSourceIp"/> must be the canonical IPv4 of the remote address of the socket (<c>ClassroomSource.Canonical</c>) that delivered the message (never a value from the body).
     /// The caller sends the ACK only after this returns Stored, Duplicate or ClearedDuplicate.
     /// </summary>
-    public ClassroomReceiveResult ReceiveClassroomMessage(string observedSourceIp, ClassroomIncoming message)
+    public ClassroomReceiveResult ReceiveClassroomMessage(string observedSourceIp, ClassroomIncoming message, Func<bool> stillCurrent)
     {
-        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(message); ArgumentNullException.ThrowIfNull(stillCurrent);
         if (ClassroomPrincipalKey.ForSource(observedSourceIp) is not { } source)
         { _options.DiagnosticSink?.Invoke("classroom-source-rejected"); return new ClassroomRejected("invalid-source"); }
         if (!StoreIds.IsValid(message.MessageId)) return new ClassroomRejected("invalid-id");
@@ -58,14 +58,14 @@ public sealed partial class ChatStore
         catch (EncoderFallbackException) { return new ClassroomRejected("invalid-unicode"); }
         string ip = source.SourceIp!; string? limit = null;
         ClassroomReceiveResult result;
-        try { result = ClassroomReceiveTransaction(ip, message, fingerprint, r => limit = r); }
+        try { result = ClassroomReceiveTransaction(ip, message, fingerprint, r => limit = r, stillCurrent); }
         catch (StoreException e) when (e.Kind == StoreErrorKind.ConstraintViolation && e.SqliteExtendedCode is 1555 or 2067)
-        { result = ClassroomReceiveTransaction(ip, message, fingerprint, r => limit = r); }
+        { result = ClassroomReceiveTransaction(ip, message, fingerprint, r => limit = r, stillCurrent); }
         if (limit is not null) _options.DiagnosticSink?.Invoke("classroom-offroster-limit scope=" + limit);   // size-only: no address, no content
         return result;
     }
 
-    private ClassroomReceiveResult ClassroomReceiveTransaction(string ip, ClassroomIncoming message, byte[] fingerprint, Action<string> limitHit) => Write<ClassroomReceiveResult>("classroom-receive", ctx =>
+    private ClassroomReceiveResult ClassroomReceiveTransaction(string ip, ClassroomIncoming message, byte[] fingerprint, Action<string> limitHit, Func<bool> stillCurrent) => Write<ClassroomReceiveResult>("classroom-receive", ctx =>
     {
         var principal = ResolveClassroomPrincipal(ctx, ip);   // roster join and insert share one transaction: no stale attribution
         if (Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM ClassroomCleared WHERE principal=@p AND direction='incoming' AND messageId=@id", ("@p", principal.Value), ("@id", message.MessageId)), CultureInfo.InvariantCulture) != 0)
@@ -86,7 +86,7 @@ public sealed partial class ChatStore
         long seq = Convert.ToInt64(ctx.Scalar("SELECT last_insert_rowid()"), CultureInfo.InvariantCulture);
         int unread = Convert.ToInt32(ctx.Scalar("SELECT count(*) FROM ClassroomMessage WHERE principal=@p AND direction='incoming' AND localReadAt IS NULL", ("@p", principal.Value)), CultureInfo.InvariantCulture);
         return (new ClassroomStored(principal, message.MessageId, seq, unread), true);
-    });
+    }, guardRejected: () => new ClassroomRejected("receiver-not-ready"), transactionGuard: _ => stillCurrent());   // checked again right before COMMIT (listener stopped or request cancelled while waiting for the writer)
 
     /// <summary>
     /// Which bound the NEW message would exceed, or null (CM-11). One shared budget for everything that is not on the roster: classroom conversations
@@ -129,7 +129,7 @@ public sealed partial class ChatStore
     public DraftSaveResult SaveClassroomDraft(ClassroomPrincipalKey principal, string rawText, long draftEpoch, long draftRevision)
     {
         RequirePrincipal(principal); ValidateRevision(draftEpoch, draftRevision); ValidateDraftText(rawText);
-        if (Encoding.UTF8.GetByteCount(rawText) > ClassroomLimits.MaxDraftBytes) return new DraftSaveResult(false, "draft-too-large", 0, 0);
+        if (Encoding.UTF8.GetByteCount(rawText) > ClassroomLimits.MaxDraftBytes) { var current = GetClassroomDraftState(principal); return new DraftSaveResult(false, "draft-too-large", current.Epoch, current.Revision); }
         return Write("classroom-save-draft", ctx => {
             if (!EnsureClassroomConversation(ctx, principal)) return (new DraftSaveResult(false, "not-found", 0, 0), false);
             var binding = ReadClassroomBinding(ctx, principal.Value)!;
@@ -352,7 +352,7 @@ public sealed partial class ChatStore
                     queued += ctx.Exec("INSERT OR IGNORE INTO ClassroomReceiptOutbox(originalLocalSeq,principal,receiptKind,createdUtc) VALUES(@seq,@p,'read',@now)", ("@seq", seq), ("@p", principal.Value), ("@now", ctx.NowUtc));
             }
             return (new VisibleReadResult(marked, queued, marked > 0 ? "marked" : "unchanged"), marked > 0);
-        });
+        }, guardRejected: () => new VisibleReadResult(0, 0, "stale-view"), transactionGuard: _ => visibilityStillCurrent is null || visibilityStillCurrent());   // also right before COMMIT: a view that went away never leaves a read mark or receipt
     }
 
     /// <summary>Receipts to send, each with the conversation's CURRENT address; ones without an address are skipped (they stay queued).</summary>

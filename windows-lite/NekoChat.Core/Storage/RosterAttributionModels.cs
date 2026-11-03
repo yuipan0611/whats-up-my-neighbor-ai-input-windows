@@ -10,7 +10,10 @@ public sealed record RosterEditPreview(bool CanSave, string Reason, string? Conf
     RosterAddressChange AddressChange, string? Endpoint, int UnknownMessagesToMerge, string SnapshotToken)
 {
     /// <summary>Shown to the user before they confirm; null when there is nothing to merge.</summary>
-    public string? MergeNotice => UnknownMessagesToMerge > 0 ? $"此 IP 的 {UnknownMessagesToMerge} 則名單外訊息會併入" : null;
+    public string? MergeNotice => MergeConflictReason is not null ? $"此 IP 的 {UnknownMessagesToMerge} 則名單外訊息無法併入：{MergeConflicts.Explain(MergeConflictReason)}" :
+        UnknownMessagesToMerge > 0 ? $"此 IP 的 {UnknownMessagesToMerge} 則名單外訊息會併入" : null;
+    /// <summary>CM-02c: draft-conflict or message-conflict; the save is refused as a whole until the user resolves it.</summary>
+    public string? MergeConflictReason { get; init; }
     public string? AddressChangeText => AddressChange == RosterAddressChange.Cleared ? RosterImportItem.ClearAddressText : null;
     /// <summary>The consent a UI passes back after the user confirmed the merge notice; null when nothing is to be merged.</summary>
     public LegacyMergeConsent? ToMergeConsent() => CanSave && Endpoint is not null && UnknownMessagesToMerge > 0 ? new(Endpoint, UnknownMessagesToMerge) : null;

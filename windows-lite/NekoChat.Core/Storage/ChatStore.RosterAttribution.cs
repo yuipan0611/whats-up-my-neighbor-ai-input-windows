@@ -4,9 +4,23 @@ using NekoChat.Core.Roster;
 namespace NekoChat.Core.Storage;
 
 /// <summary>"此 IP 的 N 則名單外訊息會併入○○" for one import line. Shown in the preview; accepting it is passing it back to ApplyRosterPreview.</summary>
-public sealed record RosterImportMergeNotice(int Line, string DisplayName, string Endpoint, int Messages)
+public sealed record RosterImportMergeNotice(int Line, string DisplayName, string Endpoint, int Messages, string? ConflictReason = null)
 {
-    public string Text => $"此 IP 的 {Messages} 則名單外訊息會併入{DisplayName}";
+    /// <summary>With a conflict the text states why it cannot merge and how to fix it (CM-02c); such a notice cannot be confirmed.</summary>
+    public string Text => ConflictReason is null ? $"此 IP 的 {Messages} 則名單外訊息會併入{DisplayName}" :
+        $"此 IP 的 {Messages} 則名單外訊息無法併入{DisplayName}：{MergeConflicts.Explain(ConflictReason)}";
+}
+
+/// <summary>CM-02c: merging is all or nothing. Two different non-empty drafts, or one message id with different content on the two sides, is a conflict.</summary>
+public static class MergeConflicts
+{
+    public const string Draft = "draft-conflict", Message = "message-conflict";
+    public static string Explain(string reason) => reason switch
+    {
+        Draft => "兩邊都有內容不同的草稿。請先到「名單外・IP」對話送出或刪除該草稿，再加入。",
+        Message => "同一個訊息代號在兩邊的內容不同。請先清除該「名單外・IP」對話（D-12）後，再加入。",
+        _ => reason
+    };
 }
 
 /// <summary>
@@ -37,6 +51,8 @@ public sealed partial class ChatStore
         var change = old?.Endpoint == endpoint ? RosterAddressChange.None : endpoint is null ? RosterAddressChange.Cleared
             : old?.Endpoint is null ? RosterAddressChange.Set : RosterAddressChange.Changed;
         int merge = endpoint is not null && change != RosterAddressChange.None ? Read(c => CountUnknownSource(c, endpoint)) : 0;
+        string? conflict = merge > 0 && entryId is not null ? Read(c => MergeConflictReason((sql, a, b) => ScalarOn(c, sql, a, b), endpoint!, entryId)) : null;
+        if (conflict is not null) return new(false, "merge_conflict", null, null, change, endpoint, merge, token) { MergeConflictReason = conflict };
         return new(true, "ok", null, null, change, endpoint, merge, token);
     }
 
@@ -47,12 +63,16 @@ public sealed partial class ChatStore
         var snapshot = GetRosterSnapshot();
         if (!preview.MatchesSnapshot(snapshot) || !preview.CanApply) return [];
         return Read(c => preview.Changes.Where(i => i.AddressChange is RosterAddressChange.Set or RosterAddressChange.Changed && i.Row!.Endpoint is not null)
-            .Select(i => new RosterImportMergeNotice(i.Line, i.Row!.Name, i.Row.Endpoint!, CountUnknownSource(c, i.Row.Endpoint!))).Where(n => n.Messages > 0).ToArray());
+            .Select(i => new RosterImportMergeNotice(i.Line, i.Row!.Name, i.Row.Endpoint!, CountUnknownSource(c, i.Row.Endpoint!),
+                i.TargetId is null ? null : MergeConflictReason((sql, a, b) => ScalarOn(c, sql, a, b), i.Row.Endpoint!, i.TargetId))).Where(n => n.Messages > 0).ToArray());
     }
 
     /// <summary>Null when every confirmed notice still matches its import line and current count; otherwise the refusal reason.</summary>
-    private static string? MergeNoticeProblem(RosterImportPreview preview, IEnumerable<RosterSnapshotRow> snapshot, IReadOnlyList<RosterImportMergeNotice> notices, Func<string, int> count)
+    private static string? MergeNoticeProblem(RosterImportPreview preview, IEnumerable<RosterSnapshotRow> snapshot, IReadOnlyList<RosterImportMergeNotice> notices, Func<string, int> count, Func<string, string, string?> conflict)
     {
+        // CM-03b/02c: any merge conflict in the file blocks the whole import, whether or not that line's notice was passed back.
+        foreach (var item in preview.Changes.Where(i => i.AddressChange is RosterAddressChange.Set or RosterAddressChange.Changed && i.Row!.Endpoint is not null && i.TargetId is not null))
+            if (count(item.Row!.Endpoint!) > 0 && conflict(item.Row.Endpoint!, item.TargetId!) is not null) return "merge_conflict";
         if (notices.Select(n => n.Line).Distinct().Count() != notices.Count) return "legacy_merge_mismatch";
         var byId = snapshot.ToDictionary(s => s.Entry.Id, s => s.Entry, StringComparer.Ordinal);
         foreach (var notice in notices)
@@ -94,13 +114,32 @@ public sealed partial class ChatStore
         return moved + MergeClassroomConversation(ctx, ClassroomPrincipalKey.ForSourceIp(ip), ClassroomPrincipalKey.ForRosterEntry(rowId));
     }
 
+    private const string DraftConflictSql = "SELECT count(*) FROM ClassroomDraft f JOIN ClassroomDraft t ON t.principal=@to WHERE f.principal=@from AND f.rawText<>t.rawText";
+    private const string MessageConflictSql = "SELECT count(*) FROM ClassroomMessage f JOIN ClassroomMessage t ON t.principal=@to AND t.direction=f.direction AND t.messageId=f.messageId WHERE f.principal=@from AND (f.rawText<>t.rawText OR coalesce(f.reaction,'')<>coalesce(t.reaction,'') OR f.kind<>t.kind OR f.contentFingerprint<>t.contentFingerprint)";
+    private static long ScalarOn(SqliteConnection c, string sql, string from, string to)
+    {
+        using var cmd = c.CreateCommand(); cmd.CommandText = sql; cmd.Parameters.AddWithValue("@from", from); cmd.Parameters.AddWithValue("@to", to);
+        return Convert.ToInt64(cmd.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+    /// <summary>CM-02c. Null when merging <c>ip:ip</c> into <c>roster:rowId</c> loses nothing; otherwise draft-conflict or message-conflict. Nothing is written.</summary>
+    private static string? MergeConflictReason(Func<string, string, string, long> scalar, string ip, string rowId)
+    {
+        string from = "ip:" + ip, to = "roster:" + rowId;
+        if (scalar(DraftConflictSql, from, to) != 0) return MergeConflicts.Draft;
+        if (scalar(MessageConflictSql, from, to) != 0) return MergeConflicts.Message;
+        return null;
+    }
+
     /// <summary>
-    /// CM-10: messages, draft and attempts of <c>ip:x</c> move to <c>roster:id</c> in the caller's transaction. A message id present on both sides is kept once
-    /// (the roster's copy). If both sides have a draft the roster's stays and the unknown source's draft is dropped; if both have a sending attempt the moved one is superseded.
+    /// CM-10: messages, draft and attempts of <c>ip:x</c> move to <c>roster:id</c> in the caller's transaction. A message id present on both sides with identical content is kept once;
+    /// different content, or two different non-empty drafts, is a conflict that the callers refuse before getting here (CM-02c). If both have a sending attempt the moved one is superseded.
     /// Both draft epochs advance so any in-flight draft save or send bound to the old guard is rejected.
     /// </summary>
     private static int MergeClassroomConversation(WriteContext ctx, ClassroomPrincipalKey from, ClassroomPrincipalKey to)
     {
+        // The callers have already refused a conflicting merge (MergeConflictReason); this is the last line of defence and never drops data.
+        if (MergeConflictReason((sql, a, b) => Convert.ToInt64(ctx.Scalar(sql, ("@from", a), ("@to", b)), System.Globalization.CultureInfo.InvariantCulture), from.SourceIp!, to.RosterEntryId!) is { } conflict)
+            throw new InvalidOperationException("Merge conflict reached the merge step: " + conflict);
         if (Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM ClassroomConversation WHERE principal=@p", ("@p", from.Value)), System.Globalization.CultureInfo.InvariantCulture) == 0) return 0;
         int total = (int)Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM ClassroomMessage WHERE principal=@p", ("@p", from.Value)), System.Globalization.CultureInfo.InvariantCulture);
         ctx.Exec("INSERT OR IGNORE INTO ClassroomConversation(principal,createdUtc) VALUES(@to,@now)", ("@to", to.Value), ("@now", ctx.NowUtc));
@@ -112,6 +151,7 @@ public sealed partial class ChatStore
         if (Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM ClassroomAttempt WHERE principal=@to AND attemptState='sending'", ("@to", to.Value)), System.Globalization.CultureInfo.InvariantCulture) != 0)
             ctx.Exec("UPDATE ClassroomAttempt SET attemptState='superseded',updatedUtc=@now WHERE principal=@from AND attemptState='sending'", ("@now", ctx.NowUtc), ("@from", from.Value));
         ctx.Exec("UPDATE ClassroomAttempt SET principal=@to WHERE principal=@from", ("@to", to.Value), ("@from", from.Value));
+        // Not a conflict here: only one side has a draft, or both are identical. Keep the non-empty one (once).
         if (ctx.Scalar("SELECT rawText FROM ClassroomDraft WHERE principal=@from", ("@from", from.Value)) is string draft)
         {
             ctx.Exec("INSERT OR IGNORE INTO ClassroomDraft(principal,rawText,updatedUtc) VALUES(@to,@text,@now)", ("@to", to.Value), ("@text", draft), ("@now", ctx.NowUtc));

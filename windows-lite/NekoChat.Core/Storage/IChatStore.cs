@@ -55,7 +55,7 @@ public interface IChatStore : IDisposable
     IReadOnlyList<RosterImportMergeNotice> GetRosterImportMergeNotices(NekoChat.Core.Roster.RosterImportPreview preview);
     RosterApplyResult ApplyRosterPreview(NekoChat.Core.Roster.RosterImportPreview preview, IReadOnlyList<RosterImportMergeNotice>? confirmedMerges);
     ClassroomPrincipalKey? ResolveClassroomPrincipal(string sourceIp);
-    ClassroomReceiveResult ReceiveClassroomMessage(string observedSourceIp, ClassroomIncoming message);
+    ClassroomReceiveResult ReceiveClassroomMessage(string observedSourceIp, ClassroomIncoming message, Func<bool> stillCurrent);
     DraftState GetClassroomDraftState(ClassroomPrincipalKey principal);
     DraftSaveResult SaveClassroomDraft(ClassroomPrincipalKey principal, string rawText, long draftEpoch, long draftRevision);
     BeginSendResult BeginClassroomSend(ClassroomPrincipalKey principal, string rawText, long draftEpoch, long draftRevision, string kind = "text", string? reaction = null);

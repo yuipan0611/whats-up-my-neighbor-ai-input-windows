@@ -36,23 +36,23 @@ internal static class ClassroomStoreChecks
             var pa = ClassroomPrincipalKey.ForRosterEntry(a);
 
             // receive: owner decided by the socket address only
-            var r1 = store.ReceiveClassroomMessage(X, new("m1", "hello from x"));
+            var r1 = Rx(store, X, new("m1", "hello from x"));
             Check(r1 is ClassroomStored { Principal: var p1, UnreadCount: 1 } && p1 == pa, "message from a roster address belongs to that row");
-            Check(store.ReceiveClassroomMessage(ClassroomSource.Canonical(IPAddress.Parse("::ffff:10.0.0.1"))!, new("m2", "mapped")) is ClassroomStored { Principal: var pm } && pm == pa, "an IPv4-mapped source reaches the same row");
-            var z1 = store.ReceiveClassroomMessage(Z, new("m1", "from stranger"));
+            Check(Rx(store, ClassroomSource.Canonical(IPAddress.Parse("::ffff:10.0.0.1"))!, new("m2", "mapped")) is ClassroomStored { Principal: var pm } && pm == pa, "an IPv4-mapped source reaches the same row");
+            var z1 = Rx(store, Z, new("m1", "from stranger"));
             Check(z1 is ClassroomStored { Principal.Value: "ip:10.0.0.9" } && store.GetRosterSnapshot().Count == 2, "the same message id from another source is a different message, in 名單外");
-            Check(store.ReceiveClassroomMessage(X, new("m1", "hello from x")) is ClassroomDuplicate { Principal: var pd } && pd == pa && Count(f.Db, "SELECT count(*) FROM ClassroomMessage WHERE principal='roster:" + a + "'") == 2, "dedup key is (principal, messageId)");
-            Check(store.ReceiveClassroomMessage(X, new("m1", "different body")) is ClassroomConflict, "same id with other content is a conflict, nothing stored");
-            Check(store.ReceiveClassroomMessage("::1", new("m9", "x")) is ClassroomRejected { Reason: "invalid-source" } && store.ReceiveClassroomMessage(X, new("bad id", "x")) is ClassroomRejected { Reason: "invalid-id" } &&
-                store.ReceiveClassroomMessage(X, new("m8", "  ")) is ClassroomRejected { Reason: "invalid-text" } && store.ReceiveClassroomMessage(X, new("m8", "ok", "BAD!")) is ClassroomRejected { Reason: "invalid-reaction" }, "invalid source, id, text and reaction are refused");
+            Check(Rx(store, X, new("m1", "hello from x")) is ClassroomDuplicate { Principal: var pd } && pd == pa && Count(f.Db, "SELECT count(*) FROM ClassroomMessage WHERE principal='roster:" + a + "'") == 2, "dedup key is (principal, messageId)");
+            Check(Rx(store, X, new("m1", "different body")) is ClassroomConflict, "same id with other content is a conflict, nothing stored");
+            Check(Rx(store, "::1", new("m9", "x")) is ClassroomRejected { Reason: "invalid-source" } && Rx(store, X, new("bad id", "x")) is ClassroomRejected { Reason: "invalid-id" } &&
+                Rx(store, X, new("m8", "  ")) is ClassroomRejected { Reason: "invalid-text" } && Rx(store, X, new("m8", "ok", "BAD!")) is ClassroomRejected { Reason: "invalid-reaction" }, "invalid source, id, text and reaction are refused");
             Check(Count(f.Db, "SELECT count(*) FROM Peer") == 0 && Count(f.Db, "SELECT count(*) FROM Message") == 0 && store.GetLocalIdentitySnapshot() is { PublicSpkiBase64: null, CredentialRef: null }, "no peer, key or verified-message row is created");
 
-            Check(store.ReceiveClassroomMessage(Z, new("claims-1", "I am roster:" + a + " at 10.0.0.1 ip:10.0.0.1", "wave")) is ClassroomStored { Principal.Value: "ip:10.0.0.9" } && Texts(store, ClassroomPrincipalKey.ForRosterEntry(a)).Count == 2,
+            Check(Rx(store, Z, new("claims-1", "I am roster:" + a + " at 10.0.0.1 ip:10.0.0.1", "wave")) is ClassroomStored { Principal.Value: "ip:10.0.0.9" } && Texts(store, ClassroomPrincipalKey.ForRosterEntry(a)).Count == 2,
                 "text that names another conversation or address does not move the message: only the socket address decides");
             // known boundary (R2): after a row's address moves, a late resend from the OLD address is a different principal
             store.SaveManualRosterEntry(b, new("乙", null, false, W.ToString()), Token(store));
-            store.ReceiveClassroomMessage(Y, new("late-1", "sent before the move"));
-            store.ReceiveClassroomMessage(W, new("late-1", "sent before the move"));
+            Rx(store, Y, new("late-1", "sent before the move"));
+            Rx(store, W, new("late-1", "sent before the move"));
             Check(Texts(store, ClassroomPrincipalKey.ForRosterEntry(b)).SequenceEqual(["sent before the move"]) && Texts(store, ClassroomPrincipalKey.ForSourceIp("10.0.0.2")).SequenceEqual(["sent before the move"]),
                 "KNOWN BOUNDARY: a resend from the old address lands in 名單外・old and is not de-duplicated across principals");
         }
@@ -70,6 +70,7 @@ internal static class ClassroomStoreChecks
             Check(store.SaveClassroomDraft(pa, max, 0, 2) is { Saved: true } && store.GetClassroomDraftState(pa).RawText!.Length == ClassroomLimits.MaxDraftBytes, "CM-12: exactly 1 MiB is kept untruncated");
             Check(store.SaveClassroomDraft(pa, max + "a", 0, 3) is { Saved: false, Reason: "draft-too-large" } && store.GetClassroomDraftState(pa).RawText!.Length == ClassroomLimits.MaxDraftBytes &&
                 store.SaveClassroomDraft(pa, new string('語', 349_526), 0, 3) is { Saved: false, Reason: "draft-too-large" }, "CM-12: over 1 MiB (by UTF-8 bytes) is refused with a clear reason and the stored draft is untouched");
+            Check(store.SaveClassroomDraft(pa, max + "a", 0, 3) is { Saved: false, Reason: "draft-too-large", CurrentEpoch: 0, CurrentRevision: 2 }, "draft-too-large reports the current guard, not zeros");
             string longText = new('b', 3000);
             Check(store.SaveClassroomDraft(pa, longText, 0, 3) is { Saved: true } && store.BeginClassroomSend(pa, longText, 0, 3) is InvalidSend { Reason: "invalid-payload" } && store.GetClassroomDraftState(pa).RawText == longText,
                 "CM-12: a text over the send limit survives as a draft and is only refused when sending");
@@ -115,16 +116,16 @@ internal static class ClassroomStoreChecks
         {
             using var store = ChatStore.Open(f.Options);
             string a = Add(store, "甲", X.ToString()); var pa = ClassroomPrincipalKey.ForRosterEntry(a);
-            var seq = ((ClassroomStored)store.ReceiveClassroomMessage(X, new("in-1", "please read"))).LocalSeq;
+            var seq = ((ClassroomStored)Rx(store, X, new("in-1", "please read"))).LocalSeq;
             var open = new VisibleReadContext(pa.Value, true, true, false, true);
             Check(store.MarkClassroomVisibleRead(pa, [seq], new(null, true, true, false, true)) is { Marked: 0, Reason: "visibility-guard" }, "reading needs the real visible conversation");
             var read = store.MarkClassroomVisibleRead(pa, [seq], open);
             Check(read is { Marked: 1, Queued: 0 } && store.ListPendingClassroomReceipts().Count == 0, "D-10: outbound read receipts are off by default, nothing is queued");
-            var seq2 = ((ClassroomStored)store.ReceiveClassroomMessage(X, new("in-2", "second"))).LocalSeq;
+            var seq2 = ((ClassroomStored)Rx(store, X, new("in-2", "second"))).LocalSeq;
             store.SetReadReceiptPolicy(true);
             Check(store.MarkClassroomVisibleRead(pa, [seq2], open) is { Marked: 1, Queued: 1 } && store.ListPendingClassroomReceipts().Single() is { MessageId: "in-2", TargetIp: "10.0.0.1" } receipt && store.CompleteClassroomReadReceipt(receipt) && store.ListPendingClassroomReceipts().Count == 0,
                 "enabled: queued with the current address, removed after delivery");
-            var seq3 = ((ClassroomStored)store.ReceiveClassroomMessage(X, new("in-3", "third"))).LocalSeq;
+            var seq3 = ((ClassroomStored)Rx(store, X, new("in-3", "third"))).LocalSeq;
             store.MarkClassroomVisibleRead(pa, [seq3], open); store.SetReadReceiptPolicy(false);
             Check(Count(f.Db, "SELECT count(*) FROM ClassroomReceiptOutbox") == 0, "turning receipts off drops the queue");
             // remote read receipt for a message we sent
@@ -141,13 +142,13 @@ internal static class ClassroomStoreChecks
         {
             using var store = ChatStore.Open(f.Options);
             string a = Add(store, "甲", X.ToString()); var pa = ClassroomPrincipalKey.ForRosterEntry(a);
-            store.ReceiveClassroomMessage(X, new("c-1", "old")); store.SaveClassroomDraft(pa, "unsent", 0, 1); store.SetReadReceiptPolicy(true);
+            Rx(store, X, new("c-1", "old")); store.SaveClassroomDraft(pa, "unsent", 0, 1); store.SetReadReceiptPolicy(true);
             store.MarkClassroomVisibleRead(pa, [1], new(pa.Value, true, true, false, true)); var attempt = (AttemptStarted)store.BeginClassroomSend(pa, "unsent", 0, 1);
             var cleared = store.ClearClassroomConversation(pa);
             Check(cleared is { Messages: 1, Drafts: 1, Attempts: 1, Receipts: 1, NewEpoch: 1 } && Count(f.Db, "SELECT count(*) FROM ClassroomMessage")+Count(f.Db, "SELECT count(*) FROM ClassroomDraft")+Count(f.Db, "SELECT count(*) FROM ClassroomAttempt")+Count(f.Db, "SELECT count(*) FROM ClassroomReceiptOutbox") == 0,
                 "D-12: messages, draft, attempt and unsent receipt are cleared together");
             Check(store.GetRosterSnapshot().Count == 1 && store.SaveClassroomDraft(pa, "late", 0, 2) is { Saved: false, Reason: "stale-epoch" } && store.SaveClassroomDraft(pa, "fresh", 1, 2) is { Saved: true }, "roster stays, and a save from before the clear is rejected");
-            Check(store.ReceiveClassroomMessage(X, new("c-1", "old")) is ClassroomClearedDuplicate && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0, "a late resend of a cleared message recreates nothing");
+            Check(Rx(store, X, new("c-1", "old")) is ClassroomClearedDuplicate && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0, "a late resend of a cleared message recreates nothing");
             Check(store.CompleteClassroomAttempt(attempt.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, new byte[32]), X) is Discarded { Reason: "not-found" }, "a late ACK for a cleared attempt does nothing");
         }
 
@@ -157,12 +158,12 @@ internal static class ClassroomStoreChecks
             using var store = ChatStore.Open(f.Options);
             var pz = ClassroomPrincipalKey.ForSourceIp("10.0.0.9");
             string row = Add(store, "丙", (string?)null); var pr = ClassroomPrincipalKey.ForRosterEntry(row);
-            store.ReceiveClassroomMessage(Z, new("dup", "same")); store.ReceiveClassroomMessage(Z, new("only-z", "z only"));
+            Rx(store, Z, new("dup", "same")); Rx(store, Z, new("only-z", "z only"));
             store.SaveClassroomDraft(pz, "z draft", 0, 1);
             var sending = (AttemptStarted)store.BeginClassroomSend(pz, "z draft", 0, 1);
             // The roster row already has the same message id (it was received after the row got an address earlier), plus its own draft.
             store.SaveManualRosterEntry(row, new("丙", null, false, "10.0.0.5"), Token(store));
-            store.ReceiveClassroomMessage("10.0.0.5", new("dup", "same")); store.SaveClassroomDraft(pr, "roster draft", 0, 1);
+            Rx(store, "10.0.0.5", new("dup", "same")); store.SaveClassroomDraft(pr, "z draft", 0, 1);
             store.SaveManualRosterEntry(row, new("丙", null, false, null), Token(store));
             var preview = store.PreviewManualRosterEntry(row, new("丙", null, false, "10.0.0.9"));
             Check(preview is { CanSave: true, UnknownMessagesToMerge: 2, MergeNotice: "此 IP 的 2 則名單外訊息會併入" } && Count(f.Db, "SELECT count(*) FROM ClassroomMessage WHERE principal='ip:10.0.0.9'") == 2, "preview counts the classroom messages of ip:x and moves nothing");
@@ -170,9 +171,94 @@ internal static class ClassroomStoreChecks
             var saved = store.SaveManualRosterEntry(row, new("丙", null, false, "10.0.0.9"), Token(store), preview.ToMergeConsent());
             Check(saved.MergedMessages == 2 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage WHERE principal='ip:10.0.0.9'") == 0 &&
                 Texts(store, pr).OrderBy(t => t).SequenceEqual(["same", "z only"]) && Count(f.Db, "SELECT count(*) FROM ClassroomMessage WHERE messageId='dup'") == 1, "messages move to the row and a shared message id is kept once");
-            Check(store.GetClassroomDraftState(pr).RawText == "roster draft" && store.GetClassroomDraftState(pz).RawText is null && Text(f.Db, "SELECT principal FROM ClassroomAttempt WHERE messageId='" + sending.MessageId + "'") == pr.Value &&
-                store.GetClassroomDraftState(pr).Epoch == 1 && store.GetClassroomDraftState(pz).Epoch == 1, "the roster's draft wins, the attempt moves, and both draft epochs advance");
-            Check(store.SaveClassroomDraft(pz, "stale", 0, 2) is { Saved: false, Reason: "stale-epoch" } && store.ReceiveClassroomMessage(Z, new("after", "now mine")) is ClassroomStored { Principal: var after } && after == pr, "stale saves are rejected and new mail from the address goes to the row");
+            Check(store.GetClassroomDraftState(pr).RawText == "z draft" && Count(f.Db, "SELECT count(*) FROM ClassroomDraft") == 1 && store.GetClassroomDraftState(pz).RawText is null && Text(f.Db, "SELECT principal FROM ClassroomAttempt WHERE messageId='" + sending.MessageId + "'") == pr.Value &&
+                store.GetClassroomDraftState(pr).Epoch == 1 && store.GetClassroomDraftState(pz).Epoch == 1, "identical drafts are kept once, the attempt moves, and both draft epochs advance");
+            Check(store.SaveClassroomDraft(pz, "stale", 0, 2) is { Saved: false, Reason: "stale-epoch" } && Rx(store, Z, new("after", "now mine")) is ClassroomStored { Principal: var after } && after == pr, "stale saves are rejected and new mail from the address goes to the row");
+        }
+
+        // CM-02c: a draft that exists on only one side moves; a conflict refuses the whole merge and changes nothing
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            var pz = ClassroomPrincipalKey.ForSourceIp("10.0.0.9");
+            string row = Add(store, "丙", (string?)null); var pr = ClassroomPrincipalKey.ForRosterEntry(row);
+            Rx(store, Z, new("only-z", "z only")); store.SaveClassroomDraft(pz, "only the stranger has a draft", 0, 1);
+            var preview = store.PreviewManualRosterEntry(row, new("丙", null, false, "10.0.0.9"));
+            store.SaveManualRosterEntry(row, new("丙", null, false, "10.0.0.9"), Token(store), preview.ToMergeConsent());
+            Check(store.GetClassroomDraftState(pr).RawText == "only the stranger has a draft" && Count(f.Db, "SELECT count(*) FROM ClassroomDraft") == 1, "CM-02c: when only the unknown source has a draft, the draft moves to the row");
+        }
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            var pz = ClassroomPrincipalKey.ForSourceIp("10.0.0.9");
+            string row = Add(store, "丙", "10.0.0.5"); var pr = ClassroomPrincipalKey.ForRosterEntry(row);
+            Rx(store, "10.0.0.5", new("r1", "roster side")); store.SaveClassroomDraft(pr, "draft A", 0, 1);
+            Rx(store, Z, new("z1", "stranger side")); store.SaveClassroomDraft(pz, "draft B", 0, 1);
+            store.SaveManualRosterEntry(row, new("丙", null, false, null), Token(store));
+            string Snapshot() => string.Join("|", Text(f.Db, "SELECT group_concat(principal||messageId||rawText,';') FROM (SELECT * FROM ClassroomMessage ORDER BY localSeq)"), Text(f.Db, "SELECT group_concat(principal||rawText,';') FROM (SELECT * FROM ClassroomDraft ORDER BY principal)"),
+                Text(f.Db, "SELECT group_concat(principal||draftEpoch||'.'||draftRevision,';') FROM (SELECT * FROM ClassroomConversation ORDER BY principal)"), Text(f.Db, "SELECT group_concat(endpoint,';') FROM RosterEntry"));
+            string before = Snapshot();
+            var preview = store.PreviewManualRosterEntry(row, new("丙", null, false, "10.0.0.9"));
+            Check(preview is { CanSave: false, Reason: "merge_conflict", MergeConflictReason: "draft-conflict" } && preview.MergeNotice!.Contains("無法併入") && preview.MergeNotice.Contains("送出或刪除") && preview.ToMergeConsent() is null, "CM-02c: two different drafts: the preview states the reason and the fix, and offers no consent");
+            var refused = store.SaveManualRosterEntry(row, new("丙", null, false, "10.0.0.9"), Token(store), new LegacyMergeConsent("10.0.0.9", 1));
+            Check(refused.Mutation.Reason == "merge_conflict" && refused.MergedMessages == 0 && Snapshot() == before, "CM-02c: the save is refused as a whole; roster address, messages, drafts and epochs are unchanged");
+            // fixing it (the user deletes the stranger's draft, per the stated solution) lets the merge through
+            store.SaveClassroomDraft(pz, "", 0, 2);
+            var fixedPreview = store.PreviewManualRosterEntry(row, new("丙", null, false, "10.0.0.9"));
+            Check(fixedPreview.CanSave && store.SaveManualRosterEntry(row, new("丙", null, false, "10.0.0.9"), Token(store), fixedPreview.ToMergeConsent()).MergedMessages == 1 && store.GetClassroomDraftState(pr).RawText == "draft A", "after the user clears the other draft the merge succeeds and keeps the non-empty one");
+        }
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            string row = Add(store, "丙", "10.0.0.5"); var pr = ClassroomPrincipalKey.ForRosterEntry(row);
+            Rx(store, "10.0.0.5", new("same-id", "roster text")); Rx(store, Z, new("same-id", "different text")); Rx(store, Z, new("z-only", "z only"));
+            store.SaveManualRosterEntry(row, new("丙", null, false, null), Token(store));
+            string before = Text(f.Db, "SELECT group_concat(principal||messageId||rawText,';') FROM (SELECT * FROM ClassroomMessage ORDER BY localSeq)");
+            var preview = store.PreviewManualRosterEntry(row, new("丙", null, false, "10.0.0.9"));
+            Check(preview is { CanSave: false, MergeConflictReason: "message-conflict" } && preview.MergeNotice!.Contains("清除") , "CM-02c: one message id with different content on the two sides is a conflict, with its fix stated");
+            Check(store.SaveManualRosterEntry(row, new("丙", null, false, "10.0.0.9"), Token(store), new LegacyMergeConsent("10.0.0.9", 2)).Mutation.Reason == "merge_conflict" &&
+                Text(f.Db, "SELECT group_concat(principal||messageId||rawText,';') FROM (SELECT * FROM ClassroomMessage ORDER BY localSeq)") == before && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 3, "CM-02c: refused whole; both copies and the unrelated message stay where they were");
+            store.ClearClassroomConversation(ClassroomPrincipalKey.ForSourceIp("10.0.0.9"));
+            var after = store.PreviewManualRosterEntry(row, new("丙", null, false, "10.0.0.9"));
+            Check(after.CanSave && after.UnknownMessagesToMerge == 0, "after clearing the 名單外 conversation (the stated fix) there is nothing left to conflict");
+        }
+        // CSV: any conflicting line blocks the whole import (CM-03b + CM-02c)
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            string row = Add(store, "丙", "10.0.0.5"); string other = Add(store, "丁", (string?)null);
+            Rx(store, "10.0.0.5", new("same-id", "roster text")); Rx(store, Z, new("same-id", "different text")); Rx(store, W, new("w1", "w only"));
+            store.SaveManualRosterEntry(row, new("丙", null, false, null), Token(store));
+            var csv = RosterImportPreview.Create(store.GetRosterSnapshot(), RosterCsv.Parse(Encoding.UTF8.GetBytes("student_number,name,ip\n,丙,10.0.0.9\n,丁,10.0.0.7")));
+            var notices = store.GetRosterImportMergeNotices(csv);
+            Check(notices.Count == 2 && notices.Single(n => n.Endpoint == "10.0.0.9").ConflictReason == "message-conflict" && notices.Single(n => n.Endpoint == "10.0.0.9").Text.Contains("無法併入") && notices.Single(n => n.Endpoint == "10.0.0.7").ConflictReason is null, "CM-02b/c: the import preview marks only the conflicting line");
+            string rosterBefore = Text(f.Db, "SELECT group_concat(id||coalesce(endpoint,''),';') FROM (SELECT * FROM RosterEntry ORDER BY id)");
+            var blocked = store.ApplyRosterPreview(csv, notices);
+            Check(blocked is { Applied: false, Reason: "merge_conflict" } && Text(f.Db, "SELECT group_concat(id||coalesce(endpoint,''),';') FROM (SELECT * FROM RosterEntry ORDER BY id)") == rosterBefore && !Directory.Exists(Path.Combine(f.Data, "backup")) &&
+                Count(f.Db, "SELECT count(*) FROM ClassroomMessage WHERE principal GLOB 'ip:*'") == 2, "CM-03b: one conflicting line blocks the whole import before any backup; the valid line is not applied either");
+            Check(store.ApplyRosterPreview(csv, notices.Where(n => n.ConflictReason is null).ToArray()) is { Applied: false, Reason: "merge_conflict" }, "leaving the conflicting notice out of the confirmation does not get around the block");
+        }
+
+        // lifecycle guards: a cancelled receive or a view that went away leaves nothing behind (checked again right before COMMIT)
+        using (var f = new Fixture())
+        {
+            bool live = true; var faults = new GuardFaults { Before = op => { if (op == "classroom-receive") live = false; } };
+            using var store = ChatStore.Open(f.Options with { Faults = faults });
+            Check(store.ReceiveClassroomMessage(Z, new("g1", "cancelled while waiting"), () => live) is ClassroomRejected { Reason: "receiver-not-ready" } && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0 && Count(f.Db, "SELECT count(*) FROM ClassroomConversation") == 0, "receive: cancelled before COMMIT -> rolled back, nothing stored, no ACK-able result");
+            faults.Before = null; live = true;
+            Check(store.ReceiveClassroomMessage(Z, new("g1", "still live"), () => live) is ClassroomStored && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 1, "receive: a live request is stored");
+        }
+        using (var f = new Fixture())
+        {
+            bool visible = true; var faults = new GuardFaults();
+            using var store = ChatStore.Open(f.Options with { Faults = faults });
+            string row = Add(store, "甲", X); var pa = ClassroomPrincipalKey.ForRosterEntry(row);
+            long seq = ((ClassroomStored)Rx(store, X, new("v1", "to read"))).LocalSeq; store.SetReadReceiptPolicy(true);
+            faults.Before = op => { if (op == "classroom-visible-read") visible = false; };
+            var stale = store.MarkClassroomVisibleRead(pa, [seq], new(pa.Value, true, true, false, true), () => visible);
+            Check(stale is { Marked: 0, Queued: 0, Reason: "stale-view" } && Count(f.Db, "SELECT count(*) FROM ClassroomMessage WHERE localReadAt IS NOT NULL") == 0 && Count(f.Db, "SELECT count(*) FROM ClassroomReceiptOutbox") == 0, "read: view lost before COMMIT -> no read mark and no queued receipt");
+            faults.Before = null; visible = true;
+            Check(store.MarkClassroomVisibleRead(pa, [seq], new(pa.Value, true, true, false, true), () => visible) is { Marked: 1, Queued: 1 }, "read: a still-visible view marks and queues");
         }
 
         // merge notices from CSV (CM-02b) incl. legacy v1 rows
@@ -180,7 +266,7 @@ internal static class ClassroomStoreChecks
         {
             using var store = ChatStore.Open(f.Options);
             string a = Add(store, "甲", X.ToString());
-            store.ReceiveClassroomMessage(Z, new("n-1", "z1")); store.ReceiveClassroomMessage(Z, new("n-2", "z2"));
+            Rx(store, Z, new("n-1", "z1")); Rx(store, Z, new("n-2", "z2"));
             var legacyCtx = store.GetLegacyReceiveContext("10.0.0.9"); store.ReceiveLegacyMessage(new("v1 text", null), legacyCtx, () => true);
             var csv = RosterImportPreview.Create(store.GetRosterSnapshot(), RosterCsv.Parse(Encoding.UTF8.GetBytes("student_number,name,ip\n,丙,10.0.0.9\n,丁,10.0.0.8")));
             var notices = store.GetRosterImportMergeNotices(csv);
@@ -191,10 +277,10 @@ internal static class ClassroomStoreChecks
         using (var f = new Fixture())
         {
             using var store = ChatStore.Open(f.Options);
-            Add(store, "甲", X.ToString()); store.ReceiveClassroomMessage(Z, new("n-1", "z1")); store.ReceiveLegacyMessage(new("v1 text", null), store.GetLegacyReceiveContext("10.0.0.9"), () => true);
+            Add(store, "甲", X.ToString()); Rx(store, Z, new("n-1", "z1")); store.ReceiveLegacyMessage(new("v1 text", null), store.GetLegacyReceiveContext("10.0.0.9"), () => true);
             var csv = RosterImportPreview.Create(store.GetRosterSnapshot(), RosterCsv.Parse(Encoding.UTF8.GetBytes("student_number,name,ip\n,丙,10.0.0.9")));
             var notices = store.GetRosterImportMergeNotices(csv);
-            store.ReceiveClassroomMessage(Z, new("n-2", "arrives after the notice"));
+            Rx(store, Z, new("n-2", "arrives after the notice"));
             var stale = store.ApplyRosterPreview(csv, notices);
             Check(stale is { Applied: false, Reason: "legacy_merge_changed" } && store.GetRosterSnapshot().Count == 1 && !Directory.Exists(Path.Combine(f.Data, "backup")), "a count that changed after the notice refuses the import before any backup");
             var fresh = store.GetRosterImportMergeNotices(csv);
@@ -212,20 +298,20 @@ internal static class ClassroomStoreChecks
             var diag = new List<string>();
             using var store = ChatStore.Open(f.Options with { OffRoster = new(MaxSources: 2, MaxMessagesPerSource: 2, MaxMessagesTotal: 3, MaxTotalBytes: 40), DiagnosticSink = diag.Add });
             string a = Add(store, "甲", X.ToString());
-            store.ReceiveClassroomMessage(Z, new("1", "aaaa")); store.ReceiveClassroomMessage(Z, new("2", "bbbb"));
-            Check(store.ReceiveClassroomMessage(Z, new("3", "cccc")) is ClassroomRejected { Reason: "offroster-limit" } && diag.Contains("classroom-offroster-limit scope=source"), "per-source bound refuses the new message and writes a content-free diagnostic");
-            store.ReceiveClassroomMessage(W, new("4", "dddd"));
-            Check(store.ReceiveClassroomMessage("10.0.0.20", new("5", "e")) is ClassroomRejected && diag.Contains("classroom-offroster-limit scope=sources") && Count(f.Db, "SELECT count(*) FROM ClassroomMessage WHERE principal GLOB 'ip:*'") == 3,
+            Rx(store, Z, new("1", "aaaa")); Rx(store, Z, new("2", "bbbb"));
+            Check(Rx(store, Z, new("3", "cccc")) is ClassroomRejected { Reason: "offroster-limit" } && diag.Contains("classroom-offroster-limit scope=source"), "per-source bound refuses the new message and writes a content-free diagnostic");
+            Rx(store, W, new("4", "dddd"));
+            Check(Rx(store, "10.0.0.20", new("5", "e")) is ClassroomRejected && diag.Contains("classroom-offroster-limit scope=sources") && Count(f.Db, "SELECT count(*) FROM ClassroomMessage WHERE principal GLOB 'ip:*'") == 3,
                 "source-count bound refuses a third unknown source");
-            Check(store.ReceiveClassroomMessage(W, new("6", "ffff")) is ClassroomRejected && diag.Contains("classroom-offroster-limit scope=total"), "total bound refuses the new message");
-            Check(store.ReceiveClassroomMessage(X, new("7", "roster is never limited")) is ClassroomStored && Texts(store, ClassroomPrincipalKey.ForSourceIp("10.0.0.9")).SequenceEqual(["aaaa", "bbbb"]) && diag.All(d => !d.Contains("10.0.0.") && !d.Contains("aaaa")), "roster senders are not bounded, stored rows are untouched, diagnostics carry no address or content");
+            Check(Rx(store, W, new("6", "ffff")) is ClassroomRejected && diag.Contains("classroom-offroster-limit scope=total"), "total bound refuses the new message");
+            Check(Rx(store, X, new("7", "roster is never limited")) is ClassroomStored && Texts(store, ClassroomPrincipalKey.ForSourceIp("10.0.0.9")).SequenceEqual(["aaaa", "bbbb"]) && diag.All(d => !d.Contains("10.0.0.") && !d.Contains("aaaa")), "roster senders are not bounded, stored rows are untouched, diagnostics carry no address or content");
         }
         using (var f = new Fixture())
         {
             var diag = new List<string>();
             using var store = ChatStore.Open(f.Options with { OffRoster = new(MaxSources: 10, MaxMessagesPerSource: 10, MaxMessagesTotal: 10, MaxTotalBytes: 10), DiagnosticSink = diag.Add });
-            store.ReceiveClassroomMessage(Z, new("1", "123456"));
-            Check(store.ReceiveClassroomMessage(Z, new("2", "12345")) is ClassroomRejected && diag.Contains("classroom-offroster-limit scope=bytes") && Texts(store, ClassroomPrincipalKey.ForSourceIp("10.0.0.9")).Count == 1, "byte bound counts UTF-8 bytes");
+            Rx(store, Z, new("1", "123456"));
+            Check(Rx(store, Z, new("2", "12345")) is ClassroomRejected && diag.Contains("classroom-offroster-limit scope=bytes") && Texts(store, ClassroomPrincipalKey.ForSourceIp("10.0.0.9")).Count == 1, "byte bound counts UTF-8 bytes");
             bool bad = false; try { ChatStore.Open(f.Options with { OffRoster = new(MaxMessagesPerSource: 10, MaxMessagesTotal: 5) }).Dispose(); } catch (ArgumentOutOfRangeException) { bad = true; }
             Check(bad, "inconsistent bounds are refused at open");
         }
@@ -237,8 +323,8 @@ internal static class ClassroomStoreChecks
             using var store = ChatStore.Open(f.Options with { OffRoster = new(MaxSources: 2, MaxMessagesPerSource: 2, MaxMessagesTotal: 3, MaxTotalBytes: 1000), DiagnosticSink = diag.Add });
             string a = Add(store, "甲", X);
             LegacyReceiveResult Legacy(string ip, string text) => store.ReceiveLegacyMessage(new(text, null), store.GetLegacyReceiveContext(ip), () => true);
-            Check(Legacy(Z, "v1-1").Stored && store.ReceiveClassroomMessage(Z, new("c1", "classroom-1")) is ClassroomStored, "off-roster v1 and classroom messages from one source both count");
-            Check(Legacy(Z, "v1-2") is { Stored: false, Reason: "offroster-limit" } && store.ReceiveClassroomMessage(Z, new("c2", "classroom-2")) is ClassroomRejected { Reason: "offroster-limit" } &&
+            Check(Legacy(Z, "v1-1").Stored && Rx(store, Z, new("c1", "classroom-1")) is ClassroomStored, "off-roster v1 and classroom messages from one source both count");
+            Check(Legacy(Z, "v1-2") is { Stored: false, Reason: "offroster-limit" } && Rx(store, Z, new("c2", "classroom-2")) is ClassroomRejected { Reason: "offroster-limit" } &&
                 diag.Contains("classroom-offroster-limit scope=source") && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 1, "per-source bound is shared by both paths and stores nothing more");
             Check(Legacy(W, "v1-w").Stored && Legacy("10.0.0.20", "v1-new") is { Stored: false, Reason: "offroster-limit" } && diag.Contains("classroom-offroster-limit scope=sources"), "a third unknown source is refused for v1 too");
             Check(Legacy(X, "from roster 1").Stored && Legacy(X, "from roster 2").Stored && Legacy(X, "from roster 3").Stored && Legacy(X, "from roster 4").Stored && store.ListLegacyMessages(new(a, null)).Items.Count == 4, "roster members' v1 history has no bound");
@@ -257,7 +343,7 @@ internal static class ClassroomStoreChecks
             using var store = ChatStore.Open(f.Options);
             string a = Add(store, "甲", X); var pa = ClassroomPrincipalKey.ForRosterEntry(a);
             store.SaveManualRosterEntry(a, new("甲改", null, false, X), Token(store));
-            store.ReceiveClassroomMessage(X, new("r-1", "before delete")); store.SaveClassroomDraft(pa, "keep me", 0, 1);
+            Rx(store, X, new("r-1", "before delete")); store.SaveClassroomDraft(pa, "keep me", 0, 1);
             store.ReceiveLegacyMessage(new("v1 hello", null), store.GetLegacyReceiveContext(X), () => true);
             var preview = store.PreviewRosterDelete(a);
             Check(preview is { CanDelete: true, DisplayName: "甲改", ClassroomMessages: 1, LegacyMessages: 1 } && preview.Notice.Contains("對話會保留") && preview.Notice.Contains("甲改（已從名單移除）") && store.GetRosterSnapshot().Count == 1, "delete preview says the conversation is kept and writes nothing");
@@ -267,7 +353,7 @@ internal static class ClassroomStoreChecks
             Check(summary is { Removed: true, DisplayName: "甲改", Label: "甲改（已從名單移除）", CanSend: false, Messages: 1 } && Texts(store, pa).SequenceEqual(["before delete"]), "the conversation stays, labelled with the name at deletion");
             Check(store.BeginClassroomSend(pa, "hi", 0, 1) is InvalidSend { Reason: "removed" } && store.SaveClassroomDraft(pa, "x", 0, 2) is { Saved: false, Reason: "not-found" } && store.GetClassroomDraftState(pa).RawText == "keep me", "a removed row cannot be sent to; its stored draft is untouched");
             Check(store.MarkClassroomVisibleRead(pa, [1], new(pa.Value, true, true, false, true)).Marked == 1, "history of a removed row can still be read");
-            Check(store.ReceiveClassroomMessage(X, new("r-2", "after delete")) is ClassroomStored { Principal.Value: "ip:10.0.0.1" } && store.ListClassroomConversations().Count == 2, "mail from the old address now lands in 名單外");
+            Check(Rx(store, X, new("r-2", "after delete")) is ClassroomStored { Principal.Value: "ip:10.0.0.1" } && store.ListClassroomConversations().Count == 2, "mail from the old address now lands in 名單外");
             Check(Count(f.Db, "SELECT count(*) FROM LegacyMessage WHERE rosterEntryId IS NOT NULL") == 0 && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1, "KNOWN LIMIT: v1 rows lose their roster owner (FK) but are kept, now under 名單外・IP");
             string again = Add(store, "甲", X);
             Check(again != a && Texts(store, ClassroomPrincipalKey.ForRosterEntry(again)).Count == 0 && Texts(store, pa).Count == 1, "adding the person again makes a new row; the old conversation is not re-attached by itself");
@@ -287,7 +373,7 @@ internal static class ClassroomStoreChecks
             Check(Count(f.Db, "PRAGMA user_version") == 8 && Count(f.Db, "SELECT count(*) FROM Message") == 1 && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0 &&
                 Text(f.Db, "SELECT pairingState FROM Peer WHERE id='A'") == "paired", "additive migration keeps old key-based history exactly where it was; nothing is reassigned");
             string row = Add(current, "甲", X.ToString());
-            current.ReceiveClassroomMessage(Z, new("k", "x"));
+            Rx(current, Z, new("k", "x"));
             current.SaveManualRosterEntry(row, new("甲", null, false, "10.0.0.9"), Token(current), new LegacyMergeConsent("10.0.0.9", 2));
             Check(Count(f.Db, "SELECT count(*) FROM Message WHERE senderId='A'") == 1 && Count(f.Db, "SELECT count(*) FROM Peer") == 1, "merging never touches key-based Message or Peer rows");
         }
@@ -303,6 +389,7 @@ internal static class ClassroomStoreChecks
         return checks;
     }
 
+    private static ClassroomReceiveResult Rx(ChatStore s, string ip, ClassroomIncoming m) => s.ReceiveClassroomMessage(ip, m, () => true);
     private static byte[] ClassroomFpOf(ChatStore store, string messageId) => Convert.FromHexString(store.GetClassroomPreparedSend(messageId)!.FingerprintHex);
     private static string Add(ChatStore store, string name, string? ip)
     {
@@ -315,6 +402,14 @@ internal static class ClassroomStoreChecks
     private static long Count(string path, string sql) { using var c = new SqliteConnection("Data Source=" + path + ";Mode=ReadOnly;Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return Convert.ToInt64(cmd.ExecuteScalar()); }
     private static string Text(string path, string sql) { using var c = new SqliteConnection("Data Source=" + path + ";Mode=ReadOnly;Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return Convert.ToString(cmd.ExecuteScalar()) ?? ""; }
     private static void Execute(string path, string sql) { using var c = new SqliteConnection("Data Source=" + path + ";Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
+
+    private sealed class GuardFaults : IStoreFaults
+    {
+        internal Action<string>? Before;
+        public void AfterBegin(string op) { }
+        public void BeforeCommit(string op) => Before?.Invoke(op);
+        public void AfterCommit(string op) { }
+    }
 
     private sealed class Fixture : IDisposable
     {
