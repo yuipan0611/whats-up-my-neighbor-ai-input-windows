@@ -22,7 +22,7 @@ internal static class ClassroomSenderOutcomeIndependentChecks
     private const string PeerIp = "192.168.1.50", Loopback = "127.0.0.1", WrongGuess = "192.168.1.10";
     private const string Text = "使用者的私密訊息 outcome-marker-0042";
 
-    private sealed record Run(ClassroomSendResult? Result, string? Thrown, IReadOnlyList<WireReq> Seen, string? DraftText, IReadOnlyList<(string Method, object?[] Args)> Calls, string AttemptState = "", bool? RetryMayHave = null)
+    private sealed record Run(ClassroomSendResult? Result, string? Thrown, IReadOnlyList<WireReq> Seen, string? DraftText, IReadOnlyList<(string Method, object?[] Args)> Calls, string AttemptState = "", bool? RetryMayHave = null, string AttemptRows = "")
     {
         internal bool TextOnWire => Seen.Any(r => r.CarriesUserText);
         internal bool Confirmed => Result?.Completion is Confirmed;
@@ -68,8 +68,9 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             catch (Exception e) { thrown = e.GetType().Name + ": " + e.Message; }
             string draft = store.GetClassroomDraftState(principal).RawText ?? "";
             string state = AttemptStateOf(dir, started.MessageId);
+            string rows = AttemptTryOf(dir, started.MessageId);
             bool? mayHave = store.BeginClassroomRetry(started.MessageId, principal, Text, 0, 1) is AttemptStarted retry ? retry.PreviousAttemptMayHaveDelivered : null;
-            return new Run(result, thrown, peer?.Seen ?? Array.Empty<WireReq>(), draft, recorder.Calls, state, mayHave);
+            return new Run(result, thrown, peer?.Seen ?? Array.Empty<WireReq>(), draft, recorder.Calls, state, mayHave, rows);
         }
         finally { NekoChat.Tests.Loopback.Cleanup(dir); }
     }
@@ -122,6 +123,22 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             return new ReceiptRun(result, thrown, pending.Count, store.ListPendingClassroomReceipts().Count, peer.Seen);
         }
         finally { NekoChat.Tests.Loopback.Cleanup(dir); }
+    }
+
+    private static WireReply StoredAck(WireReq r)
+    {
+        using var doc = JsonDocument.Parse(r.Body); var root = doc.RootElement;
+        string? reaction = root.TryGetProperty("reaction", out var re) && re.ValueKind == JsonValueKind.String ? re.GetString() : null;
+        return Loopback_Json(ClassroomPacketWriter.MessageAck("stored", root.GetProperty("message_id").GetString()!, root.GetProperty("session").GetString()!, r.Remote?.ToString() ?? Loopback, PeerIp, reaction, root.GetProperty("text").GetString()!));
+    }
+    private static string JsonField(WireReq r, string name) { using var d = JsonDocument.Parse(r.Body); return d.RootElement.GetProperty(name).GetString() ?? ""; }
+    private static string Kind(WireReq r) => r.IsHello ? "hello" : r.IsClassroomMessage ? "message" : "other:" + r.Path;
+    private static string AttemptTryOf(string dir, string messageId)
+    {
+        string db = Directory.GetFiles(dir, "nekochat.db", SearchOption.AllDirectories).Single();
+        using var c = new SqliteConnection("Data Source=" + db + ";Mode=ReadOnly;Pooling=False"); c.Open();
+        using var cmd = c.CreateCommand(); cmd.CommandText = "SELECT count(*) || '/' || max(tryCount) FROM ClassroomAttempt WHERE messageId=@id"; cmd.Parameters.AddWithValue("@id", messageId);
+        return Convert.ToString(cmd.ExecuteScalar()) ?? "";
     }
 
     private static string Describe(Run o) =>
@@ -275,6 +292,63 @@ internal static class ClassroomSenderOutcomeIndependentChecks
         {
             var o = await ExerciseReceipt(ReceiptPeer(_ => NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.Transient)));
             Check(o.Thrown is null && o.Result is { Completed: false } && o.PendingAfter == 1, "RC control: transient keeps the outbox event (CM-13 §9 item 3)", Describe2(o));
+        }
+
+        // ---- H-transient (frozen spec §10: "transient" on the message/hello routes is ALWAYS treated as unconfirmed). The CM-18 rule "hello failures are failed" has this one exception. ----
+        {
+            var o = await Exercise(r => NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.Transient), Loopback);
+            Check(o.Thrown is null && !o.Confirmed && !o.TextOnWire && !o.Calls.Any(c => c.Method == "RecordClassroomRoute"), "H-transient hello answered transient: nothing sent, no route, not confirmed", Describe(o));
+            Check(o.AttemptState == "unconfirmed", "H-transient hello answered transient: the attempt is unconfirmed (§10), not failed", Describe(o) + " state=" + o.AttemptState);
+            Check(o.DraftText == Text, "H-transient hello answered transient: the draft is kept", "draft=" + o.DraftText);
+        }
+
+        // ---- C (frozen spec §11.1): `cancelled` only happens before any message byte was written, so the other side cannot have it. A manual retry of a cancelled attempt must NOT
+        // warn "may have been delivered"; of an unconfirmed attempt it must; of a failed attempt it must not. (Store level; no sender involved.) ----
+        {
+            string dir = NekoChat.Tests.Loopback.TempDir("classroom-cancel-retry-indep-");
+            try
+            {
+                using var store = NekoChat.Tests.Loopback.OpenStore(dir);
+                var principal = ClassroomPrincipalKey.ForSource(PeerIp)!.Value;
+                bool? MayHaveAfter(Func<string, int, object> finish)
+                {
+                    var begun = (AttemptStarted)(store.GetClassroomDraftState(principal).RawText is null ? store.BeginClassroomSend(principal, Text, store.GetClassroomDraftState(principal).Epoch, store.GetClassroomDraftState(principal).Revision + 1) : store.BeginClassroomSend(principal, Text, store.GetClassroomDraftState(principal).Epoch, store.GetClassroomDraftState(principal).Revision));
+                    finish(begun.MessageId, begun.TryCount);
+                    var d = store.GetClassroomDraftState(principal);
+                    var retry = store.BeginClassroomRetry(begun.MessageId, principal, Text, d.Epoch, d.Revision) as AttemptStarted;
+                    if (retry is not null) store.CancelClassroomAttempt(begun.MessageId);   // leave no attempt in `sending` for the next case
+                    return retry?.PreviousAttemptMayHaveDelivered;
+                }
+                bool? afterCancelled = MayHaveAfter((id, n) => store.CancelClassroomAttempt(id, n));
+                bool? afterUnconfirmed = MayHaveAfter((id, n) => store.CompleteClassroomAttempt(id, new UnconfirmedOutcome(), PeerIp, n));
+                bool? afterFailed = MayHaveAfter((id, n) => store.CompleteClassroomAttempt(id, new FailedOutcome("invalid_payload"), PeerIp, n));
+                Check(afterCancelled == false, "C retry of a CANCELLED attempt does not claim the previous try may have been delivered (§11.1)", "mayHave=" + afterCancelled);
+                Check(afterUnconfirmed == true, "C control: retry of an UNCONFIRMED attempt does warn", "mayHave=" + afterUnconfirmed);
+                Check(afterFailed == false, "C control: retry of a FAILED attempt does not warn", "mayHave=" + afterFailed);
+            }
+            finally { NekoChat.Tests.Loopback.Cleanup(dir); }
+        }
+
+        // ---- S (frozen spec §6.9): on stale_session the sender does a NEW hello and sends the SAME message_id ONCE more. Still one manual attempt. A second stale_session is `failed`. ----
+        {
+            int messages = 0;
+            var o = await Exercise(Peer(r => Interlocked.Increment(ref messages) == 1 ? NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.StaleSession) : StoredAck(r)), Loopback);
+            string seq = string.Join(",", o.Seen.Select(Kind));
+            var sent = o.Seen.Where(r => r.IsClassroomMessage).ToArray();
+            Check(seq == "hello,message,hello,message", "S stale_session on the first message: new hello, then the same message once more", "sequence=" + seq + "; " + Describe(o));
+            Check(sent.Length == 2 && JsonField(sent[0], "message_id") == JsonField(sent[1], "message_id") && JsonField(sent[0], "text") == JsonField(sent[1], "text"), "S the retry carries the same message_id and the same text", "messages=" + sent.Length);
+            Check(sent.Length == 2 && JsonField(sent[0], "session") != JsonField(sent[1], "session"), "S the retry uses the fresh session from the new hello", "");
+            Check(o.Thrown is null && o.Confirmed, "S the second answer (stored) confirms the send", Describe(o));
+            Check(o.AttemptRows == "1/1", "S the whole sequence is ONE manual attempt (one attempt row, tryCount 1)", "rows/maxTry=" + o.AttemptRows);
+        }
+        {
+            var o = await Exercise(Peer(_ => NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.StaleSession)), Loopback);
+            string seq = string.Join(",", o.Seen.Select(Kind));
+            var sent = o.Seen.Where(r => r.IsClassroomMessage).ToArray();
+            Check(seq == "hello,message,hello,message", "S stale_session twice: exactly one retry, no third try", "sequence=" + seq + "; " + Describe(o));
+            Check(o.Thrown is null && !o.Confirmed && o.AttemptState == "failed", "S stale_session twice: the attempt is failed (§10: stale_session stored nothing)", Describe(o) + " state=" + o.AttemptState);
+            Check(sent.Length == 2 && JsonField(sent[0], "message_id") == JsonField(sent[1], "message_id"), "S stale_session twice: both tries used the same message_id", "messages=" + sent.Length);
+            Check(o.AttemptRows == "1/1" && o.DraftText == Text, "S stale_session twice: still one manual attempt and the draft is kept", "rows/maxTry=" + o.AttemptRows + " draft=" + o.DraftText);
         }
 
         // ---- F5: cancellation never records a route and never sends the text (contract §11: cancelled is unconfirmed, nothing is retried). ----
