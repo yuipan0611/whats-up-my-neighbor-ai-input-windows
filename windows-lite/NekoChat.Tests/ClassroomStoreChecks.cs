@@ -409,6 +409,38 @@ internal static class ClassroomStoreChecks
             Check(store.CompleteClassroomLegacyDelivered(begin.MessageId, X, expectedTryCount: 1) is Discarded { Reason: "stale-attempt" } && store.CompleteClassroomLegacyDelivered(begin.MessageId, X, expectedTryCount: 2) is Confirmed, "a delivered for an older try is discarded");
         }
 
+        // CM-02c bypasses (0a5db9c re-verification): the refusal must not depend on a consent, on notices, or on there being messages
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            string row = Add(store, "丙", "10.0.0.5");
+            Rx(store, "10.0.0.5", new("same-id", "roster text")); Rx(store, Z, new("same-id", "different text")); store.SaveManualRosterEntry(row, new("丙", null, false, null), Token(store));
+            string State() => string.Join("|", Text(f.Db, "SELECT group_concat(principal||messageId||rawText,';') FROM (SELECT * FROM ClassroomMessage ORDER BY localSeq)"), Text(f.Db, "SELECT group_concat(id||coalesce(endpoint,''),';') FROM (SELECT * FROM RosterEntry ORDER BY id)"));
+            string before = State();
+            var csv = RosterImportPreview.Create(store.GetRosterSnapshot(), RosterCsv.Parse(Encoding.UTF8.GetBytes("student_number,name,ip\n,丙,10.0.0.9")));
+            Check(store.SaveManualRosterEntry(row, new("丙", null, false, "10.0.0.9"), Token(store), null).Mutation.Reason == "merge_conflict" && State() == before, "bypass 1: a manual save WITHOUT consent is refused when the merge would conflict (same id, different content)");
+            Check(store.ApplyRosterPreview(csv, null) is { Applied: false, Reason: "merge_conflict" } && State() == before && !Directory.Exists(Path.Combine(f.Data, "backup")), "bypass 2: a CSV import with a null confirmation is refused before any backup");
+            Check(store.ApplyRosterPreview(csv, []) is { Applied: false, Reason: "merge_conflict" } && store.ApplyRosterPreview(csv) is { Applied: false, Reason: "merge_conflict" } && State() == before, "bypass 3: an empty confirmation list, and the one-argument overload, are refused as well");
+        }
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            var pz = ClassroomPrincipalKey.ForSourceIp("10.0.0.9");
+            string row = Add(store, "丙", "10.0.0.5"); var pr = ClassroomPrincipalKey.ForRosterEntry(row);
+            store.SaveClassroomDraft(pr, "roster draft", 0, 1); store.SaveClassroomDraft(pz, "stranger draft", 0, 1);   // drafts only: no messages anywhere
+            store.SaveManualRosterEntry(row, new("丙", null, false, null), Token(store));
+            Check(Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0, "fixture: only drafts exist");
+            string State() => string.Join("|", Text(f.Db, "SELECT group_concat(principal||rawText,';') FROM (SELECT * FROM ClassroomDraft ORDER BY principal)"), Text(f.Db, "SELECT group_concat(id||coalesce(endpoint,''),';') FROM (SELECT * FROM RosterEntry ORDER BY id)"));
+            string before = State();
+            var preview = store.PreviewManualRosterEntry(row, new("丙", null, false, "10.0.0.9"));
+            Check(preview is { CanSave: false, Reason: "merge_conflict", UnknownMessagesToMerge: 0, MergeConflictReason: "draft-conflict" }, "bypass 4: the preview flags a draft-only conflict although there are no messages to merge");
+            Check(store.SaveManualRosterEntry(row, new("丙", null, false, "10.0.0.9"), Token(store), null).Mutation.Reason == "merge_conflict" && State() == before, "bypass 4: a manual save is refused on a draft-only conflict (no consent, count 0)");
+            var csv = RosterImportPreview.Create(store.GetRosterSnapshot(), RosterCsv.Parse(Encoding.UTF8.GetBytes("student_number,name,ip\n,丙,10.0.0.9")));
+            Check(store.GetRosterImportMergeNotices(csv) is [{ Messages: 0, ConflictReason: "draft-conflict" }] && store.ApplyRosterPreview(csv, null) is { Applied: false, Reason: "merge_conflict" } && State() == before, "bypass 4: the import lists the draft conflict and is refused with a null confirmation");
+            store.SaveClassroomDraft(pz, "", 0, 2);   // the stated fix: delete the stranger's draft
+            Check(store.PreviewManualRosterEntry(row, new("丙", null, false, "10.0.0.9")).CanSave && store.SaveManualRosterEntry(row, new("丙", null, false, "10.0.0.9"), Token(store), null).Mutation.Changed, "after the fix the address can be assigned");
+        }
+
         // NCM1e: each try is routed by a fresh hello; stored needs a classroom try, legacy-delivered needs a legacy try
         using (var f = new Fixture())
         {

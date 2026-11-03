@@ -42,11 +42,14 @@ public sealed partial class ChatStore
                 return (Refuse("duplicate-endpoint"), false);
             if (old is not null && old.Entry.DisplayName == name && old.Entry.StudentNumber == number && old.Entry.IsTeacher == edit.IsTeacher && old.Entry.Endpoint == endpoint)
                 return (Refuse("unchanged"), false);
+            // CM-02c: giving a row an address that an out-of-roster conversation already uses is refused as a whole when the two cannot be merged
+            // losslessly, with or without a consent and with or without messages.
+            if (endpoint is not null && entryId is not null && old?.Entry.Endpoint != endpoint &&
+                MergeConflictReason((sql, a, b) => Convert.ToInt64(ctx.Scalar(sql, ("@from", a), ("@to", b)), System.Globalization.CultureInfo.InvariantCulture), endpoint, entryId) is not null) return (Refuse("merge_conflict"), false);
             if (mergeConsent is not null)
             {
                 if (endpoint is null || mergeConsent.Endpoint != endpoint) return (Refuse("legacy_merge_mismatch"), false);
                 if (CountUnknownSource(ctx, endpoint) != mergeConsent.ExpectedMessages) return (Refuse("legacy_merge_changed"), false);
-                if (entryId is not null && MergeConflictReason((sql, a, b) => ctx.Scalar(sql, ("@from", a), ("@to", b)) is { } v ? Convert.ToInt64(v, System.Globalization.CultureInfo.InvariantCulture) : 0, endpoint, entryId) is not null) return (Refuse("merge_conflict"), false);
             }
             string id = entryId ?? NewRosterId(ctx);
             if (entryId is null)
@@ -145,6 +148,7 @@ public sealed partial class ChatStore
         if (!preview.CanApply) return Failure("ip_conflict", preToken);
         if (preview.Changes.Count == 0) return Failure("no-changes", preToken);
         if (!RowsStillValid()) return Failure("endpoint-or-row-no-longer-valid", preToken);
+        if (Read(c => ImportMergeConflict(preview, (ip, row) => MergeConflictReason((sql, a, b) => ScalarOn(c, sql, a, b), ip, row))) is { } earlyConflict) return Failure(earlyConflict, preToken);
         if (confirmedMerges is { Count: > 0 } && Read(c => MergeNoticeProblem(preview, preflight, confirmedMerges, ip => CountUnknownSource(c, ip), (ip, row) => MergeConflictReason((sql, a, b) => ScalarOn(c, sql, a, b), ip, row))) is { } early) return Failure(early, preToken);
         // 2. Backup (independent read-only connection), then 3. take the write lock and re-verify the snapshot.
         BackupBeforeRosterImport();
@@ -158,6 +162,7 @@ public sealed partial class ChatStore
             if (!preview.CanApply) return (Result(false, "ip_conflict"), false);
             if (preview.Changes.Count == 0) return (Result(true, "no-changes"), false);
             if (!RowsStillValid()) return (Result(false, "endpoint-or-row-no-longer-valid"), false);
+            if (ImportMergeConflict(preview, (ip, row) => MergeConflictReason((sql, a, b) => Convert.ToInt64(ctx.Scalar(sql, ("@from", a), ("@to", b)), System.Globalization.CultureInfo.InvariantCulture), ip, row)) is { } txConflict) return (Result(false, txConflict), false);
             if (confirmedMerges is { Count: > 0 } && MergeNoticeProblem(preview, snapshot, confirmedMerges, ip => CountUnknownSource(ctx, ip), (ip, row) => MergeConflictReason((sql, a, b) => Convert.ToInt64(ctx.Scalar(sql, ("@from", a), ("@to", b)), System.Globalization.CultureInfo.InvariantCulture), ip, row)) is { } problem) return (Result(false, problem), false);
             string batch = NewUuid(); var newIds = new Dictionary<int, string>();
             foreach (var item in preview.Changes.Where(i => i.Action == RosterImportAction.Update))

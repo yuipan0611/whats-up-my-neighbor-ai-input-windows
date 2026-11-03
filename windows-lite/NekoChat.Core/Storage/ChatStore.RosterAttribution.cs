@@ -51,7 +51,8 @@ public sealed partial class ChatStore
         var change = old?.Endpoint == endpoint ? RosterAddressChange.None : endpoint is null ? RosterAddressChange.Cleared
             : old?.Endpoint is null ? RosterAddressChange.Set : RosterAddressChange.Changed;
         int merge = endpoint is not null && change != RosterAddressChange.None ? Read(c => CountUnknownSource(c, endpoint)) : 0;
-        string? conflict = merge > 0 && entryId is not null ? Read(c => MergeConflictReason((sql, a, b) => ScalarOn(c, sql, a, b), endpoint!, entryId)) : null;
+        // CM-02c: the conflict check does not depend on a consent or on there being messages (two different drafts conflict on their own).
+        string? conflict = endpoint is not null && change != RosterAddressChange.None && entryId is not null ? Read(c => MergeConflictReason((sql, a, b) => ScalarOn(c, sql, a, b), endpoint, entryId)) : null;
         if (conflict is not null) return new(false, "merge_conflict", null, null, change, endpoint, merge, token) { MergeConflictReason = conflict };
         return new(true, "ok", null, null, change, endpoint, merge, token);
     }
@@ -64,15 +65,23 @@ public sealed partial class ChatStore
         if (!preview.MatchesSnapshot(snapshot) || !preview.CanApply) return [];
         return Read(c => preview.Changes.Where(i => i.AddressChange is RosterAddressChange.Set or RosterAddressChange.Changed && i.Row!.Endpoint is not null)
             .Select(i => new RosterImportMergeNotice(i.Line, i.Row!.Name, i.Row.Endpoint!, CountUnknownSource(c, i.Row.Endpoint!),
-                i.TargetId is null ? null : MergeConflictReason((sql, a, b) => ScalarOn(c, sql, a, b), i.Row.Endpoint!, i.TargetId))).Where(n => n.Messages > 0).ToArray());
+                i.TargetId is null ? null : MergeConflictReason((sql, a, b) => ScalarOn(c, sql, a, b), i.Row.Endpoint!, i.TargetId))).Where(n => n.Messages > 0 || n.ConflictReason is not null).ToArray());
+    }
+
+    /// <summary>
+    /// CM-03b/02c: a merge conflict on any line blocks the whole import, whether or not a confirmation was passed back (null or empty included) and whether or not
+    /// messages exist (two different drafts conflict on their own). Null when there is none.
+    /// </summary>
+    private static string? ImportMergeConflict(RosterImportPreview preview, Func<string, string, string?> conflict)
+    {
+        foreach (var item in preview.Changes.Where(i => i.AddressChange is RosterAddressChange.Set or RosterAddressChange.Changed && i.Row!.Endpoint is not null && i.TargetId is not null))
+            if (conflict(item.Row!.Endpoint!, item.TargetId!) is not null) return "merge_conflict";
+        return null;
     }
 
     /// <summary>Null when every confirmed notice still matches its import line and current count; otherwise the refusal reason.</summary>
     private static string? MergeNoticeProblem(RosterImportPreview preview, IEnumerable<RosterSnapshotRow> snapshot, IReadOnlyList<RosterImportMergeNotice> notices, Func<string, int> count, Func<string, string, string?> conflict)
     {
-        // CM-03b/02c: any merge conflict in the file blocks the whole import, whether or not that line's notice was passed back.
-        foreach (var item in preview.Changes.Where(i => i.AddressChange is RosterAddressChange.Set or RosterAddressChange.Changed && i.Row!.Endpoint is not null && i.TargetId is not null))
-            if (count(item.Row!.Endpoint!) > 0 && conflict(item.Row.Endpoint!, item.TargetId!) is not null) return "merge_conflict";
         if (notices.Select(n => n.Line).Distinct().Count() != notices.Count) return "legacy_merge_mismatch";
         var byId = snapshot.ToDictionary(s => s.Entry.Id, s => s.Entry, StringComparer.Ordinal);
         foreach (var notice in notices)
