@@ -65,7 +65,7 @@ internal static class StorageRosterChecks
             Check(Number(f.Db, "SELECT count(*) FROM Message") == 1 && Number(f.Db, "SELECT count(*) FROM Peer") == 1 && Number(f.Db, "SELECT count(*) FROM Conversation") == 1, "CSV never creates peer or moves history");
             string backup = Directory.GetFiles(Path.Combine(f.Data, "backup")).Single();
             Check(Number(backup, "SELECT count(*) FROM RosterEntry") == 2 && Text(backup, "SELECT endpoint FROM RosterEntry WHERE studentNumberKey='1'") == "10.0.0.1" && Number(backup, "SELECT count(*) FROM Message") == 1 &&
-                Number(backup, "PRAGMA user_version") == 9, "real pre-import backup contains original roster and existing chat");
+                Number(backup, "PRAGMA user_version") == 10, "real pre-import backup contains original roster and existing chat");
             Check(Text(backup, "PRAGMA journal_mode") == "delete" && !File.Exists(backup + "-wal") && !File.Exists(backup + "-shm"), "finalized backup remains standalone after read-only inspection");
             Check(store.ApplyRosterPreview(preview).Reason == "roster_changed" && Directory.GetFiles(Path.Combine(f.Data, "backup")).Length == 1, "stale preview refuses before another backup");
             Check(store.ApplyRosterPreview(Preview(store, SwapCsv)) is { Applied: true, Reason: "no-changes", Unchanged: 3 } && Directory.GetFiles(Path.Combine(f.Data, "backup")).Length == 1, "no-op import makes no backup or provenance rewrite");

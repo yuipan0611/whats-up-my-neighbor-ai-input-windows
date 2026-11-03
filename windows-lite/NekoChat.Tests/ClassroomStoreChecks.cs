@@ -83,7 +83,7 @@ internal static class ClassroomStoreChecks
             string a = Add(store, "甲", X.ToString()), none = Add(store, "丁", (string?)null); var pa = ClassroomPrincipalKey.ForRosterEntry(a); var pn = ClassroomPrincipalKey.ForRosterEntry(none);
             Check(store.BeginClassroomSend(pn, "hi", 0, 1) is InvalidSend { Reason: "no-address" } && Count(f.Db, "SELECT count(*) FROM ClassroomAttempt") == 0, "CM-04: a row without an address cannot be sent to, and nothing is recorded");
             store.SaveClassroomDraft(pa, "hello x", 0, 1);
-            var begin = store.BeginClassroomSend(pa, "hello x", 0, 1) as AttemptStarted;
+            var begin = store.BeginClassroomSend(pa, "hello x", 0, 1) as AttemptStarted; Route(store, begin!.MessageId, ClassroomRoute.Classroom);
             Check(begin is { TryCount: 1, ReusedId: false } && store.GetClassroomPreparedSend(begin.MessageId) is { TargetIp: "10.0.0.1", RawText: "hello x" } && store.BeginClassroomSend(pa, "hello x", 0, 1) is AlreadySending, "an attempt resolves its current target and only one may be sending");
             byte[] fp = Convert.FromHexString(store.GetClassroomPreparedSend(begin!.MessageId)!.FingerprintHex);
             Check(store.CompleteClassroomAttempt(begin.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, fp), Z) is Discarded { Reason: "ack-binding" } && store.CompleteClassroomAttempt(begin.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, fp), null) is Discarded { Reason: "ack-binding" },
@@ -95,7 +95,7 @@ internal static class ClassroomStoreChecks
             Check(confirmed is Confirmed { DraftCleared: true } && store.GetClassroomDraftState(pa) is { RawText: null, Epoch: 1 } && store.CompleteClassroomAttempt(begin.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, fp), X) is AlreadyConfirmed,
                 "confirmed send stores the outgoing message, clears the unchanged draft and moves the epoch");
             store.SaveClassroomDraft(pa, "second", 1, 2);
-            var second = (AttemptStarted)store.BeginClassroomSend(pa, "second", 1, 2);
+            var second = (AttemptStarted)store.BeginClassroomSend(pa, "second", 1, 2); Route(store, second.MessageId, ClassroomRoute.Classroom);
             store.SaveClassroomDraft(pa, "edited meanwhile", 1, 3);
             store.CompleteClassroomAttempt(second.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, ClassroomFpOf(store, second.MessageId)), X);
             Check(store.GetClassroomDraftState(pa).RawText == "edited meanwhile", "a late ACK never clears a draft that changed after the send began");
@@ -129,7 +129,7 @@ internal static class ClassroomStoreChecks
             store.MarkClassroomVisibleRead(pa, [seq3], open); store.SetReadReceiptPolicy(false);
             Check(Count(f.Db, "SELECT count(*) FROM ClassroomReceiptOutbox") == 0, "turning receipts off drops the queue");
             // remote read receipt for a message we sent
-            store.SaveClassroomDraft(pa, "out", 0, 1); var started = (AttemptStarted)store.BeginClassroomSend(pa, "out", 0, 1);
+            store.SaveClassroomDraft(pa, "out", 0, 1); var started = (AttemptStarted)store.BeginClassroomSend(pa, "out", 0, 1); Route(store, started.MessageId, ClassroomRoute.Classroom);
             Check(store.ApplyClassroomReceipt(X, started.MessageId, RemoteReceiptKind.Read) is { Changed: false, Reason: "pending-local-confirmation" }, "a receipt before local confirmation waits");
             store.CompleteClassroomAttempt(started.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, ClassroomFpOf(store, started.MessageId)), X);
             Check(store.ApplyClassroomReceipt(Z, started.MessageId, RemoteReceiptKind.Read) is { Changed: false, Reason: "not-found" } && Text(f.Db, "SELECT remoteReadAt IS NULL FROM ClassroomMessage WHERE messageId='" + started.MessageId + "'") == "1",
@@ -366,7 +366,7 @@ internal static class ClassroomStoreChecks
             using var store = ChatStore.Open(f.Options);
             string a = Add(store, "舊版同學", X); var pa = ClassroomPrincipalKey.ForRosterEntry(a);
             store.SaveClassroomDraft(pa, "to an old client", 0, 1);
-            var begin = (AttemptStarted)store.BeginClassroomSend(pa, "to an old client", 0, 1);
+            var begin = (AttemptStarted)store.BeginClassroomSend(pa, "to an old client", 0, 1); Route(store, begin.MessageId, ClassroomRoute.Legacy);
             Check(store.CompleteClassroomLegacyDelivered(begin.MessageId, Z) is Discarded { Reason: "ack-binding" } && store.CompleteClassroomLegacyDelivered(begin.MessageId, "::1") is Discarded { Reason: "ack-binding" } && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0,
                 "legacy delivered must come from the conversation's own address");
             var done = store.CompleteClassroomLegacyDelivered(begin.MessageId, X);
@@ -391,7 +391,7 @@ internal static class ClassroomStoreChecks
             using var store = ChatStore.Open(f.Options);
             string a = Add(store, "舊版同學", X); var pa = ClassroomPrincipalKey.ForRosterEntry(a);
             store.SaveClassroomDraft(pa, "first", 0, 1);
-            var begin = (AttemptStarted)store.BeginClassroomSend(pa, "first", 0, 1);
+            var begin = (AttemptStarted)store.BeginClassroomSend(pa, "first", 0, 1); Route(store, begin.MessageId, ClassroomRoute.Legacy);
             store.SaveClassroomDraft(pa, "edited while sending", 0, 2);
             var done = store.CompleteClassroomLegacyDelivered(begin.MessageId, X);
             Check(done is Confirmed { DraftCleared: false } && store.GetClassroomDraftState(pa).RawText == "edited while sending", "a draft edited after the send began is kept");
@@ -404,9 +404,47 @@ internal static class ClassroomStoreChecks
             var begin = (AttemptStarted)store.BeginClassroomSend(pa, "no delivered came back", 0, 1);
             Check(store.CompleteClassroomAttempt(begin.MessageId, new UnconfirmedOutcome()) is StateUpdated { NewState: "unconfirmed" } && store.GetClassroomDraftState(pa).RawText == "no delivered came back" && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0,
                 "timeout or disconnect: the draft stays, the attempt is unconfirmed, and nothing enters history");
-            var retry = store.BeginClassroomRetry(begin.MessageId, pa, "no delivered came back", 0, 1) as AttemptStarted;
+            var retry = store.BeginClassroomRetry(begin.MessageId, pa, "no delivered came back", 0, 1) as AttemptStarted; Route(store, begin.MessageId, ClassroomRoute.Legacy, 2);
             Check(retry is { ReusedId: true, PreviousAttemptMayHaveDelivered: true, TryCount: 2 }, "only a manual retry resends, and it reports that the first try may have arrived (so the UI can warn about a duplicate)");
             Check(store.CompleteClassroomLegacyDelivered(begin.MessageId, X, expectedTryCount: 1) is Discarded { Reason: "stale-attempt" } && store.CompleteClassroomLegacyDelivered(begin.MessageId, X, expectedTryCount: 2) is Confirmed, "a delivered for an older try is discarded");
+        }
+
+        // NCM1e: each try is routed by a fresh hello; stored needs a classroom try, legacy-delivered needs a legacy try
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            string a = Add(store, "甲", X); var pa = ClassroomPrincipalKey.ForRosterEntry(a);
+            store.SaveClassroomDraft(pa, "routed", 0, 1);
+            var t1 = (AttemptStarted)store.BeginClassroomSend(pa, "routed", 0, 1);
+            byte[] fp = ClassroomFpOf(store, t1.MessageId);
+            Check(store.GetClassroomPreparedSend(t1.MessageId)!.Route is null && store.CompleteClassroomLegacyDelivered(t1.MessageId, X) is Discarded { Reason: "no-route" } &&
+                store.CompleteClassroomAttempt(t1.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, fp), X) is Discarded { Reason: "no-route" } && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0 && store.GetClassroomDraftState(pa).RawText == "routed",
+                "NCM1e: without a hello-routed try neither v1 'delivered' nor a stored result is accepted, and nothing enters history");
+            Check(store.RecordClassroomRoute(t1.MessageId, 1, ClassroomRoute.Classroom, Clock.AddSeconds(-1)) is { Recorded: false, Reason: "hello-before-attempt" } && store.RecordClassroomRoute(t1.MessageId, 1, ClassroomRoute.Classroom, Clock.AddMinutes(1)) is { Recorded: false, Reason: "hello-in-future" } &&
+                store.RecordClassroomRoute(t1.MessageId, 2, ClassroomRoute.Classroom, Clock) is { Recorded: false, Reason: "stale-attempt" } && store.RecordClassroomRoute("nope", 1, ClassroomRoute.Legacy, Clock) is { Recorded: false, Reason: "not-found" } &&
+                Count(f.Db, "SELECT count(*) FROM ClassroomAttemptRoute") == 0, "a hello older than the try, from the future, for another try or for an unknown message cannot route it");
+            Check(store.RecordClassroomRoute(t1.MessageId, 1, ClassroomRoute.Classroom, Clock) is { Recorded: true } && store.GetClassroomPreparedSend(t1.MessageId)!.Route == ClassroomRoute.Classroom, "a fresh hello routes the try and the prepared send shows it");
+            Check(store.RecordClassroomRoute(t1.MessageId, 1, ClassroomRoute.Legacy, Clock) is { Recorded: false, Reason: "route-conflict" } && store.RecordClassroomRoute(t1.MessageId, 1, ClassroomRoute.Classroom, Clock) is { Recorded: false, Reason: "already-recorded" }, "the route is write-once: a classroom try cannot be re-recorded as legacy");
+            bool updated = false; try { Execute(f.Db, "UPDATE ClassroomAttemptRoute SET route='legacy'"); } catch (SqliteException) { updated = true; }
+            Check(updated && store.CompleteClassroomLegacyDelivered(t1.MessageId, X) is Discarded { Reason: "route-mismatch" } && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0, "the database refuses to rewrite a route, and a classroom try cannot be completed as legacy-delivered");
+            store.CompleteClassroomAttempt(t1.MessageId, new UnconfirmedOutcome());
+            var t2 = (AttemptStarted)store.BeginClassroomRetry(t1.MessageId, pa, "routed", 0, 1);
+            Check(t2.TryCount == 2 && store.RecordClassroomRoute(t1.MessageId, 2, ClassroomRoute.Legacy, Clock) is { Recorded: false, Reason: "classroom-may-have-delivered" }, "after a classroom try the message may not be re-sent as v1 (CM-14)");
+            Check(store.RecordClassroomRoute(t1.MessageId, 2, ClassroomRoute.Classroom, Clock) is { Recorded: true } && store.CompleteClassroomAttempt(t1.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, fp), X) is Confirmed, "a classroom try is completed by a stored result");
+        }
+        using (var f = new Fixture())
+        {
+            using var store = ChatStore.Open(f.Options);
+            string a = Add(store, "舊版同學", X); var pa = ClassroomPrincipalKey.ForRosterEntry(a);
+            store.SaveClassroomDraft(pa, "old peer", 0, 1);
+            var t1 = (AttemptStarted)store.BeginClassroomSend(pa, "old peer", 0, 1); Route(store, t1.MessageId, ClassroomRoute.Legacy);
+            Check(store.CompleteClassroomAttempt(t1.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, ClassroomFpOf(store, t1.MessageId)), X) is Discarded { Reason: "route-mismatch" } && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0,
+                "NCM1e: a legacy try can never be completed by a stored result, even with a correct fingerprint");
+            store.CompleteClassroomAttempt(t1.MessageId, new FailedOutcome("timeout"));
+            var t2 = (AttemptStarted)store.BeginClassroomRetry(t1.MessageId, pa, "old peer", 0, 1);
+            Check(store.RecordClassroomRoute(t1.MessageId, 2, ClassroomRoute.Classroom, Clock) is { Recorded: true } && store.CompleteClassroomLegacyDelivered(t1.MessageId, X) is Discarded { Reason: "route-mismatch" }, "an upgraded peer: the next try may go out as classroom, and then v1 delivered is refused");
+            store.ClearClassroomConversation(pa);
+            Check(Count(f.Db, "SELECT count(*) FROM ClassroomAttemptRoute") == 0, "clearing the conversation removes its routes with the attempts");
         }
 
         // migration: old history is preserved, frozen schema untouched, new schema guarded
@@ -419,7 +457,7 @@ internal static class ClassroomStoreChecks
                 old.ReceiveLegacyMessage(new("old v1", null), old.GetLegacyReceiveContext("10.0.0.9"), () => true);
             }
             using var current = ChatStore.Open(f.Options);
-            Check(Count(f.Db, "PRAGMA user_version") == 9 && Count(f.Db, "SELECT count(*) FROM Message") == 1 && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0 &&
+            Check(Count(f.Db, "PRAGMA user_version") == 10 && Count(f.Db, "SELECT count(*) FROM Message") == 1 && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0 &&
                 Text(f.Db, "SELECT pairingState FROM Peer WHERE id='A'") == "paired", "additive migration keeps old key-based history exactly where it was; nothing is reassigned");
             string row = Add(current, "甲", X.ToString());
             Rx(current, Z, new("k", "x"));
@@ -438,6 +476,9 @@ internal static class ClassroomStoreChecks
         return checks;
     }
 
+    private static readonly DateTime Clock = new(2026, 11, 3, 3, 4, 5, DateTimeKind.Utc);
+    private static void Route(ChatStore s, string id, ClassroomRoute route, int tryCount = 1)
+    { var r = s.RecordClassroomRoute(id, tryCount, route, Clock); if (!r.Recorded) throw new Exception("Classroom store fixture: route " + r.Reason); }
     private static byte[] ClassroomFingerprintOf(string text) => ChatStore.ClassroomFingerprint(text, null);
     private static ClassroomReceiveResult Rx(ChatStore s, string ip, ClassroomIncoming m) => s.ReceiveClassroomMessage(ip, m, () => true);
     private static byte[] ClassroomFpOf(ChatStore store, string messageId) => Convert.FromHexString(store.GetClassroomPreparedSend(messageId)!.FingerprintHex);

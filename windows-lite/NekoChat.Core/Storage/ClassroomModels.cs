@@ -40,7 +40,10 @@ public sealed record ClassroomConversationSummary(ClassroomPrincipalKey Principa
 }
 /// <summary>The current target is resolved when asked (a roster row without an address has none). Never persisted.</summary>
 public sealed record ClassroomPreparedSend(string MessageId, ClassroomPrincipalKey Principal, string TargetIp, string RawText, string Kind,
-    string? Reaction, string FingerprintHex, int TryCount);
+    string? Reaction, string FingerprintHex, int TryCount, ClassroomRoute? Route = null);
+public enum ClassroomRoute { Classroom, Legacy }
+/// <summary>Reason: recorded | already-recorded | not-found | not-sending | stale-attempt | hello-before-attempt | hello-in-future | route-conflict | classroom-may-have-delivered.</summary>
+public sealed record ClassroomRouteResult(bool Recorded, string Reason);
 public sealed record PendingClassroomReceipt(long OriginalLocalSeq, string MessageId, ClassroomPrincipalKey Principal, string TargetIp, long PolicyGeneration);
 /// <summary>Shown before a roster row is deleted (CM-17). Passing it back confirms the delete; if the row's name changed meanwhile the delete is refused.</summary>
 public sealed record RosterDeletePreview(bool CanDelete, string Reason, string EntryId, string DisplayName, int ClassroomMessages, int LegacyMessages, string SnapshotToken)

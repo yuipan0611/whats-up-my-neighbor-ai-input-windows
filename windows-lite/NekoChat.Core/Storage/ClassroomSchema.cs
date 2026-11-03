@@ -8,6 +8,23 @@ namespace NekoChat.Core.Storage;
 internal static class ClassroomSchema
 {
     /// <summary>
+    /// NCM1e: the route (classroom or v1) of each try, written once from the hello that was done AFTER that try began. A stored result is accepted only for
+    /// a classroom try and a legacy-delivered only for a legacy try. Rows disappear only with their attempt (clear), never by update.
+    /// </summary>
+    internal const string RouteSql = """
+        CREATE TABLE ClassroomAttemptRoute(
+          messageId        TEXT NOT NULL REFERENCES ClassroomAttempt(messageId) ON DELETE CASCADE,
+          tryCount         INTEGER NOT NULL CHECK (tryCount >= 1),
+          route            TEXT NOT NULL CHECK (route IN ('classroom','legacy')),
+          helloObservedUtc TEXT NOT NULL,
+          recordedUtc      TEXT NOT NULL,
+          PRIMARY KEY (messageId, tryCount)
+        ) STRICT;
+        CREATE TRIGGER ClassroomAttemptRoute_immutable BEFORE UPDATE ON ClassroomAttemptRoute
+        BEGIN SELECT RAISE(ABORT, 'A recorded route never changes'); END;
+        """;
+
+    /// <summary>
     /// CM-14b: a v1 peer's "delivered" is recorded by an explicit column, never inferred from remoteStoredAt being null (an unconfirmed send is null too).
     /// Such a message has no stored/read timestamps and can never receive any.
     /// </summary>

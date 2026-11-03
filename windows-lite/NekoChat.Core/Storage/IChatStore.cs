@@ -62,6 +62,7 @@ public interface IChatStore : IDisposable
     BeginSendResult BeginClassroomRetry(string messageId, ClassroomPrincipalKey principal, string currentText, long draftEpoch, long draftRevision, string kind = "text", string? reaction = null);
     ClassroomPreparedSend? GetClassroomPreparedSend(string messageId);
     CompleteResult CompleteClassroomAttempt(string messageId, AttemptOutcome outcome, string? ackSourceIp = null, int? expectedTryCount = null);
+    ClassroomRouteResult RecordClassroomRoute(string messageId, int tryCount, ClassroomRoute route, DateTime helloObservedUtc);
     CompleteResult CompleteClassroomLegacyDelivered(string messageId, string deliveredFromIp, int? expectedTryCount = null);
     CancelResult CancelClassroomAttempt(string messageId, int? expectedTryCount = null);
     ReceiptApplyResult ApplyClassroomReceipt(string sourceIp, string messageId, RemoteReceiptKind kind);

@@ -87,7 +87,8 @@ internal sealed record Migration(int ToVersion, Action<WriteContext> Apply, bool
     internal static Migration V7 { get; } = new(7, ctx => ctx.Exec(ClassroomSchema.Sql));
     internal static Migration V8 { get; } = new(8, ctx => ctx.Exec(ClassroomSchema.RemovedSql));
     internal static Migration V9 { get; } = new(9, ctx => ctx.Exec(ClassroomSchema.LegacyDeliveredSql));
-    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2, V3, V4, V5, V6, V7, V8, V9 };
+    internal static Migration V10 { get; } = new(10, ctx => ctx.Exec(ClassroomSchema.RouteSql));
+    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2, V3, V4, V5, V6, V7, V8, V9, V10 };
 
     internal static string ReadSchemaV1()
     {

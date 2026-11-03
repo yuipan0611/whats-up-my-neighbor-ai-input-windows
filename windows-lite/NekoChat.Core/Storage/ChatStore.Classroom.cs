@@ -234,11 +234,11 @@ public sealed partial class ChatStore
         ValidateMessageId(messageId);
         return Read(c => {
             using var cmd = c.CreateCommand();
-            cmd.CommandText = "SELECT a.principal,a.rawSnapshot,a.kind,a.reaction,a.contentFingerprint,a.tryCount,CASE WHEN a.principal GLOB 'ip:*' THEN substr(a.principal,4) ELSE (SELECT r.endpoint FROM RosterEntry r WHERE 'roster:'||r.id=a.principal) END FROM ClassroomAttempt a WHERE a.messageId=@id AND a.attemptState='sending'";
+            cmd.CommandText = "SELECT a.principal,a.rawSnapshot,a.kind,a.reaction,a.contentFingerprint,a.tryCount,CASE WHEN a.principal GLOB 'ip:*' THEN substr(a.principal,4) ELSE (SELECT r.endpoint FROM RosterEntry r WHERE 'roster:'||r.id=a.principal) END,(SELECT route FROM ClassroomAttemptRoute x WHERE x.messageId=a.messageId AND x.tryCount=a.tryCount) FROM ClassroomAttempt a WHERE a.messageId=@id AND a.attemptState='sending'";
             cmd.Parameters.AddWithValue("@id", messageId); using var r = cmd.ExecuteReader();
             if (!r.Read() || r.IsDBNull(6) || !ClassroomPrincipalKey.TryParse(r.GetString(0), out var principal)) return null;
             return new ClassroomPreparedSend(messageId, principal, r.GetString(6), r.GetString(1), r.GetString(2), r.IsDBNull(3) ? null : r.GetString(3),
-                Convert.ToHexString((byte[])r.GetValue(4)).ToLowerInvariant(), checked((int)r.GetInt64(5)));
+                Convert.ToHexString((byte[])r.GetValue(4)).ToLowerInvariant(), checked((int)r.GetInt64(5)), r.IsDBNull(7) ? null : r.GetString(7) == "legacy" ? ClassroomRoute.Legacy : ClassroomRoute.Classroom);
         });
     }
 
@@ -270,6 +270,8 @@ public sealed partial class ChatStore
                 ctx.Exec("UPDATE ClassroomAttempt SET attemptState=@state,updatedUtc=@now WHERE messageId=@id", ("@state", state), ("@now", ctx.NowUtc), ("@id", messageId));
                 return (new StateUpdated(state), true);
             }
+            // NCM1e: a stored result is only meaningful for a try that went out on the classroom route (v1 can never produce one).
+            if (ClassroomRouteOf(ctx, messageId, anyTry: true, ClassroomRoute.Classroom) is { } routeProblem) return (new Discarded(routeProblem), false);
             // The stored-ACK must come from the conversation's own address, resolved inside this transaction.
             if (ackKey is null || ResolveClassroomPrincipal(ctx, ackKey.Value.SourceIp!).Value != old.Principal) return (new Discarded("ack-binding"), false);
             if (ack is null || ack.Length != 32 || !CryptographicOperations.FixedTimeEquals(ack, old.Fingerprint))
@@ -294,6 +296,43 @@ public sealed partial class ChatStore
         });
     }
 
+    /// <summary>Null when the wanted route was recorded (any try for stored results, the current try for legacy); otherwise no-route or route-mismatch.</summary>
+    private static string? ClassroomRouteOf(WriteContext ctx, string messageId, bool anyTry, ClassroomRoute wanted, long currentTry = 0)
+    {
+        string route = wanted == ClassroomRoute.Legacy ? "legacy" : "classroom";
+        var rows = ctx.Query("SELECT route FROM ClassroomAttemptRoute WHERE messageId=@id" + (anyTry ? "" : " AND tryCount=@try"), r => r.GetString(0), ("@id", messageId), ("@try", currentTry));
+        if (rows.Count == 0) return "no-route";
+        return rows.Contains(route) ? null : "route-mismatch";
+    }
+
+    /// <summary>
+    /// NCM1e: write, once, which route this try takes. <paramref name="helloObservedUtc"/> is when the hello that decided it was answered; it must not
+    /// be older than the try (so a hello from before the send, or from history, cannot route it). A try that went out as classroom may not later go
+    /// out as v1 for the same message (CM-14); the other direction is allowed (the peer was upgraded).
+    /// </summary>
+    public ClassroomRouteResult RecordClassroomRoute(string messageId, int tryCount, ClassroomRoute route, DateTime helloObservedUtc)
+    {
+        ValidateMessageId(messageId); if (tryCount < 1) throw new ArgumentOutOfRangeException(nameof(tryCount)); if (!Enum.IsDefined(route)) throw new ArgumentOutOfRangeException(nameof(route));
+        string wire = route == ClassroomRoute.Legacy ? "legacy" : "classroom";
+        string hello = Iso(helloObservedUtc.ToUniversalTime());
+        return Write("classroom-record-route", ctx => {
+            var old = FindClassroomAttempt(ctx, messageId);
+            if (old is null) return (new ClassroomRouteResult(false, "not-found"), false);
+            if (old.Count != tryCount) return (new ClassroomRouteResult(false, "stale-attempt"), false);
+            var existing = ctx.Query("SELECT route FROM ClassroomAttemptRoute WHERE messageId=@id AND tryCount=@try", r => r.GetString(0), ("@id", messageId), ("@try", tryCount));
+            if (existing.Count != 0) return (new ClassroomRouteResult(false, existing[0] == wire ? "already-recorded" : "route-conflict"), false);
+            if (old.State != "sending") return (new ClassroomRouteResult(false, "not-sending"), false);
+            string started = Convert.ToString(ctx.Scalar("SELECT updatedUtc FROM ClassroomAttempt WHERE messageId=@id", ("@id", messageId)), CultureInfo.InvariantCulture)!;
+            if (string.CompareOrdinal(hello, started) < 0) return (new ClassroomRouteResult(false, "hello-before-attempt"), false);
+            if (string.CompareOrdinal(hello, Iso(_options.UtcNow().ToUniversalTime().AddSeconds(5))) > 0) return (new ClassroomRouteResult(false, "hello-in-future"), false);
+            if (route == ClassroomRoute.Legacy && Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM ClassroomAttemptRoute WHERE messageId=@id AND route='classroom'", ("@id", messageId)), CultureInfo.InvariantCulture) != 0)
+                return (new ClassroomRouteResult(false, "classroom-may-have-delivered"), false);
+            ctx.Exec("INSERT INTO ClassroomAttemptRoute(messageId,tryCount,route,helloObservedUtc,recordedUtc) VALUES(@id,@try,@route,@hello,@now)",
+                ("@id", messageId), ("@try", tryCount), ("@route", wire), ("@hello", hello), ("@now", ctx.NowUtc));
+            return (new ClassroomRouteResult(true, "recorded"), true);
+        });
+    }
+
     /// <summary>
     /// CM-14b: the v1 peer answered "delivered". Records the message in history as 舊版・已送出 (explicit column; no remoteStoredAt, no remoteReadAt, no receipts ever),
     /// makes the attempt terminal, and clears the draft only if it is unchanged since the send began. v1 carries no content proof, so the only binding is
@@ -314,6 +353,8 @@ public sealed partial class ChatStore
                 return sequence is null ? (new Discarded("missing-confirmed-message"), false) : (new AlreadyConfirmed(Convert.ToInt64(sequence, CultureInfo.InvariantCulture)), false);
             }
             if (expectedTryCount.HasValue && expectedTryCount != old.Count) return (new Discarded("stale-attempt"), false);
+            // NCM1e: delivered is the sync reply of the CURRENT try, which must have been routed to v1 by a hello done after the try began.
+            if (ClassroomRouteOf(ctx, messageId, anyTry: false, ClassroomRoute.Legacy, old.Count) is { } legacyProblem) return (new Discarded(legacyProblem), false);
             if (from is null || ResolveClassroomPrincipal(ctx, from.Value.SourceIp!).Value != old.Principal) return (new Discarded("ack-binding"), false);
             var binding = ReadClassroomBinding(ctx, old.Principal);
             bool clear = old.Kind != "reaction" && binding is not null && binding.Epoch == old.Epoch && binding.Revision == old.Revision && binding.Text == old.Text;
