@@ -27,8 +27,11 @@ public sealed class PairingInitiator : IAsyncDisposable
     public PairingInitiator(PairingIdentity identity, TimeProvider? clock = null) : this(identity, clock ?? TimeProvider.System, true) { }
     internal PairingInitiator(PairingIdentity identity, TimeProvider clock, bool startTimer)
     { _identity = identity ?? throw new ArgumentNullException(nameof(identity)); _clock = clock ?? throw new ArgumentNullException(nameof(clock)); _timer = startTimer ? Task.Run(Timer) : Task.CompletedTask; }
-    public Task<PairingStep> BeginAsync(string? expectedPeerId = null)
+    public Task<PairingStep> BeginAsync(string? expectedPeerId = null) => BeginAsync(expectedPeerId, () => true);
+    /// <param name="sessionCurrent">Fast thread-safe generation predicate, including inside SQLite commit guards. Must not perform I/O or acquire a database lock.</param>
+    public Task<PairingStep> BeginAsync(string? expectedPeerId, Func<bool> sessionCurrent)
     {
+        ArgumentNullException.ThrowIfNull(sessionCurrent);
         if (expectedPeerId is not null && !V2Format.IsPeerId(expectedPeerId)) throw new ArgumentException("Invalid expected peer.");
         if (Volatile.Read(ref _stopped) != 0) return Task.FromResult(new PairingStep("stopped"));
         if (!_serial.Wait(0)) return Task.FromResult(new PairingStep("busy"));
@@ -41,8 +44,8 @@ public sealed class PairingInitiator : IAsyncDisposable
             // Do not emit a stale request after an identity read that waited behind SQL. Cancel and readiness publish share this short boundary.
             lock (_lifecycle)
             {
-                if (epoch != Volatile.Read(ref _epoch) || Volatile.Read(ref _stopped) != 0) return new("stale_security");
-                _session = new(sid, expectedPeerId, epoch, _clock.GetTimestamp());
+                if (epoch != Volatile.Read(ref _epoch) || Volatile.Read(ref _stopped) != 0 || !sessionCurrent()) return new("stale_security");
+                _session = new(sid, expectedPeerId, epoch, _clock.GetTimestamp(), sessionCurrent);
                 Publish(_session, PairingStage.Requested); return new("send_request", request, cancel);
             }
         });
@@ -129,6 +132,9 @@ public sealed class PairingInitiator : IAsyncDisposable
         });
     }
     public Task<PairingStep> CancelAsync() => Cancel(null, "user_cancelled");
+    public Task<PairingStep> AbortAsync(PairingFailure failure) => Cancel(null, failure switch {
+        PairingFailure.Transport => "transport_error", PairingFailure.RemoteEnded => "remote_ended", PairingFailure.InvalidResponse => "invalid_response",
+        PairingFailure.ScopeChanged => "scope_changed", _ => throw new ArgumentOutOfRangeException(nameof(failure)) });
     public Task<PairingStep> RejectAsync(PairingConsent consent) { ArgumentNullException.ThrowIfNull(consent); return Cancel(consent, "user_rejected"); }
     private Task<PairingStep> Cancel(PairingConsent? consent, string reason)
     {
@@ -144,7 +150,7 @@ public sealed class PairingInitiator : IAsyncDisposable
                     if (_cancelEpoch != Volatile.Read(ref _epoch)) return new PairingStep("superseded");
                     var session = _session;
                     if (session is null && View.Stage == PairingStage.Paired) return new PairingStep("already_complete");
-                    byte[]? packet = session is null ? null : PairingWire.Cancel(session.Id, "user_rejected");
+                    byte[]? packet = session is null ? null : PairingWire.Cancel(session.Id, _cancelReason == "user_rejected" || _cancelReason == "user_cancelled" ? "user_rejected" : "error");
                     End(_cancelReason, invalidate: false); return new PairingStep(_cancelReason, packet);
                 }
                 finally { _serial.Release(); }
@@ -157,7 +163,7 @@ public sealed class PairingInitiator : IAsyncDisposable
         { End("storage_error"); return new("result_unconfirmed"); }
         finally { _serial.Release(); }
     });
-    private bool Live(Session session) => session.Epoch == Volatile.Read(ref _epoch) && Volatile.Read(ref _stopped) == 0 && _clock.GetElapsedTime(session.Start) < PairingTiming.Session;
+    private bool Live(Session session) => session.Epoch == Volatile.Read(ref _epoch) && Volatile.Read(ref _stopped) == 0 && _clock.GetElapsedTime(session.Start) < PairingTiming.Session && session.ScopeCurrent();
     private void Publish(Session session, PairingStage stage) => Volatile.Write(ref _view, new(stage, SessionId: session.Id, PeerId: session.Expected?.PeerId ?? session.ExpectedPeer,
         Sas: session.Consent?.Sas, LocalConfirmed: session.LocalConfirmed, Consent: session.LocalConfirmed ? null : session.Consent,
         Remaining: PairingTiming.Session - _clock.GetElapsedTime(session.Start), MayBeAsymmetric: session.Confirmation is not null));
@@ -196,8 +202,9 @@ public sealed class PairingInitiator : IAsyncDisposable
             return new(_disposal = Task.Run(async () => { await _timer.ConfigureAwait(false); await _serial.WaitAsync().ConfigureAwait(false); try { End("stopped"); } finally { _serial.Release(); _shutdown.Dispose(); } }));
         }
     }
-    private sealed class Session(string id, string? expectedPeer, long epoch, long start)
+    private sealed class Session(string id, string? expectedPeer, long epoch, long start, Func<bool> scopeCurrent)
     {
+        internal readonly Func<bool> ScopeCurrent = scopeCurrent;
         internal string Id = id;
         internal string? ExpectedPeer = expectedPeer, Na;
         internal long Epoch = epoch, Start = start;

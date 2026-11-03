@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using NekoChat.Core.Storage;
+using NekoChat.Core.Pairing;
 
 namespace NekoChat.Core.V2;
 
@@ -14,6 +15,7 @@ public sealed record V2ListenerOptions
     public int RequestsPerSourcePerMinute { get; init; } = 20;
     public int MaxSourceEntries { get; init; } = 1024;
     public TimeSpan ConnectionTimeout { get; init; } = TimeSpan.FromSeconds(6);
+    public TimeSpan PairingWireTimeout { get; init; } = TimeSpan.FromSeconds(2);
     public TimeProvider Clock { get; init; } = TimeProvider.System;
 }
 
@@ -22,6 +24,11 @@ public sealed class V2TcpListener : IAsyncDisposable
 {
     private readonly object _gate = new();
     private readonly V2Receiver? _receiver;
+    private readonly IPairingEndpoint? _pairing;
+    private readonly SemaphoreSlim _pairSlot = new(1, 1);
+    private Task _pairWork = Task.CompletedTask, _pairDrain = Task.CompletedTask;
+    public bool PairSlotOccupied => _pairSlot.CurrentCount == 0;
+    public int ActivePairingJobs { get { lock (_gate) return _pairWork.IsCompleted ? 0 : 1; } }
     private readonly V2ListenerOptions _options;
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _lifetime = new();
@@ -38,14 +45,16 @@ public sealed class V2TcpListener : IAsyncDisposable
     /// <summary>Optional local persistence before the legacy courtesy reply. The host owns and drains the borrowed store.</summary>
     public Func<string, DirectMessage, Func<bool>, bool>? LegacyMessageHandler { private get; init; }
     public event Action<string>? Diagnostic;
-    public V2TcpListener(V2Receiver? receiver, V2ListenerOptions? options = null)
+    public V2TcpListener(V2Receiver? receiver, V2ListenerOptions? options = null) : this(receiver, options, null) { }
+    public V2TcpListener(V2Receiver? receiver, V2ListenerOptions? options, IPairingEndpoint? pairing)
     {
-        _receiver = receiver; _options = options ?? new();
+        _receiver = receiver; _pairing = pairing; _options = options ?? new();
         if (_options.BindAddress.AddressFamily != AddressFamily.InterNetwork ||
             !(_options.BindAddress.Equals(IPAddress.Any) || LanInvitation.PrivateIPv4(_options.BindAddress.ToString())) ||
             _options.Port is < 0 or > 65535 || _options.MaxConnections is < 1 or > 128 ||
             _options.RequestsPerSourcePerMinute is < 1 or > 10000 || _options.MaxSourceEntries is < 1 or > 65536 ||
-            _options.ConnectionTimeout <= TimeSpan.Zero || _options.ConnectionTimeout > TimeSpan.FromMinutes(1) || _options.Clock is null)
+            _options.ConnectionTimeout <= TimeSpan.Zero || _options.ConnectionTimeout > TimeSpan.FromMinutes(1) || _options.Clock is null ||
+            _options.PairingWireTimeout <= TimeSpan.Zero || _options.PairingWireTimeout > TimeSpan.FromSeconds(2))
             throw new ArgumentException("Invalid LAN listener options.", nameof(options));
         _boundPort = _options.Port; _listener = new(_options.BindAddress, _options.Port); _rate = new(_options.Clock, _options.RequestsPerSourcePerMinute, _options.MaxSourceEntries);
     }
@@ -103,7 +112,9 @@ public sealed class V2TcpListener : IAsyncDisposable
         using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token))
         {
             timeout.CancelAfter(_options.ConnectionTimeout);
-            NetworkStream? stream = null;
+            NetworkStream? stream = null; bool pairLease = false, requestLineKnown = false;
+            Task<V2HttpResponse>? pairWork = null;
+            long started = TimeProvider.System.GetTimestamp();
             try
             {
                 stream = client.GetStream(); byte[] header = new byte[8192]; int count = 0, end = -1;
@@ -112,16 +123,34 @@ public sealed class V2TcpListener : IAsyncDisposable
                     int read = await stream.ReadAsync(header.AsMemory(count), timeout.Token).ConfigureAwait(false);
                     if (read == 0) return;
                     count += read;
+                    if (!requestLineKnown)
+                    {
+                        int lineEnd = header.AsSpan(0, count).IndexOf("\r\n"u8);
+                        if (lineEnd >= 0)
+                        {
+                            requestLineKnown = true;
+                            if (header.AsSpan(0, lineEnd).SequenceEqual("POST /nekochat/v2/pair HTTP/1.1"u8))
+                            {
+                                if (_pairing is null) { await RespondAsync(stream, V2HttpResponse.Error("unsupported_version"), timeout.Token).ConfigureAwait(false); return; }
+                                if (!_pairSlot.Wait(0)) { await RespondAsync(stream, PairingResponses.Error("pair_unavailable"), timeout.Token).ConfigureAwait(false); return; }
+                                pairLease = true;
+                                TimeSpan budget = _options.PairingWireTimeout < _options.ConnectionTimeout ? _options.PairingWireTimeout : _options.ConnectionTimeout;
+                                TimeSpan remaining = budget - TimeProvider.System.GetElapsedTime(started);
+                                if (remaining <= TimeSpan.Zero) return;
+                                timeout.CancelAfter(remaining);
+                            }
+                        }
+                    }
                     for (int i = Math.Max(0, count - read - 3); i <= count - 4; i++)
                         if (header[i] == 13 && header[i + 1] == 10 && header[i + 2] == 13 && header[i + 3] == 10) { end = i + 4; break; }
                 }
                 string path = "", code = "invalid_payload"; int length = 0;
                 if (end < 0 || !TryHeaders(header.AsSpan(0, end), out path, out length, out code))
                 { await RespondAsync(stream, V2HttpResponse.Error(end < 0 ? "invalid_payload" : code), timeout.Token).ConfigureAwait(false); return; }
-                if (path != "/nekochat/v1/direct" && _receiver is null)
+                if (path != "/nekochat/v1/direct" && path != "/nekochat/v2/pair" && _receiver is null)
                 { await RespondAsync(stream, V2HttpResponse.Error("receiver_not_ready"), timeout.Token).ConfigureAwait(false); return; }
-                int limit = path == "/nekochat/v1/direct" ? LegacyDirectProtocol.MaxBodyBytes : path == "/nekochat/v2/message" ? _receiver!.MaxMessageBodyBytes : V2JsonLimits.Control.MaxBytes;
-                if (length > limit) { await RespondAsync(stream, V2HttpResponse.Error("payload_too_large"), timeout.Token).ConfigureAwait(false); return; }
+                int limit = path == "/nekochat/v2/pair" ? PairingWire.MaxBodyBytes : path == "/nekochat/v1/direct" ? LegacyDirectProtocol.MaxBodyBytes : path == "/nekochat/v2/message" ? _receiver!.MaxMessageBodyBytes : V2JsonLimits.Control.MaxBytes;
+                if (length > limit) { await RespondAsync(stream, path == "/nekochat/v2/pair" ? PairingResponses.Error("invalid_payload") : V2HttpResponse.Error("payload_too_large"), timeout.Token).ConfigureAwait(false); return; }
                 int buffered = count - end;
                 if (buffered > length) { await RespondAsync(stream, V2HttpResponse.Error("invalid_payload"), timeout.Token).ConfigureAwait(false); return; }
                 byte[] body = new byte[length]; header.AsSpan(end, buffered).CopyTo(body);
@@ -132,7 +161,16 @@ public sealed class V2TcpListener : IAsyncDisposable
                     buffered += read;
                 }
                 V2HttpResponse response;
-                if (path == "/nekochat/v1/direct")
+                if (path == "/nekochat/v2/pair")
+                {
+                    if (_pairing is null || !pairLease || timeout.IsCancellationRequested) return;
+                    var pairToken = timeout.Token;
+                    pairWork = Task.Run(() => _pairing.HandleAsync(body, source, pairToken));
+                    lock (_gate) _pairWork = pairWork;
+                    // A wire timeout closes this connection, never the physical class lease while storage still runs.
+                    response = await pairWork.WaitAsync(timeout.Token).ConfigureAwait(false);
+                }
+                else if (path == "/nekochat/v1/direct")
                 {
                     if (!LegacyDirectProtocol.TryParse(body, out var legacy, out var problem)) response = V2HttpResponse.Error(problem);
                     else if (timeout.IsCancellationRequested) response = V2HttpResponse.Error("receiver_not_ready");
@@ -155,7 +193,18 @@ public sealed class V2TcpListener : IAsyncDisposable
             }
             catch (Exception e) when (e is IOException or SocketException or OperationCanceledException or ObjectDisposedException) { }
             catch { Report("request_failed"); }
-            finally { if (stream is not null) await FinishAsync(client, stream, _lifetime.Token).ConfigureAwait(false); }
+            finally
+            {
+                if (stream is not null) await FinishAsync(client, stream, _lifetime.Token).ConfigureAwait(false);
+                if (pairLease)
+                {
+                    if (pairWork is null || pairWork.IsCompleted) _pairSlot.Release();
+                    else
+                    {
+                        lock (_gate) _pairDrain = pairWork.ContinueWith(completed => { _ = completed.Exception; _pairSlot.Release(); }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                    }
+                }
+            }
         }
     }
     private static bool TryHeaders(ReadOnlySpan<byte> bytes, out string path, out int length, out string error)
@@ -166,7 +215,7 @@ public sealed class V2TcpListener : IAsyncDisposable
         string[] request = lines[0].Split(' ', StringSplitOptions.None);
         if (request.Length != 3 || request[0] != "POST" || request[2] != "HTTP/1.1") return false;
         path = request[1];
-        if (path is not ("/nekochat/v1/direct" or "/nekochat/v2/hello" or "/nekochat/v2/message" or "/nekochat/v2/receipt")) { error = "unsupported_version"; return false; }
+        if (path is not ("/nekochat/v1/direct" or "/nekochat/v2/hello" or "/nekochat/v2/message" or "/nekochat/v2/receipt" or "/nekochat/v2/pair")) { error = "unsupported_version"; return false; }
         if (lines.Length is < 2 or > 65) return false;
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 1; i < lines.Length; i++)
@@ -210,6 +259,8 @@ public sealed class V2TcpListener : IAsyncDisposable
     public ValueTask DisposeAsync() { lock (_gate) return new(_disposal ??= StopAsync()); }
     private async Task StopAsync()
     {
+        Task pairStop;
+        try { pairStop = _pairing?.StopAsync() ?? Task.CompletedTask; } catch { pairStop = Task.CompletedTask; Report("pairing_stop_failed"); }
         _receiver?.SetReady(false); _lifetime.Cancel(); _listener.Stop(); Volatile.Write(ref _running, 0);
         if (_loop is not null) await _loop.ConfigureAwait(false);
         Task[] tasks; lock (_gate) tasks = _workers.ToArray();
@@ -217,7 +268,11 @@ public sealed class V2TcpListener : IAsyncDisposable
         // Worker completion can resume WhenAll before its removal continuation takes the gate.
         // The accept loop has drained, so no new registrations can race this final accounting.
         lock (_gate) _workers.Clear();
-        _lifetime.Dispose();
+        Task pairWork, pairDrain; lock (_gate) { pairWork = _pairWork; pairDrain = _pairDrain; }
+        try { await pairWork.ConfigureAwait(false); } catch { Report("pairing_request_failed"); }
+        try { await pairDrain.ConfigureAwait(false); await pairStop.ConfigureAwait(false); }
+        catch { Report("pairing_stop_failed"); }
+        finally { _lifetime.Dispose(); }
     }
     internal sealed class SourceRateLimit(TimeProvider clock, int limit, int capacity)
     {

@@ -5,7 +5,7 @@ using NekoChat.Core.V2;
 namespace NekoChat.Core.Pairing;
 
 /// <summary>Conditional P1 responder. Borrows identity/store; starts CLOSED. At most one physical storage/protocol job, plus bounded user/cleanup work.</summary>
-public sealed class PairingResponder : IAsyncDisposable
+public sealed class PairingResponder : IAsyncDisposable, IPairingEndpoint
 {
     private readonly PairingIdentity _identity;
     private readonly TimeProvider _clock;
@@ -56,6 +56,7 @@ public sealed class PairingResponder : IAsyncDisposable
         }
         finally { Volatile.Write(ref _opening, 0); }
     }
+    public Task StopAsync() => CloseWindowAsync();
     public Task CloseWindowAsync() => InvalidateAsync("window_closed");
     public Task InvalidateTrustAsync() => InvalidateAsync("trust_changed");
     private Task InvalidateAsync(string reason)

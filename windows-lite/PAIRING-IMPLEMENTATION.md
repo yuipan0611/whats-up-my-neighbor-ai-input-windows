@@ -20,7 +20,7 @@
 - `BeginPairingCandidateIfCurrent` 在 immediate SQLite transaction 比對原始 local／peer revision與狀態，拒絕 revoked／suspended／未知狀態、自己與缺失／不符的 local public metadata，再建立或 first-pin 候選並擷取 snapshot。取消與儲存失敗會整體回滾。候選未知 Peer 是 pending；已存在的配對狀態保持原樣，永不在這個 API 升為 paired。
 - 固定41向量被複製到測試 fixtures，只含公用測試資料；另有嚴格 JSON、原文邊界與真 P256 簽章、SQLite ABA／撤銷／取消／兩 handle 競爭等測試。沒有新套件或 schema 變更。
 
-## 雙方確認 actors（已實作，未接 TCP）
+## 雙方確認 actors（已實作）
 
 `PairingIdentity` 借用資料庫、持有呼叫端交付的現有私鑰，只接受與當下 SQLite 身分／public metadata／revision 相符且可真實簽驗的 P256 key；不建立或儲存身分。兩 actor 停止並 drain 後才能 dispose 身分與資料庫。
 
@@ -32,11 +32,25 @@
 
 87個新增檢查是本機兩份真SQLite、真P256、實際產品封包驅動兩actor；有雙向consent順序、真並行確認、SQL boundary阻塞時取消／新開窗、commit前後IO fault、錯role／key／session、有效遠端簽章不能取代本機動作、確認遺失／exact deadline／五秒poll與既有quota、cache／reveal／request上限、timer與資料保留。測試呼叫可信的本機確認入口，**不是人類實際比對或WPF驗收，也不是TCP傳輸驗收**。在網路admission之外被busy拒絕的呼叫不佔新的physical工作；transport仍須限制pair類別1槽與2秒wire回覆，不能把actor serial鎖當成全部listener的隔離。
 
+## 條件式 TCP 傳輸（已實作）
+
+`IPairingEndpoint` 是 listener 借用的明確 opt-in endpoint；原建構式沒有 endpoint，`/nekochat/v2/pair` 仍回 unsupported_version，不會暗中啟用 P1。設定 endpoint 時，不需要先配置 ordinary-message receiver 或訊息 L，即可單獨開啟配對控制路由；它不代替使用者決定身分方案或建立私鑰。`DirectLanListener` 有 additive 四參數入口，舊建構式與 v1/v2 消費者保持原契約。
+
+listener 在完整配對 request line 到達時先保留單一 class slot，含慢 headers／body 的 wire budget 最多2秒，body最多1KiB。尚無完整 request line 的連線沿用原一般 connection budget；所有路由仍共用原8條連線及20/source/min admission，沒有提高限制。wire逾時後會關閉 socket，但 detached protocol／SQLite job 真正完成前，class slot不釋出；第二個pair請求被拒絕，其他路由仍可使用。停止會先撤銷 endpoint 意圖、取消 connection token，再 drain 一般 workers、真正的pair job及其lease continuation，最後才讓host釋放借用的store/key。endpoint實作者必須在自己的最終trust transaction核對token。
+
+`PairingLanClient` 借用 initiator，持有自己的 HTTP／session lifetime；只接受 canonical private IPv4 literal，拒絕DNS／publicIP／縮寫IPv4／IPv6，不走proxy、不follow redirect。connect最多2秒、每個request最多4秒；headers最多8KiB，回覆body最多1KiB（包括無Content-Length的chunked），只接受未編碼的UTF-8 JSON。非200必須exact error envelope及status/code對應，200仍須actor驗packet／commitment／SID／role／key。只在明確Begin送request、nonce；SAS尚未本機確認時不送confirm。人類ticket確認後，暫時斷線／pending等只會每5秒重送相同confirm bytes，絕不自動新建session或送私訊。一次physical outbound操作、busy不排隊；Cancel可立即撤銷generation與HTTP，然後drain及best-effort forward cancel。
+
+route generation、caller cancellation、120秒lifetime及外部fast scope predicate共同約束actor。predicate亦進入candidate與final SQLite commit guard；它必須thread-safe、無I/O，不可在guard內重新取得資料庫鎖。取消／dispose的同步token callbacks不在client lifecycle鎖內執行；user cancel與background failure發佈採同一短邊界，避免背景取消蓋掉明確user-cancel原因。這是volatile scope守衛，**還不是名單row的持久revision fence**。
+
+65項實際 TCP／P256／兩份SQLite checks，包括正常雙方consent後的真正signed hello/message/storage ACK、default receipt OFF、lost socket ACK的相同confirm五秒重試、wrong role/SID/key、假HTTP200與錯kind、揭露換鑰、expected-peer不符、重複JSON、oversize/chunked/header/charset/encoding/redirect/status錯配、配對尚關閉／pair-only／預設disabled、cancel與dispose競態、真SQL read completion中取消、不允許outbound排隊，以及真BeforeCommit卡住後wire先關、class仍佔用、v1仍可使用、stop等待storage／回滾。此批是可信local action API，不代表人類真的比較或WPF核准。
+
+最後local COMMIT的scope test另做negative control：只暫時移除 initiator Live 的scope predicate，實際TCP收到有效R簽章後在BeforeCommit翻轉scope，測試精確失敗；還原guard後納入完整回歸。原始log與source hashes見 `build/wire-evidence/pairing-tcp-delivery.json`。來源未改schema、固定269／41vectors或核准素材，無新套件。
+
 ## 後續完成條件
 
-仍須完成同時發起的角色協調、one-pair physical job與listener類別隔離、2秒 wire deadline下的 storage job drain、同埠 HTTP route/client、actor五秒poll的真正網路排程，以及host／設定與實際窗口接線。actor內部guard／cache／consent已完成，但host還沒有傳入resume／rebind等事件，不能宣稱整體已接妥。若host把session綁到一筆名單，還須把captured roster revision納入最後交易的scope守衛與綁定，不能只依靠UI事件或把Row重新讀成最新值；目前actors只承諾local／peer revision的原子守衛。
+仍須完成同時發起的角色協調、host／設定與實際窗口接線、resume／rebind等事件的意圖撤銷，以及COMMIT前後真process-kill／重啟與更完整的雙向並發網路情境。若host把session綁到一筆名單，還須把captured roster revision納入最後交易的scope守衛與綁定，不能只依靠UI事件或把Row重新讀成最新值；目前actors只承諾local／peer revision原子守衛與明確傳入的volatile scope predicate。
 
-必須以真正的 TCP、P256、SQLite 重做並行雙確認、撤銷／ABA、ACK 遺失、跨身分、換鑰中間人、壞承諾／簽章、重播、deadline／slot及 COMMIT 前後 kill 測試。只有以上全部有證據，才能稱為條件式 P1 完成；正常產品啟用仍須使用者的身分方案與訊息上限決定。Windows CNG／DPAPI／WPF／可用性與雙實機教室另列未執行。
+只有剩餘條件全部有證據，才能稱為條件式P1完成；正常產品啟用仍須使用者的身分方案與訊息上限決定。最終三包裝／DELIVERY待所有來源固定後重建；目前舊包裝不代表這批來源。Windows CNG／DPAPI／WPF／可用性與雙實機教室另列未執行。教材依使用者指示暫緩。
 
 ## 密碼學範圍
 
