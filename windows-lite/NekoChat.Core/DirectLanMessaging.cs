@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using NekoChat.Core.V2;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -18,8 +19,10 @@ public static class DirectLanMessaging
     {
         if (!LanInvitation.PrivateIPv4(targetIp))
             throw new ArgumentException("請輸入有效的內網 IPv4 位址（例如 192.168.1.25）。");
+        if (MessageLimitPolicy.Check(text, recipientIsLegacy: true) == MessageLimitVerdict.LegacyTooLarge)
+            throw new ArgumentException(MessageLimitPolicy.LegacyTooLargeNotice + "。訊息未送出，草稿保留。");
         if (!Protocol.ValidText(text))
-            throw new ArgumentException("訊息格式不正確（最多 2000 字且不可為空白）。");
+            throw new ArgumentException("訊息格式不正確（不可為空白）。");
         if (reaction is not null && ClassroomReactions.Find(reaction) is null)
             throw new ArgumentException("未知的反應貼圖。");
 

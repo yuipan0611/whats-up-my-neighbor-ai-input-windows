@@ -200,4 +200,5 @@ checks += NekoChat.Tests.SettingsSourceChecks.Run();
 checks += await NekoChat.Tests.InboxWorkspaceChecks.Run();
 checks += await NekoChat.Tests.ReceiptServiceChecks.Run();
 checks += NekoChat.Tests.StorageFixChecks.Run();
+checks += await NekoChat.Tests.Limit64kChecks.Run();
 Console.WriteLine($"NekoChat core: {checks} behavior checks passed.");
