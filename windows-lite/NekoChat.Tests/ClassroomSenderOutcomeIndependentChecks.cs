@@ -141,6 +141,54 @@ internal static class ClassroomSenderOutcomeIndependentChecks
         return Convert.ToString(cmd.ExecuteScalar()) ?? "";
     }
 
+    /// <summary>A peer that really keeps connections open (HTTP/1.1 keep-alive, serves several requests per connection) and counts connections. Same script contract as LoopbackPeer.</summary>
+    private sealed class KeepAlivePeer : IAsyncDisposable
+    {
+        private readonly System.Net.Sockets.TcpListener _listener = new(IPAddress.Loopback, 0);
+        private readonly CancellationTokenSource _stop = new();
+        private readonly Func<WireReq, WireReply> _script;
+        private readonly List<WireReq> _seen = new(); private int _connections, _seq;
+        internal int Port { get; }
+        internal int Connections => Volatile.Read(ref _connections);
+        internal IReadOnlyList<WireReq> Seen { get { lock (_seen) return _seen.ToArray(); } }
+        internal KeepAlivePeer(Func<WireReq, WireReply> script) { _script = script; _listener.Start(); Port = ((IPEndPoint)_listener.LocalEndpoint).Port; _ = Task.Run(AcceptLoop); }
+        private async Task AcceptLoop()
+        {
+            while (!_stop.IsCancellationRequested)
+            {
+                try { var c = await _listener.AcceptTcpClientAsync(_stop.Token); Interlocked.Increment(ref _connections); _ = Task.Run(() => Serve(c)); }
+                catch (Exception e) when (e is OperationCanceledException or System.Net.Sockets.SocketException or ObjectDisposedException) { return; }
+            }
+        }
+        private async Task Serve(System.Net.Sockets.TcpClient client)
+        {
+            using (client)
+            {
+                try
+                {
+                    var remote = (client.Client.RemoteEndPoint as IPEndPoint)?.Address; var stream = client.GetStream(); var buffer = new List<byte>(); var chunk = new byte[8192];
+                    while (!_stop.IsCancellationRequested)
+                    {
+                        int headEnd;
+                        while ((headEnd = IndexOfCrLfCrLf(buffer)) < 0) { int n = await stream.ReadAsync(chunk, _stop.Token); if (n == 0) return; buffer.AddRange(chunk.AsSpan(0, n).ToArray()); }
+                        string[] lines = System.Text.Encoding.ASCII.GetString(buffer.GetRange(0, headEnd).ToArray()).Split("\r\n");
+                        string path = lines[0].Split(' ')[1]; int length = 0;
+                        foreach (string line in lines.Skip(1)) if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) length = int.Parse(line[15..].Trim());
+                        while (buffer.Count < headEnd + 4 + length) { int n = await stream.ReadAsync(chunk, _stop.Token); if (n == 0) return; buffer.AddRange(chunk.AsSpan(0, n).ToArray()); }
+                        var body = buffer.Skip(headEnd + 4).Take(length).ToArray(); buffer.RemoveRange(0, headEnd + 4 + length);
+                        WireReq request; lock (_seen) { request = new WireReq(++_seq, path, body, remote); _seen.Add(request); }
+                        if (_script(request) is not WireRaw raw) return;
+                        await stream.WriteAsync(System.Text.Encoding.ASCII.GetBytes($"HTTP/1.1 {raw.Status} Status\r\nContent-Type: {raw.ContentType}\r\nContent-Length: {raw.Body.Length}\r\nConnection: keep-alive\r\n\r\n"), _stop.Token);
+                        await stream.WriteAsync(raw.Body, _stop.Token); await stream.FlushAsync(_stop.Token);
+                    }
+                }
+                catch (Exception e) when (e is OperationCanceledException or IOException or System.Net.Sockets.SocketException or ObjectDisposedException) { }
+            }
+        }
+        private static int IndexOfCrLfCrLf(List<byte> d) { for (int i = 0; i + 4 <= d.Count; i++) if (d[i] == 13 && d[i + 1] == 10 && d[i + 2] == 13 && d[i + 3] == 10) return i; return -1; }
+        public ValueTask DisposeAsync() { _stop.Cancel(); _listener.Stop(); _stop.Dispose(); return ValueTask.CompletedTask; }
+    }
+
     private static string Describe(Run o) =>
         (o.Thrown ?? $"success={o.Result?.Success} code={o.Result?.Code} route={o.Result?.Route} completion={o.Result?.Completion?.GetType().Name}/{o.CompletionState}") +
         $"; requests=[{string.Join(", ", o.Seen.Select(r => r.Path.Replace("/nekochat/", "") + (r.CarriesUserText ? "(TEXT)" : "")))}]; storeCalls=[{string.Join(",", o.Calls.Select(c => c.Method))}]";
@@ -234,6 +282,8 @@ internal static class ClassroomSenderOutcomeIndependentChecks
         {
             ("400 with a body that is not exactly the legacy signal", _ => NekoChat.Tests.Loopback.Json(400, Bytes("{\"error\":\"empty_text\",\"x\":1}")), null),
             ("404", _ => NekoChat.Tests.Loopback.Json(404, Bytes("{}")), null),
+            ("503 whose body is not a classroom error envelope (e.g. an HTML page from a proxy) -- only the classroom code `transient` is unconfirmed (§10)", _ => new WireRaw(503, "text/html", Bytes("<html><body>503 Service Unavailable</body></html>")), null),
+            ("503 whose JSON body is the legacy-style {\"error\":\"transient\"} instead of the classroom envelope", _ => NekoChat.Tests.Loopback.Json(503, Bytes("{\"error\":\"transient\"}")), null),
             ("a well-formed classroom error envelope (rate_limited)", _ => NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.RateLimited), null),
             ("a well-formed classroom error envelope (receiver_not_ready)", _ => NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.ReceiverNotReady), null),
             ("connection refused", null, null),
@@ -349,6 +399,64 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             Check(o.Thrown is null && !o.Confirmed && o.AttemptState == "failed", "S stale_session twice: the attempt is failed (§10: stale_session stored nothing)", Describe(o) + " state=" + o.AttemptState);
             Check(sent.Length == 2 && JsonField(sent[0], "message_id") == JsonField(sent[1], "message_id"), "S stale_session twice: both tries used the same message_id", "messages=" + sent.Length);
             Check(o.AttemptRows == "1/1" && o.DraftText == Text, "S stale_session twice: still one manual attempt and the draft is kept", "rows/maxTry=" + o.AttemptRows + " draft=" + o.DraftText);
+        }
+
+        // ---- K (keep-alive peer; a real socket that keeps the connection open and serves several requests): every request must use its own connection, so the real local endpoint is
+        // recorded for EVERY request. Ben's Check 6 only inspects request headers on a fake handler; this exercises the real pooling behaviour. ----
+        {
+            string dir = NekoChat.Tests.Loopback.TempDir("classroom-keepalive-indep-");
+            try
+            {
+                using var store = NekoChat.Tests.Loopback.OpenStore(dir);
+                var principal = ClassroomPrincipalKey.ForSource(PeerIp)!.Value;
+                var started = (AttemptStarted)store.BeginClassroomSend(principal, Text, 0, 1);
+                var prepared = store.GetClassroomPreparedSend(started.MessageId)!;
+                await using var peer = new KeepAlivePeer(Peer());
+                using var http = NekoChat.Tests.Loopback.Client(peer.Port);
+                var result = await new ClassroomSender(store, http).SendPreparedAsync(prepared, 8768, Loopback, () => true);
+                Check(result is { Success: true, Completion: Confirmed }, "K a keep-alive peer: the send is confirmed (the message request did not reuse the hello connection)", $"success={result.Success} code={result.Code} requests={peer.Seen.Count} connections={peer.Connections}");
+                Check(peer.Seen.Count == 2 && peer.Connections == 2, "K a keep-alive peer: hello and message each used their own connection", $"requests={peer.Seen.Count} connections={peer.Connections}");
+            }
+            finally { NekoChat.Tests.Loopback.Cleanup(dir); }
+        }
+        {
+            string dir = NekoChat.Tests.Loopback.TempDir("classroom-keepalive-receipt-indep-");
+            try
+            {
+                using var store = NekoChat.Tests.Loopback.OpenStore(dir);
+                var principal = ClassroomPrincipalKey.ForSource(PeerIp)!.Value;
+                store.SetReadReceiptPolicy(true);
+                var stored = (ClassroomStored)store.ReceiveClassroomMessage(PeerIp, new(ClassroomPacketWriter.NewMessageId(), "keep-alive receipt"), () => true);
+                store.MarkClassroomVisibleRead(principal, new[] { stored.LocalSeq }, new VisibleReadContext(principal.Value, true, true, false, true));
+                var pending = store.ListPendingClassroomReceipts().Single();
+                await using var peer = new KeepAlivePeer(ReceiptPeer());
+                using var http = NekoChat.Tests.Loopback.Client(peer.Port);
+                var result = await new ClassroomSender(store, http).SendReceiptAsync(pending, 8768, Loopback, () => true);
+                Check(result.Completed && store.ListPendingClassroomReceipts().Count == 0, "K a keep-alive peer: the read receipt completes", $"completed={result.Completed} status={result.Status} error={result.ErrorCode} connections={peer.Connections}");
+                Check(peer.Seen.Count == 2 && peer.Connections == 2, "K a keep-alive peer: receipt hello and receipt each used their own connection", $"requests={peer.Seen.Count} connections={peer.Connections}");
+            }
+            finally { NekoChat.Tests.Loopback.Cleanup(dir); }
+        }
+
+        // ---- RS (frozen spec §6.9 applies to the receipt route too, CM-13 §9 item 3): stale_session -> new hello, same receipt once more; a second stale_session keeps the event. ----
+        static WireReply ReceiptOk(WireReq r)
+        {
+            using var d = JsonDocument.Parse(r.Body); var root = d.RootElement;
+            return NekoChat.Tests.Loopback.Json(200, ClassroomPacketWriter.ReceiptAck("ok", root.GetProperty("message_id").GetString()!, root.GetProperty("session").GetString()!, r.Remote?.ToString() ?? Loopback, PeerIp));
+        }
+        {
+            int receipts = 0;
+            var o = await ExerciseReceipt(ReceiptPeer(r => Interlocked.Increment(ref receipts) == 1 ? NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.StaleSession) : ReceiptOk(r)));
+            string seq = string.Join(",", o.Seen.Select(Kind));
+            var sent = o.Seen.Where(r => r.Path.EndsWith("/receipt", StringComparison.Ordinal)).ToArray();
+            Check(string.Join(",", o.Seen.Select(r => r.IsHello ? "hello" : "receipt")) == "hello,receipt,hello,receipt", "RS stale_session on the first receipt: new hello, then the same receipt once more", "sequence=" + seq + "; " + Describe2(o));
+            Check(sent.Length == 2 && JsonField(sent[0], "message_id") == JsonField(sent[1], "message_id") && JsonField(sent[0], "session") != JsonField(sent[1], "session"), "RS the second receipt names the same message and carries the fresh session", "receipts=" + sent.Length);
+            Check(o.Thrown is null && o.Result is { Completed: true } && o.PendingAfter == 0, "RS the second answer (ok) completes the receipt and removes the outbox event", Describe2(o));
+        }
+        {
+            var o = await ExerciseReceipt(ReceiptPeer(_ => NekoChat.Tests.Loopback.ClassroomError(ClassroomCodes.StaleSession)));
+            Check(string.Join(",", o.Seen.Select(r => r.IsHello ? "hello" : "receipt")) == "hello,receipt,hello,receipt", "RS stale_session twice: exactly one retry, no third try", Describe2(o));
+            Check(o.Thrown is null && o.Result is { Completed: false } && o.PendingAfter == 1, "RS stale_session twice: the outbox event is kept", Describe2(o));
         }
 
         // ---- F5: cancellation never records a route and never sends the text (contract §11: cancelled is unconfirmed, nothing is retried). ----
