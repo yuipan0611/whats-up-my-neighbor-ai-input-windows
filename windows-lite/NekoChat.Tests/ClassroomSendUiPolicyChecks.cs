@@ -158,62 +158,87 @@ public static class ClassroomSendUiPolicyChecks
         C(!cancelPolicyCheck.Cancelled && cancelPolicyCheck.Reason == "confirmed", "6. UI policy maps confirmed outcome (ChatRuntime await 的實際執行，留到 Windows 驗)");
 
         // =========================================================================
-        // 項目 7（Ben a & Tom 3）：直接呼叫 Core 產品型別 ClassroomSendRegistry 與負控測試
+        // 項目 7（Ben 必修修法 B）：ClassroomSendRegistry.Start 原子登記佔位與清理驗證
         // =========================================================================
         var registry = new ClassroomSendRegistry();
-        var dummyCts = new CancellationTokenSource();
-        var dummyTask = Task.FromResult(rConfirmed);
-        string testMsgId = "msg-prod-reg-1";
-        int testTry = 1;
+        using var linkedCts = new CancellationTokenSource();
+        string startMsgId = "msg-start-sync-1";
+        int startTry = 1;
 
-        // 正向測試：Register 與 TryGet
-        registry.Register(testMsgId, testTry, dummyCts, dummyTask);
-        var retrieved = registry.TryGet(testMsgId, testTry);
-        C(retrieved.HasValue && retrieved.Value.Cts == dummyCts && retrieved.Value.Task == dummyTask, "7. ClassroomSendRegistry product code registers and retrieves successfully");
+        // 7a. 同步立即完成的 work：登記一定會被建立，並在完成後被移除
+        var completedResult = new ClassroomSendResult(true, "ok", new Confirmed(1, true), ClassroomRoute.Classroom);
+        var syncTask = registry.Start(startMsgId, startTry, ct => Task.FromResult(completedResult), linkedCts.Token);
+        var syncOutcome = syncTask.GetAwaiter().GetResult();
+        C(syncOutcome.Success, "7a. Sync task completes successfully");
+        C(!registry.TryGet(startMsgId, startTry).HasValue, "7a. Synchronously completed work has its registration cleanly removed (TryGet is null)");
 
-        // 負控測試 1：CheckNotRunning 遇到已登記 key 拋出專用 ClassroomSendAlreadyRunningException
-        bool threwOnCheck = false;
+        // 7b. 進行中時 TryGet 能取得，重複 Start 同 key 拋出 ClassroomSendAlreadyRunningException
+        var tcsHold = new TaskCompletionSource<ClassroomSendResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string asyncMsgId = "msg-start-async-2";
+        int asyncTry = 1;
+        var asyncTask = registry.Start(asyncMsgId, asyncTry, async ct => await tcsHold.Task, linkedCts.Token);
+
+        var registered = registry.TryGet(asyncMsgId, asyncTry);
+        C(registered.HasValue, "7b. In-flight send is visible in TryGet");
+        C(registry.CanCancel(asyncMsgId, asyncTry), "7b. In-flight send can be cancelled");
+
+        bool threwDupOnStart = false;
         try
         {
-            registry.CheckNotRunning(testMsgId, testTry);
+            registry.Start(asyncMsgId, asyncTry, ct => Task.FromResult(completedResult), linkedCts.Token);
         }
         catch (ClassroomSendAlreadyRunningException ex)
         {
-            threwOnCheck = ex.MessageId == testMsgId && ex.TryCount == testTry;
+            threwDupOnStart = ex.MessageId == asyncMsgId && ex.TryCount == asyncTry;
         }
-        C(threwOnCheck, "7. ClassroomSendRegistry.CheckNotRunning throws ClassroomSendAlreadyRunningException on duplicate key");
+        C(threwDupOnStart, "7b. Parallel Start on same key throws ClassroomSendAlreadyRunningException");
 
-        // 負控測試 2：Register 遇到已登記 key 拋出專用例外，且原有登記完好保留
-        bool threwOnRegister = false;
-        var secondCts = new CancellationTokenSource();
-        var secondTask = Task.FromResult(rFailed);
-        try
-        {
-            registry.Register(testMsgId, testTry, secondCts, secondTask);
-        }
-        catch (ClassroomSendAlreadyRunningException ex)
-        {
-            threwOnRegister = ex.MessageId == testMsgId && ex.TryCount == testTry;
-        }
-        C(threwOnRegister, "7. ClassroomSendRegistry.Register throws ClassroomSendAlreadyRunningException on duplicate key");
-
-        var preserved = registry.TryGet(testMsgId, testTry);
-        C(preserved.HasValue && preserved.Value.Cts == dummyCts && preserved.Value.Task == dummyTask, "7. ClassroomSendRegistry preserves existing registration on duplicate rejection");
-
-        // 反註冊測試
-        C(registry.TryRemove(testMsgId, testTry), "7. ClassroomSendRegistry removes registration");
-        C(!registry.TryGet(testMsgId, testTry).HasValue, "7. ClassroomSendRegistry slot is empty after remove");
+        // 釋放 hold 任務並確認完成後 TryGet 為空
+        tcsHold.SetResult(completedResult);
+        var asyncOutcome = asyncTask.GetAwaiter().GetResult();
+        C(asyncOutcome.Success, "7b. Async task completes successfully");
+        C(!registry.TryGet(asyncMsgId, asyncTry).HasValue, "7b. After completion, TryGet is empty");
 
         // =========================================================================
-        // 項目 8（必修 2）：DecideAttemptBanner(state, cancelling) 橫幅文字測試
+        // 項目 8（必修 2 & 3）：DecideAttemptBanner(state, cancelling) 橫幅文字測試
+        // PM 裁定：cancelling:true 為「已要求取消，等待結果…」不做任何送達判斷
         // =========================================================================
-        C(ClassroomSendUiPolicy.DecideAttemptBanner("sending", true).Contains("已要求取消，等待當次工作結束"), "8. Banner cancelling says waiting for finish");
+        string bannerCancelling = ClassroomSendUiPolicy.DecideAttemptBanner("sending", true);
+        C(bannerCancelling == "已要求取消，等待結果…", "8. Banner cancelling is exactly 已要求取消，等待結果…");
+        C(!bannerCancelling.Contains("尚未確認") && !bannerCancelling.Contains("可能已收到") && !bannerCancelling.Contains("可能已送達"), "8. Banner cancelling makes no delivery claim");
+
         C(ClassroomSendUiPolicy.DecideAttemptBanner("sending", false).Contains("手動傳送中"), "8. Banner sending says 手動傳送中");
         var bannerCancelled = ClassroomSendUiPolicy.DecideAttemptBanner("cancelled", false);
         C(bannerCancelled.Contains("未送出") && !bannerCancelled.Contains("可能已收到"), "8. Banner cancelled says 未送出 and never says 可能已收到");
         var bannerFailed = ClassroomSendUiPolicy.DecideAttemptBanner("failed", false);
         C(bannerFailed.Contains("未送出") && !bannerFailed.Contains("尚未確認"), "8. Banner failed says 未送出 and never says 尚未確認");
         C(ClassroomSendUiPolicy.DecideAttemptBanner("unconfirmed", false).Contains("尚未確認送達"), "8. Banner unconfirmed says 尚未確認送達");
+
+        // =========================================================================
+        // 項目 9（Tom 審查保護 C2, C3, C5, C9 直接斷言）：
+        // =========================================================================
+        // C2: Confirmed classroom vs legacy 精確文案
+        var dConfClassroom = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(true, "ok", new Confirmed(1, true), ClassroomRoute.Classroom));
+        C(dConfClassroom.StatusText == "已驗證對方的儲存確認。", "9. C2 classroom confirmed exact status text match");
+        var dConfLegacy = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(true, "ok", new Confirmed(1, true), ClassroomRoute.Legacy));
+        C(dConfLegacy.StatusText == "已送達（舊版同學）。", "9. C2 legacy confirmed exact status text match");
+
+        // C3: cancelled-before-write vs message-stage cancel 精確文案
+        var dCancelBefore = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(false, "cancelled", null, ClassroomRoute.Classroom));
+        C(dCancelBefore.StatusText == "已取消，訊息未送出", "9. C3 cancel before write exact status text match");
+        var dCancelAfter = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(false, "cancelled", new StateUpdated("unconfirmed"), ClassroomRoute.Classroom));
+        C(dCancelAfter.StatusText == "已取消，但對方可能已收到；不會自動重送。", "9. C3 cancel after write exact status text match");
+
+        // C5: failed 帶 reasonCode 格式
+        var dFailedWithCode = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(false, "network_error", new StateUpdated("failed"), ClassroomRoute.Classroom));
+        C(dFailedWithCode.StatusText == "未送出（network_error）；草稿仍在本機。", "9. C5 failed with reason code exact format match");
+        var dFailedWithoutCode = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(false, "failed", new StateUpdated("failed"), ClassroomRoute.Classroom));
+        C(dFailedWithoutCode.StatusText == "未送出；草稿仍在本機。", "9. C5 failed without code exact format match");
+
+        // C9: UI-S Discarded 中斷未送出文案
+        var dDiscardedStale = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(false, "stale_attempt", new Discarded("stale"), ClassroomRoute.Classroom));
+        C(dDiscardedStale.StatusText == "這次嘗試已中斷，訊息未送出；請重新讀取後再送。", "9. C9 UI-S Discarded exact text match");
+        C(!dDiscardedStale.DraftCleared, "9. C9 UI-S Discarded draft is preserved");
 
         if (failures.Count > 0)
         {

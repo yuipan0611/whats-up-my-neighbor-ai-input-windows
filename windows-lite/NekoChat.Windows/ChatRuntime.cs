@@ -169,27 +169,18 @@ internal sealed class ChatRuntime : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposal is not null, this);
             _lifetime.Token.ThrowIfCancellationRequested();
             string ownIp = ResolveLocalEndpointIp(prepared.TargetIp, port);
-            _classroomSends.CheckNotRunning(prepared.MessageId, prepared.TryCount);
-            var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-            var task = Task.Run(async () =>
+
+            var task = _classroomSends.Start(prepared.MessageId, prepared.TryCount, async ct =>
             {
-                try
+                var outcome = await ClassroomSender.SendPreparedAsync(prepared, port, ownIp, () => !_lifetime.IsCancellationRequested, ct).ConfigureAwait(false);
+                if (outcome.Completion is Confirmed { DraftCleared: true } && _store.GetClassroomDraftState(prepared.Principal) is { } fresh)
                 {
-                    var outcome = await ClassroomSender.SendPreparedAsync(prepared, port, ownIp, () => !_lifetime.IsCancellationRequested, cts.Token).ConfigureAwait(false);
-                    if (outcome.Completion is Confirmed { DraftCleared: true } && _store.GetClassroomDraftState(prepared.Principal) is { } fresh)
-                    {
-                        var update = buffer.ApplyOwnAckClear(sent, fresh);
-                        if (update.PreserveEdit is { } edited) buffer.CompleteWrite(edited, edited.Persist(_store, conversation));
-                    }
-                    return outcome;
+                    var update = buffer.ApplyOwnAckClear(sent, fresh);
+                    if (update.PreserveEdit is { } edited) buffer.CompleteWrite(edited, edited.Persist(_store, conversation));
                 }
-                finally
-                {
-                    _classroomSends.TryRemove(prepared.MessageId, prepared.TryCount);
-                    cts.Dispose();
-                }
-            });
-            _classroomSends.Register(prepared.MessageId, prepared.TryCount, cts, task);
+                return outcome;
+            }, _lifetime.Token);
+
             _network.Add(task);
             return Finish(task);
         }

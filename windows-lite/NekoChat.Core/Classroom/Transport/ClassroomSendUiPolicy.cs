@@ -81,6 +81,17 @@ public static class ClassroomSendUiPolicy
             return new ClassroomSendDecision(AttemptActionKind.None, null, "已取消，訊息未送出", false);
         }
 
+        // UI-S（Tom 紅 1、2）：Completion 為 Discarded（例如 stillCurrent 在 hello 前後變成 false）
+        // 此時尚未寫出任何訊息位元組，對端不可能收到，絕不能說「尚未確認送達」或「可能已收到」
+        if (outcome.Completion is Discarded)
+        {
+            return new ClassroomSendDecision(
+                AttemptActionKind.None,
+                null,
+                "這次嘗試已中斷，訊息未送出；請重新讀取後再送。",
+                false);
+        }
+
         // 原因文字萃取：優先使用對端回傳的 RemoteCode，若無則使用 Code
         string? reasonCode = !string.IsNullOrWhiteSpace(outcome.RemoteCode) ? outcome.RemoteCode : outcome.Code;
 
@@ -114,7 +125,7 @@ public static class ClassroomSendUiPolicy
             return new ClassroomSendDecision(AttemptActionKind.None, null, text, false);
         }
 
-        // 4. 終態為 unconfirmed（位元組已寫出或 transient，對方可能已收到；或者 AckMismatch / Discarded 等）
+        // 4. 終態為 unconfirmed（位元組已寫出或 transient，對方可能已收到；或者 AckMismatch 等）
         // 規則：絕不能出現「未送出」「未傳送」，必須包含「尚未確認」或「可能已收到」或「可能已送達」
         if (outcome.Code == "cancelled")
         {
@@ -149,10 +160,11 @@ public static class ClassroomSendUiPolicy
 
     /// <summary>
     /// 對應 ChatWindow.Inbox.cs:243 橫幅狀態文字
+    /// PM 裁定：取消中的橫幅不做任何送達判斷，顯示「已要求取消，等待結果…」
     /// </summary>
     public static string DecideAttemptBanner(string? state, bool cancelling)
     {
-        if (cancelling) return "已要求取消，等待當次工作結束；對方可能已收到。";
+        if (cancelling) return "已要求取消，等待結果…";
         return state switch
         {
             "sending" => "手動傳送中，等待對方儲存確認。",
