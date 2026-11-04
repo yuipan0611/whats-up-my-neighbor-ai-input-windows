@@ -60,7 +60,7 @@ public static class DirectLanMessaging
         }
         catch (Exception ex) when (ex is HttpRequestException or SocketException or TaskCanceledException)
         {
-            throw new InvalidOperationException($"未能確認送達 {targetIp}（TCP {port}）。請確認 IP 正確、對方顯示「接收已啟動」；若仍失敗，請教室管理者檢查 Windows 網路權限及 Wi-Fi／AP 隔離。重送前請先向對方確認。");
+            throw new InvalidOperationException($"未能確認送達 {targetIp}。請確認 IP 正確、對方顯示「接收已啟動」；若仍失敗，請教室管理者檢查 Windows 網路權限及 Wi-Fi／AP 隔離。重送前請先向對方確認。");
         }
     }
 }

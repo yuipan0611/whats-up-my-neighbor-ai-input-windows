@@ -42,8 +42,8 @@ public partial class App
         {
             Require(directListener?.Running == false && !string.IsNullOrWhiteSpace(directListener.Error),
                 "Test must occupy production receiver port before starting app");
-            Require(!chat.SendButton.IsEnabled && chat.ReceiverStatus.Text.Contains("無法接收訊息") &&
-                chat.ReceiverStatus.Text.Contains("8768"), "Receiver failure is not visible or sending remains enabled");
+            Require(!chat.SendButton.IsEnabled && chat.ReceiverStatus.Text.Contains("無法接收訊息"),
+                "Receiver failure is not visible or sending remains enabled");
             chat.RecipientIp.Text = "127.0.0.1";
             chat.Draft.Text = "接收失敗不能假裝送出";
             chat.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

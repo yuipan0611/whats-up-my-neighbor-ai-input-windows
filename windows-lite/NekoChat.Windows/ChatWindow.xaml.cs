@@ -86,9 +86,9 @@ public partial class ChatWindow : Window
         _receiverRunning = running;
         ReceiverStatus.Foreground = running ? System.Windows.Media.Brushes.DarkGreen : System.Windows.Media.Brushes.Firebrick;
         ReceiverStatus.Text = running
-            ? $"接收已啟動（TCP {port}）；對方可輸入你的 IP 傳訊。"
+            ? "接收已啟動；對方可輸入你的 IP 傳訊。"
             : error?.Contains("本機資料", StringComparison.Ordinal) == true ? "接收尚未啟動：本機資料尚未就緒。請先處理資料錯誤並重新讀取。"
-            : $"無法接收訊息（TCP {port}）：{error}。請先從舊版貓咪右鍵選「離開」，再重開此版本；仍失敗請將此提示交給教室管理者。";
+            : $"無法接收訊息：{error}。請先從舊版貓咪右鍵選「離開」，再重開此版本；仍失敗請將此提示交給教室管理者。";
         UpdateComposer();
     }
 

@@ -152,8 +152,10 @@ public partial class ChatWindow
         }
         finally { _changingSelection = false; }
         InboxCount.Text = $"同學 · 未讀 {_snapshot.TotalUnread} · {_snapshot.Entries.Count} 位";
-        InboxEmpty.Text = _snapshot.Entries.Count == 0 ? "尚無同學，可手動新增或匯入 CSV。" : "沒有符合搜尋或篩選的同學。";
-        InboxEmpty.Visibility = _inbox.Count == 0 ? Visibility.Visible : Visibility.Collapsed; UpdatePresenceView();
+        bool noEntries = _snapshot.Entries.Count == 0;
+        InboxEmpty.Text = noEntries ? "尚無同學對話。\n新增名單後，即可開始一對一聊天。" : "沒有符合搜尋或篩選的同學。";
+        AddFirstContactButton.Visibility = noEntries ? Visibility.Visible : Visibility.Collapsed;
+        InboxEmptyPanel.Visibility = _inbox.Count == 0 ? Visibility.Visible : Visibility.Collapsed; UpdatePresenceView();
     }
     private void InboxSearchChanged(object sender, TextChangedEventArgs e) => ApplyInboxFilter();
     private void InboxFilterChanged(object sender, SelectionChangedEventArgs e) { if (_initializedInbox) ApplyInboxFilter(); }

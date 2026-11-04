@@ -33,13 +33,13 @@
        <StackPanel Grid.Column="1" Margin="8,0,4,0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Student}" Foreground="#596B80" FontSize="12"/><TextBlock Text="{Binding State}" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/><TextBlock Text="{Binding Draft}" Foreground="#916015" FontSize="12"/></StackPanel>
        <Border Grid.Column="2" Background="#2859C5" CornerRadius="10" VerticalAlignment="Top" Padding="6,0" Visibility="{Binding BadgeVisibility}"><TextBlock Text="{Binding Badge}" Foreground="White" FontSize="12"/></Border>
       </Grid></DataTemplate></ListBox.ItemTemplate>
-     </ListBox><TextBlock x:Name="InboxEmpty" Text="尚無同學，可手動新增或匯入 CSV。" TextWrapping="Wrap" Margin="16" Foreground="#596B80" Visibility="Collapsed" IsHitTestVisible="False"/></Grid>
+     </ListBox><StackPanel x:Name="InboxEmptyPanel" Margin="16" Visibility="Collapsed"><TextBlock x:Name="InboxEmpty" Text="尚無同學，可手動新增或匯入 CSV。" TextWrapping="Wrap" Foreground="#596B80" Margin="0,0,0,12"/><Button x:Name="AddFirstContactButton" Content="＋ 點此新增第一個聊天對象" Click="AddRosterClick" Background="#2859C5" Foreground="White" BorderThickness="0" FontWeight="Bold" Padding="12,8" HorizontalAlignment="Left" Cursor="Hand"/></StackPanel></Grid>
     </DockPanel>
    </Border>
    <Grid x:Name="ConversationPane" Grid.Column="1">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <Border BorderBrush="#DCE3EC" BorderThickness="0,0,0,1" Padding="16,12"><DockPanel>
-     <Button x:Name="BackToInbox" Content="同學" Click="BackToInboxClick" DockPanel.Dock="Left" Margin="0,0,12,0" Visibility="Collapsed"/>
+     <Button x:Name="BackToInbox" Content="← 返回名單" Click="BackToInboxClick" DockPanel.Dock="Left" Margin="0,0,12,0" Visibility="Collapsed"/>
      <Button x:Name="CompactActions" Content="功能" Click="CompactActionsClick" DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Top" Visibility="Collapsed"/>
      <Button x:Name="ClearConversationButton" Content="清除對話…" Click="ClearConversationClick" DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Top"/>
      <StackPanel><TextBlock x:Name="ConversationTitle" Text="選擇一位同學" FontSize="16" FontWeight="Bold" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="ConversationMeta" Text="對話紀錄保存在本機" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/></StackPanel>
