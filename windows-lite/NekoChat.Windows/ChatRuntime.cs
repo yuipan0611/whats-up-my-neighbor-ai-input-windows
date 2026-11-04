@@ -103,7 +103,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
             Listener = new DirectLanListener(classroomListener, sink);
         }
         Worker = new(store, lifetime: _lifetime.Token);
-        ClassroomReceipts = new ClassroomReceiptService(store, ClassroomSender, port, ownIpResolver: target => ResolveLocalEndpointIp(target, port));
+        int receiptPort = port > 0 ? port : DirectLanMessaging.DefaultPort;
+        ClassroomReceipts = new ClassroomReceiptService(store, ClassroomSender, receiptPort, ownIpResolver: target => ResolveLocalEndpointIp(target, receiptPort));
         ClassroomReceipts.ReceiptsChanged += () => DataChanged?.Invoke();
         _maintenance = Task.Run(MaintainBackups);
     }

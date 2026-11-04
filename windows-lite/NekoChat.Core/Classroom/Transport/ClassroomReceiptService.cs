@@ -63,8 +63,8 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _sender = sender ?? throw new ArgumentNullException(nameof(sender));
-        if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
-        _port = port;
+        if (port is < 0 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
+        _port = port == 0 ? DirectLanMessaging.DefaultPort : port;
         _ownIp = ownIp;
         _clock = clock ?? TimeProvider.System;
         _ownIpResolver = ownIpResolver;
