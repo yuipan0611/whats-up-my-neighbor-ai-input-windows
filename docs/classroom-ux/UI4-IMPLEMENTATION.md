@@ -41,3 +41,9 @@ HEAD `90b9cb6`，修改前 tracked clean（另有既有 reports 與 .impeccable 
 透過 Finder「打開檔案的應用程式 → Parallels Desktop」成功啟動 UI-4，無需 prlctl Pro。隔離程序在 Windows 192 DPI（200%）產生老師對話、老師檔案及 520 DIP 窄視窗的實際 WPF client render。原始證據位於 NekoChat-回傳/UI4-native-20261105/20261105-072035-544601；不是 HTML，也不是滑鼠／鍵盤或雙機驗收。
 
 原生圖暴露兩個問題：老師檔案頁同時選中老師列；新增失敗嘗試卡時，捲動可能停在前一則附件。UI-4A 改為獨佔檔案頁選取、穩定保留失敗訊息卡，再捲到最後。QA 另外檢查失敗卡在 viewport 內、檔案頁沒有同時選中聊天列。原生 renderer 直接擷取 client 根視圖，避免非 client 留白。新隔離 profile 按版本分開，測試埠 18771；不改既有版本或防火牆。
+
+## UI-4A 原生結果
+
+`20261105-072946-7cbbff/native-result.json` 回報 WPF rendering captured，192 DPI（200%），兩個老師檔案、`retryCardVisible=true`、`exclusiveFileSelection=true`。對話、檔案與窄視窗 client 原圖已保留；可檢視 build/classroom-ui4-preview/native-ui4a-flow/index.html。原生 renderer 保留透明背景，檢視頁以白色呈現，沒有修改原圖像素。Windows 輸入、IME、真拖曳／剪貼簿、其他 DPI、雙 Windows 仍未執行。
+
+交付：NekoChat-交付/Classroom-UI-4A-WPF-Preview/App/NekoChat.Windows.exe；437 個檔案 SHA-256 核對通過。未安裝、push、發布或部署。
