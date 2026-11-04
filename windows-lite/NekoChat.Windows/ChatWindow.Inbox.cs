@@ -249,18 +249,17 @@ public partial class ChatWindow
             (attempt.State != "sending" || _runtime!.CanCancelAttempt(attempt.MessageId, attempt.TryCount));
         ClearConversationButton.IsEnabled = attached && _selected is not null && buffer?.Clearing != true;
         CheckIdentityButton.IsEnabled = _runtime?.ArchivedIdentityFixture == true && !_identityRecoveryBusy && !_closingRequested;
-        string count = CurrentRecipientIsLegacy ? $"{Draft.Text.EnumerateRunes().Count()} / {MessageLimitPolicy.LegacyMaxScalars:N0} 字（舊版） · " :
-            _runtime?.MaximumTextBytes is { } maximum ? $"{Encoding.UTF8.GetByteCount(Draft.Text)} / {maximum} UTF-8 位元組 · " : "";
-        string prompt = !attached ? "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出" :
-            buffer is null ? "選擇一位同學後編輯草稿。" :
-            _selected?.Removed == true ? "已從名單移除，不能發送；可查看對話與既有草稿。" :
-            _selected?.Endpoint is null ? "未設定位址，不能發送；可編輯及儲存既有草稿。" :
-            !_runtime!.CanSend ? "教室傳送服務尚未就緒；可編輯及儲存既有草稿。" :
-            !valid && Draft.Text.Length > 0 ? "內容不符合訊息格式或超過上限。" :
-            "Enter 傳送 · Shift＋Enter 換行 · 組字時不送出";
-        DraftStatus.Text = (buffer?.Dirty == true ? "草稿尚未儲存 · " : "") + count + prompt;
-        if (CurrentRecipientIsLegacy && MessageLimitPolicy.Check(Draft.Text, true) == MessageLimitVerdict.LegacyTooLarge)
-            DraftStatus.Text += " · 草稿超過舊版上限；傳送前會重新確認版本，不會截斷原文。";
+        int byteCount = Encoding.UTF8.GetByteCount(Draft.Text);
+        int maxBytes = _runtime?.MaximumTextBytes ?? 65536;
+        string count = byteCount > 55000 ? $"{byteCount} / {maxBytes} 字元 · " : "";
+        string prompt = !attached ? "Enter 傳送 · Shift＋Enter 換行" :
+            buffer is null ? "選擇一位同學後開始聊天" :
+            _selected?.Removed == true ? "這位同學已從名單移除，無法傳送訊息。" :
+            _selected?.Endpoint is null ? "💡 請先在設定填寫這位同學的 IP 即可傳送" :
+            !_runtime!.CanSend ? "教室傳送服務尚未就緒…" :
+            !valid && Draft.Text.Length > 0 ? "⚠️ 訊息字數超過上限" :
+            "Enter 傳送 · Shift＋Enter 換行";
+        DraftStatus.Text = count + prompt;
     }
     private void UpdateHeader()
     {

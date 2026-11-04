@@ -63,7 +63,7 @@
       <Button x:Name="SendButton" Grid.Row="1" Grid.Column="1" Content="傳送" Click="SendClick" Background="#2859C5" Foreground="White" BorderThickness="0" FontWeight="Bold" Padding="18,8" MinHeight="40" Margin="8,8,0,0"/>
       <WrapPanel x:Name="CodeToolbar" Grid.Row="1" Grid.Column="0" Margin="0,8,0,0"><Button Content="插入程式碼" Click="InsertCodeClick" Margin="0,0,8,0"/><ComboBox x:Name="CodeLanguage" SelectedIndex="0" Width="88" AutomationProperties.Name="程式碼語言"><ComboBoxItem Content="Python" Tag="python"/><ComboBoxItem Content="C#" Tag="csharp"/><ComboBoxItem Content="JavaScript" Tag="javascript"/><ComboBoxItem Content="純文字" Tag="text"/></ComboBox></WrapPanel>
      </Grid></Border>
-     <TextBlock Grid.Row="2" x:Name="DraftStatus" Text="Enter 傳送 · Shift＋Enter 換行 · 組字時不送出" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
+     <TextBlock Grid.Row="2" x:Name="DraftStatus" Text="Enter 傳送 · Shift＋Enter 換行" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
     </Grid></Border>
    </Grid>
   </Grid>
