@@ -9,6 +9,48 @@ namespace NekoChat.Windows;
 
 public partial class ChatWindow
 {
+    private async Task AddContactDialogAsync(bool teacher)
+    {
+        if (_runtime is not { } runtime) { SetStatus("本機資料尚未就緒，請先重新讀取。"); return; }
+        var input = new TextBox { MaxLength = 15, Margin = new(0, 6, 0, 12) };
+        System.Windows.Automation.AutomationProperties.SetName(input, "輸入對方 IP 位址");
+        var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.Firebrick };
+        var panel = new StackPanel { Margin = new(20) };
+        panel.Children.Add(new Label { Content = "輸入對方 IP 位址", Target = input, Padding = new(0) });
+        panel.Children.Add(input); panel.Children.Add(error);
+        var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 12, 0, 0) };
+        var cancel = new Button { Content = "取消", IsCancel = true, Margin = new(0, 0, 8, 0) };
+        var save = new Button { Content = teacher ? "加入老師" : "加入好友", IsDefault = true };
+        buttons.Children.Add(cancel); buttons.Children.Add(save); panel.Children.Add(buttons);
+        var dialog = new Window { Owner = this, Title = teacher ? "加入老師" : "加入好友", Width = 340,
+            SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = panel };
+        string? addedIp = null; bool busy = false;
+        dialog.Closing += (_, e) => { if (busy) e.Cancel = true; };
+        dialog.Loaded += (_, _) => input.Focus();
+        save.Click += async (_, _) => {
+            if (busy) return;
+            string ip = input.Text.Trim();
+            if (!LanInvitation.PrivateIPv4(ip)) { error.Text = "請輸入有效的內網 IP 位址。"; input.Focus(); return; }
+            busy = true; save.IsEnabled = cancel.IsEnabled = input.IsEnabled = false;
+            try
+            {
+                await runtime.InvalidatePairingAsync("roster_edit");
+                var result = await runtime.Worker.Run(store => {
+                    var token = RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot());
+                    return store.SaveManualRosterEntry(null, new RosterEdit(teacher ? "老師" : ip, null, teacher, ip), token);
+                });
+                if (result.Changed) { addedIp = ip; busy = false; dialog.DialogResult = true; }
+                else error.Text = RosterFailure(result.Reason);
+            }
+            catch { error.Text = "無法加入好友，請稍後重試。"; }
+            finally { busy = false; save.IsEnabled = cancel.IsEnabled = input.IsEnabled = true; }
+        };
+        if (dialog.ShowDialog() != true || addedIp is null) return;
+        runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync();
+        SelectEndpoint(addedIp); SetStatus(teacher ? "老師已加入。" : "好友已加入，可按右鍵編輯綽號。");
+    }
+
     private async void RenameNicknameClick(object sender, RoutedEventArgs e)
     {
         if (_runtime is null || sender is not MenuItem { CommandParameter: InboxRowView view } || view.Entry.RosterId is not { } id) return;
@@ -63,8 +105,8 @@ public partial class ChatWindow
                 return preview is null || preview.Changes.Count == 0 || store.ApplyRosterPreview(preview).Applied;
             });
             if (applied) UpdateSettings(settings with { ClassRosterInitialized = true });
-            else SetStatus("班級名單尚未載入，請使用「匯入班級名單」檢查。");
+            else SetStatus("班級名單尚未載入，請重新下載完整班級包，或按「加入好友」輸入 IP。");
         }
-        catch { SetStatus("無法載入班級名單，請使用「匯入班級名單」檢查檔案。"); }
+        catch { SetStatus("無法載入班級名單，請重新下載完整班級包，或按「加入好友」輸入 IP。"); }
     }
 }

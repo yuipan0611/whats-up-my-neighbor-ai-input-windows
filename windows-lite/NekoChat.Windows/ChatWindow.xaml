@@ -188,13 +188,12 @@
       <ListBox x:Name="TeachersList" MaxHeight="150" BorderThickness="0" SelectionChanged="TeacherSelectionChanged" ItemContainerStyle="{StaticResource InboxItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="置頂老師聊天室"/>
       <Button x:Name="SetTeacherButton" Content="＋ 加入老師" Click="AddTeacherClick" HorizontalAlignment="Left" Margin="0,0,0,12"/>
       <TextBlock x:Name="InboxCount" Text="同學 · 載入中…" Foreground="#596B80" FontSize="12" Margin="0,0,0,4"/>
-      <TextBox x:Name="InboxSearch" TextChanged="InboxSearchChanged" AutomationProperties.Name="搜尋姓名、學號、完整 IP 或 IP 尾碼" ToolTip="姓名、學號、完整 IP 或 IP 尾碼" Margin="0,0,0,8"/>
+      <TextBox x:Name="InboxSearch" TextChanged="InboxSearchChanged" AutomationProperties.Name="搜尋綽號、完整 IP 或 IP 尾碼" ToolTip="姓名、學號、完整 IP 或 IP 尾碼" Margin="0,0,0,8"/>
       <ComboBox x:Name="InboxFilter" SelectedIndex="0" SelectionChanged="InboxFilterChanged" AutomationProperties.Name="名單篩選"><ComboBoxItem Content="全部"/><ComboBoxItem Content="未讀"/></ComboBox>
      </StackPanel>
      <StackPanel DockPanel.Dock="Bottom" Margin="16,12">
       <WrapPanel VerticalAlignment="Center">
-       <Button Content="加入好友" Click="AddRosterClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,8,8"/>
-       <Button Content="匯入班級名單" Click="ImportRosterClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,8,8"/>
+       <Button Content="＋ 加入好友" Click="AddRosterClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,8,8"/>
        <Button Content="設定" Click="OpenSettingsClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,0,8"/>
       </WrapPanel>
       <TextBlock x:Name="IdentityStatus" Text="教室區域網路・依名單 IP" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
@@ -205,7 +204,7 @@
        <StackPanel Grid.Column="1" Margin="8,0,4,0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Student}" Foreground="#596B80" FontSize="12"/><TextBlock Text="{Binding State}" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/><TextBlock Text="{Binding Draft}" Foreground="#916015" FontSize="12"/></StackPanel>
        <Border Grid.Column="2" Background="#2859C5" CornerRadius="10" VerticalAlignment="Top" Padding="6,0" Visibility="{Binding BadgeVisibility}"><TextBlock Text="{Binding Badge}" Foreground="White" FontSize="12"/></Border>
       </Grid></DataTemplate></ListBox.ItemTemplate>
-     </ListBox><StackPanel x:Name="InboxEmptyPanel" Margin="16" Visibility="Collapsed"><TextBlock x:Name="InboxEmpty" Text="尚無同學，可手動新增或匯入 CSV。" TextWrapping="Wrap" Foreground="#596B80" Margin="0,0,0,12"/><Button x:Name="AddFirstContactButton" Style="{StaticResource PrimaryButton}" Content="＋ 點此新增第一個聊天對象" Click="AddRosterClick" HorizontalAlignment="Left"/></StackPanel></Grid>
+     </ListBox><StackPanel x:Name="InboxEmptyPanel" Margin="16" Visibility="Collapsed"><TextBlock x:Name="InboxEmpty" Text="尚無同學，按「加入好友」輸入對方 IP。" TextWrapping="Wrap" Foreground="#596B80" Margin="0,0,0,12"/><Button x:Name="AddFirstContactButton" Style="{StaticResource PrimaryButton}" Content="＋ 點此新增第一個聊天對象" Click="AddRosterClick" HorizontalAlignment="Left"/></StackPanel></Grid>
     </DockPanel>
    </Border>
    <Grid x:Name="ConversationPane" Grid.Column="1" AllowDrop="True" PreviewDragOver="ComposerDragOver" PreviewDragLeave="ComposerDragLeave" PreviewDrop="ComposerDrop">

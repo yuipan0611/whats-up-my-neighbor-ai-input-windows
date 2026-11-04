@@ -434,8 +434,8 @@ public partial class ChatWindow
     internal void ShowSettingsForLayoutCheck(bool show) { SettingsPane.Visibility = show ? Visibility.Visible : Visibility.Collapsed; ViewChanged(); }
     private async void OpenSettingsClick(object sender, RoutedEventArgs e) { SettingsPane.Visibility = Visibility.Visible; ViewChanged(); await LoadManualFormAsync(_selected?.RosterId); }
     private void CloseSettingsClick(object sender, RoutedEventArgs e) { ++_manualFormGeneration; SettingsPane.Visibility = Visibility.Collapsed; ViewChanged(); }
-    private async void AddRosterClick(object sender, RoutedEventArgs e) { SettingsPane.Visibility = Visibility.Visible; ViewChanged(); await LoadManualFormAsync(null); RecipientIp.Focus(); }
-    private async void AddTeacherClick(object sender, RoutedEventArgs e) { SettingsPane.Visibility = Visibility.Visible; ViewChanged(); await LoadManualFormAsync(null); TeacherLabel.IsChecked = true; ManualRosterTitle.Text = "加入老師"; SaveContactButton.Content = "加入老師"; RecipientIp.Focus(); }
+    private async void AddRosterClick(object sender, RoutedEventArgs e) => await AddContactDialogAsync(false);
+    private async void AddTeacherClick(object sender, RoutedEventArgs e) => await AddContactDialogAsync(true);
     private async void TeacherSelectionChanged(object sender, SelectionChangedEventArgs e)
     { if (!_changingSelection && TeachersList.SelectedItem is InboxRowView row) await SelectEntryAsync(row.Entry, true); }
     private async Task LoadManualFormAsync(string? rosterId)
