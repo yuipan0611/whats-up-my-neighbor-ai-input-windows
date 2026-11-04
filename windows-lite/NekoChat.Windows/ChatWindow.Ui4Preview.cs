@@ -8,6 +8,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using NekoChat.Core.Attachments;
 using NekoChat.Core.Storage;
+using NekoChat.Core.ClassroomFiles;
 
 namespace NekoChat.Windows;
 
@@ -45,6 +46,19 @@ public partial class ChatWindow
                         s.CompleteClassroomAttempt(attempt.MessageId, new FailedOutcome("native_preview_fixture"), null, attempt.TryCount);
                     return true;
                 });
+                if (runtime.ClassroomFiles is { } shares)
+                {
+                    foreach (var sample in new[] { ("課堂範例.py", "print('你好')\n"), ("課堂筆記.txt", "隔離共用預覽教材\n") })
+                    {
+                        string source = Path.Combine(profileDirectory, sample.Item1); await File.WriteAllTextAsync(source, sample.Item2);
+                        await shares.ShareAsync(source); File.Delete(source);
+                    }
+                    string fixturePath = Path.Combine(profileDirectory, "老師講義.txt"); await File.WriteAllTextAsync(fixturePath, "老師分享的隔離測試檔案\n");
+                    var fixtureFile = await service.Vault.StageAsync(fixturePath); File.Delete(fixturePath);
+                    using var fixtureKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                    var fixtureManifest = new ShareManifest(ShareProtocol.Id(fixtureKey), Convert.ToBase64String(fixtureKey.ExportSubjectPublicKeyInfo()), fixtureFile.Name, fixtureFile.Size, fixtureFile.Sha256, teacher.Endpoint!, "隔離測試資料", DateTimeOffset.UtcNow.ToString("O"));
+                    await runtime.Worker.Run(s => { var store = (ChatStore)s; store.MergeClassroomFile(ShareProtocol.Sign(fixtureManifest, "add", fixtureKey)); return store.SetClassroomFileLocal(fixtureManifest.Id, fixtureFile.BlobId, "available"); });
+                }
                 File.WriteAllText(marker, "Isolated local fixture only; no messages sent.");
             }
             await RefreshInboxAsync(true);
@@ -72,7 +86,7 @@ public partial class ChatWindow
                 result = "WPF rendering captured", captureKind = "Actual Windows WPF RenderTargetBitmap, not desktop or input acceptance",
                 sourceVersion = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(ChatWindow).Assembly)?.InformationalVersion,
                 dpiX = dpi.PixelsPerInchX, dpiY = dpi.PixelsPerInchY,
-                width = ActualWidth, height = ActualHeight, teacherFileRows = _teacherFiles.Count, retryCardVisible = true, exclusiveFileSelection = true,
+                width = ActualWidth, height = ActualHeight, classroomFileRows = _sharedFiles.Count, ownedShares = _sharedFiles.Count(x => x.Row.Owned), sharedProtocol = ShareProtocol.Capability, retryCardVisible = true, exclusiveFileSelection = true,
                 profile = "isolated QA", networkMessagesSentByFixture = 0,
                 unexecuted = new[] { "Native keyboard/IME", "Real clipboard and drag/drop", "Other DPI settings", "Two Windows delivery" }
             }, new JsonSerializerOptions { WriteIndented = true }));

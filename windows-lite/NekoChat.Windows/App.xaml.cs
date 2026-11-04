@@ -23,6 +23,7 @@ public partial class App : Application
     private SettingsLoadResult? startupSource;
     private bool isolatedData, startingData, closingApp;
     private int startupPort = DirectLanMessaging.DefaultPort;
+    private bool classroomShareNetwork;
     private ChatWireConfiguration? startupWireConfiguration;
 
     protected override async void OnStartup(StartupEventArgs e)
@@ -31,6 +32,9 @@ public partial class App : Application
         string[] startupArgs = e.Args;
 #if UI4_LOCAL_PREVIEW
         if (startupArgs.Length == 0) startupArgs = new[] { "--ui4-native-preview", System.IO.Path.Combine(@"C:\NekoChatUI4QA20261105", System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(App).Assembly)!.InformationalVersion.Split('+')[0]) };
+#endif
+#if CLASSROOM_FILES_LOCAL_TEST
+        if (startupArgs.Length == 0) startupArgs = new[] { "--classroom-files-local-test", @"C:\NekoChatClassroomFilesTest20261105" };
 #endif
 
         if (startupArgs.Length > 0 && startupArgs[0] == "--restore-backup")
@@ -60,8 +64,10 @@ public partial class App : Application
 
         try
         {
+            classroomShareNetwork = startupArgs.Length == 2 && startupArgs[0] == "--classroom-files-local-test";
+            if (classroomShareNetwork) startupArgs = new[] { "--ui-test-data", startupArgs[1], "--ui-test-port", "18772" };
             bool ui4NativePreview = startupArgs.Length == 2 && startupArgs[0] == "--ui4-native-preview";
-            var uiTestOptions = UiTestOptions.Parse(ui4NativePreview ? new[] { "--ui-test-data", startupArgs[1], "--ui-test-port", "18771" } : startupArgs);
+            var uiTestOptions = UiTestOptions.Parse(ui4NativePreview ? new[] { "--ui-test-data", startupArgs[1], "--ui-test-port", "18773" } : startupArgs);
             _uiTestOptions = uiTestOptions;
             var messagingSmoke = MessagingSmokeOptions.Parse(startupArgs);
             bool keyboardSmoke = startupArgs.Length == 2 && startupArgs[0] == "--keyboard-smoke-test";
@@ -392,6 +398,7 @@ public partial class App : Application
             candidate = await ChatRuntime.OpenAsync(startupSource, isolatedData, startupPort, startupWireConfiguration);
             if (closingApp) return;
             await chat.AttachRuntimeAsync(candidate, directSendPort);
+            candidate.ShareProgress += (id, done, total) => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.ShowShareProgress(id, done, total); }));
             candidate.AttachmentProgress += (id, done, total) => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.ShowAttachmentProgress(id, done, total); }));
             candidate.DataChanged += () => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.DataChanged(); }));
             var listener = candidate.Listener; directListener = listener;
@@ -418,7 +425,7 @@ public partial class App : Application
                     pet.NotifyChat("新訊息", notice.SourceIp, chat.ClassroomNotificationName(notice.SourceIp));
             }));
             listener.Diagnostic += code => { if (code is "receiver_not_ready" or "listener_failed") Dispatcher.BeginInvoke(new Action(() => { if (!closingApp && ReferenceEquals(directListener, listener)) chat.SetReceiverState(false, startupPort, listener.Error ?? "接收服務已停止"); })); };
-            candidate.Start(); chatRuntime = candidate; candidate = null;
+            candidate.Start(sharedNetwork: classroomShareNetwork); chatRuntime = candidate; candidate = null;
             chat.SetReceiverState(directListener.Running, directListener.Port, directListener.Error);
             chat.SetStatus(chatRuntime is { CanSend: true } ? "本機資料已就緒。" : "本機資料已就緒；教室傳送服務尚未就緒。");
         }

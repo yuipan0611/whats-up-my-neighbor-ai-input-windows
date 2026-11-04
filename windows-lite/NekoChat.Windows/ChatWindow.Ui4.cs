@@ -17,7 +17,7 @@ public partial class ChatWindow
     private long? _teacherFilesBefore;
     private readonly ObservableCollection<TeacherFileView> _teacherFiles = [];
 
-    private void InitializeUi4() => TeacherFilesList.ItemsSource = _teacherFiles;
+    private void InitializeUi4() => TeacherFilesList.ItemsSource = _sharedFiles;
     private void FilterAllClick(object sender, RoutedEventArgs e) => InboxFilter.SelectedIndex = 0;
     private void FilterUnreadClick(object sender, RoutedEventArgs e) => InboxFilter.SelectedIndex = 1;
 
@@ -33,6 +33,7 @@ public partial class ChatWindow
     private async void MoreTeacherFilesClick(object sender, RoutedEventArgs e) => await LoadTeacherFilesAsync(true);
     private async Task LoadTeacherFilesAsync(bool older)
     {
+        if (_runtime?.ClassroomFiles is not null) { await LoadSharedFilesAsync(older); return; }
         if (!_showTeacherFiles || _runtime is not { } runtime || runtime.ArchivedIdentityFixture) return;
         long generation = ++_teacherFilesRequest; long? before = older ? _teacherFilesBefore : null;
         MoreTeacherFilesButton.IsEnabled = false;

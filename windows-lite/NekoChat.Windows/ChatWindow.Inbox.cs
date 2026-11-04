@@ -308,7 +308,7 @@ public partial class ChatWindow
     }
     private void UpdateHeader()
     {
-        if (_showTeacherFiles) { ConversationTitle.Text = "老師檔案"; ConversationMeta.Text = "老師分享的教材與附件"; TrustBanner.Visibility = Visibility.Collapsed; return; }
+        if (_showTeacherFiles) { ConversationTitle.Text = "課堂檔案"; ConversationMeta.Text = "全班共用 · 老師與同學都能分享"; TrustBanner.Visibility = Visibility.Collapsed; return; }
         ConversationTitle.Text = _selected?.DisplayName ?? "選擇一位同學";
         ConversationMeta.Text = _selected is { } entry ? entry.Removed || entry.Endpoint is null ? StateOf(entry) :
             entry.DisplayName == entry.Endpoint ? (entry.IsTeacher ? "老師" : "同學") + " · 一對一聊天" : entry.Endpoint : "對話紀錄保存在本機";

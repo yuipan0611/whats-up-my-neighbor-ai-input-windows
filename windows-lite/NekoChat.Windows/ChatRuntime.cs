@@ -11,6 +11,7 @@ using NekoChat.Core.Storage;
 using NekoChat.Core.V2;
 using NekoChat.Core.Classroom.Transport;
 using NekoChat.Core.Attachments;
+using NekoChat.Core.ClassroomFiles;
 using NekoChat.Windows.Identity;
 
 namespace NekoChat.Windows;
@@ -54,6 +55,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal string DataDirectory { get; }
     internal ClassroomSender ClassroomSender { get; }
     internal AttachmentService? Attachments { get; }
+    internal ClassroomFileService? ClassroomFiles { get; }
+    internal event Action<string,long,long>? ShareProgress;
     internal bool CanSend => ArchivedIdentityFixture ? (_writer is not null && Listener.Running && !_lifetime.IsCancellationRequested) : (Listener.Running && !_lifetime.IsCancellationRequested);
     internal CancellationToken Lifetime => _lifetime.Token;
     internal bool IsStopping => _lifetime.IsCancellationRequested;
@@ -102,8 +105,29 @@ internal sealed class ChatRuntime : IAsyncDisposable
             Attachments = new AttachmentService(store, Path.Combine(dataDirectory, "attachments"), port);
             Attachments.Changed += () => DataChanged?.Invoke();
             Attachments.Progress += (id, done, total) => AttachmentProgress?.Invoke(id, done, total);
-            var endpoint = new ClassroomEndpointAdapter(sink, capabilities: new[] { "msg.plain", "receipt.read", AttachmentLimits.Capability });
-            var classroomListener = new ClassroomTcpListener(new AttachmentEndpoint(endpoint, Attachments), new ClassroomListenerOptions { Port = port });
+            ClassroomFiles = new(store, Attachments, new WindowsShareSecrets(), () => {
+                var local = LanInvitation.LocalAddresses().ToHashSet();
+                return store.GetRosterSnapshot().Where(r => r.Entry.Endpoint is { } ip && !local.Contains(ip))
+                    .Select(r => new SharePeer(r.Entry.Endpoint!, Attachments.Port, r.Entry.IsTeacher)).ToArray();
+            }, () => {
+                string? target = store.GetRosterSnapshot().Select(r => r.Entry.Endpoint).FirstOrDefault(ip => ip is not null);
+                return target is null ? LanInvitation.LocalAddresses().FirstOrDefault(LanInvitation.PrivateIPv4) ?? "127.0.0.1" : ResolveLocalEndpointIp(target, Attachments.Port);
+            });
+            try
+            {
+                string rosterPath = Path.Combine(AppContext.BaseDirectory, "classroom-roster.csv");
+                if (File.Exists(rosterPath) && new FileInfo(rosterPath).Length <= NekoChat.Core.Roster.RosterCsv.MaxBytes)
+                {
+                    var roster = NekoChat.Core.Roster.RosterCsv.Parse(File.ReadAllBytes(rosterPath));
+                    var local = LanInvitation.LocalAddresses().ToHashSet();
+                    ClassroomFiles.IsTeacherNode = roster.FatalError is null && roster.Errors.Count == 0 && roster.Rows.Any(r => r.IsTeacher && r.Endpoint is { } ip && local.Contains(ip));
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* display role only; never grants withdrawal authority */ }
+            ClassroomFiles.Changed += () => DataChanged?.Invoke();
+            ClassroomFiles.Progress += (id,done,total) => ShareProgress?.Invoke(id,done,total);
+            var endpoint = new ClassroomEndpointAdapter(sink, capabilities: new[] { "msg.plain", "receipt.read", AttachmentLimits.Capability, ShareProtocol.Capability });
+            var classroomListener = new ClassroomTcpListener(new ClassroomFileEndpoint(new AttachmentEndpoint(endpoint, Attachments), ClassroomFiles), new ClassroomListenerOptions { Port = port });
             sink.MessageStored += (_, _, _) => DataChanged?.Invoke();
             sink.ReceiptStored += (_, _) => DataChanged?.Invoke();
             Listener = new DirectLanListener(classroomListener, sink, Attachments);
@@ -135,7 +159,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
         }
         finally { store?.Dispose(); }
     });
-    internal void Start() { Listener.Start(); if (Attachments is not null) Attachments.Port = Listener.Port; Presence?.Start(); Receipts?.Start(); ClassroomReceipts?.Start(); }
+    internal void Start(bool sharedNetwork = false) { Listener.Start(); if (Attachments is not null) Attachments.Port = Listener.Port; if (!IsolatedData || sharedNetwork) ClassroomFiles?.Start(); Presence?.Start(); Receipts?.Start(); ClassroomReceipts?.Start(); }
     internal Task<V2SendResult> SendAsync(PreparedSend send, string endpoint, int port, string conversation, DraftEditBuffer buffer, DraftWriteSnapshot sent)
     {
         lock (_gate)
@@ -260,7 +284,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     }
     internal void ResetAfterResume() { _ = InvalidatePairingAsync("resume"); Presence?.ResetAfterResume(); Receipts?.ResetAfterResume(); ClassroomReceipts?.ResetAfterResume(); }
     internal async Task StopReceivingAsync()
-    { var pairingDrain = InvalidatePairingAsync("receiver_stopped"); await _lifetime.CancelAsync().ConfigureAwait(false); await pairingDrain.ConfigureAwait(false); await Listener.DisposeAsync().ConfigureAwait(false); if (Attachments is not null) await Attachments.DisposeAsync().ConfigureAwait(false); if (Presence is not null) await Presence.DisposeAsync().ConfigureAwait(false); if (Receipts is not null) await Receipts.DisposeAsync().ConfigureAwait(false); if (ClassroomReceipts is not null) await ClassroomReceipts.DisposeAsync().ConfigureAwait(false); await _maintenance.ConfigureAwait(false); }
+    { var pairingDrain = InvalidatePairingAsync("receiver_stopped"); await _lifetime.CancelAsync().ConfigureAwait(false); await pairingDrain.ConfigureAwait(false); await Listener.DisposeAsync().ConfigureAwait(false); if (ClassroomFiles is not null) await ClassroomFiles.DisposeAsync().ConfigureAwait(false); if (Attachments is not null) await Attachments.DisposeAsync().ConfigureAwait(false); if (Presence is not null) await Presence.DisposeAsync().ConfigureAwait(false); if (Receipts is not null) await Receipts.DisposeAsync().ConfigureAwait(false); if (ClassroomReceipts is not null) await ClassroomReceipts.DisposeAsync().ConfigureAwait(false); await _maintenance.ConfigureAwait(false); }
     internal async Task DrainNetworkAsync()
     { Task[] network; lock (_gate) network = _network.ToArray(); await Task.WhenAll(network).ConfigureAwait(false); }
     public ValueTask DisposeAsync()
