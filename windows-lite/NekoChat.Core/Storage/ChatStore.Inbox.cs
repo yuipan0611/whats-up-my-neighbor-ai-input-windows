@@ -24,7 +24,7 @@ public sealed partial class ChatStore
               LEFT JOIN Draft d ON d.conversationId=c.id
               LEFT JOIN Message m ON m.localSeq=(SELECT x.localSeq FROM Message x WHERE x.conversationId=c.id ORDER BY x.localSeq DESC LIMIT 1)
               LEFT JOIN LegacyMessage l ON l.legacySeq=(SELECT x.legacySeq FROM LegacyMessage x WHERE x.rosterEntryId=s.legacyRow OR (x.rosterEntryId IS NULL AND x.sourceIp=s.legacyIp) ORDER BY x.legacySeq DESC LIMIT 1)
-              LEFT JOIN ManualSendAttempt a ON a.messageId=(SELECT x.messageId FROM ManualSendAttempt x WHERE x.conversationId=c.id ORDER BY x.rowid DESC LIMIT 1) AND a.attemptState IN ('sending','unconfirmed','failed')
+              LEFT JOIN ManualSendAttempt a ON a.messageId=(SELECT x.messageId FROM ManualSendAttempt x WHERE x.conversationId=c.id ORDER BY x.rowid DESC LIMIT 1) AND a.attemptState IN ('sending','unconfirmed','failed','cancelled')
             """;
         using var r = cmd.ExecuteReader(); var rows = new List<InboxEntry>();
         while (r.Read())

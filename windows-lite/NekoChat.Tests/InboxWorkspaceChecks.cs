@@ -29,7 +29,7 @@ internal static class InboxWorkspaceChecks
             Check(entry.Attempt is { State: "unconfirmed", RawSnapshot: "manual only" } && entry.Draft?.RawText == "manual only" && entry.LastText == "confirmed history",
                 "unconfirmed attempt stays in composer projection, never history snippet");
             f.Store.CancelAttempt(started.MessageId);
-            Check(f.Store.GetInboxSnapshot().Entries.Single(e => e.RosterId == alias).Attempt is null, "cancelled attempt is no longer actionable composer banner");
+            Check(f.Store.GetInboxSnapshot().Entries.Single(e => e.RosterId == alias).Attempt is { State: "cancelled" }, "cancelled attempt remains visible as cancelled in composer projection");
             f.Store.DeleteRosterEntry(student, RosterImportPreview.ComputeSnapshotToken(f.Store.GetRosterSnapshot()));
             string reused = f.Add("New IP owner", "10.0.0.1", "0003", false);
             snapshot = f.Store.GetInboxSnapshot();

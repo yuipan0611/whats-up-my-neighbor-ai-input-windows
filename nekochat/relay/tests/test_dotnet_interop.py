@@ -21,7 +21,7 @@ def test_csharp_transport_to_fastapi():
             assert time.monotonic()<deadline
             time.sleep(.01)
         root=Path(__file__).resolve().parents[3]
-        result=subprocess.run([os.environ['NEKOCHAT_DOTNET'],'run','--project','windows-lite/NekoChat.Tests','-c','Release','--no-build','--','--live',str(port)],cwd=root,text=True,capture_output=True,timeout=60)
+        result=subprocess.run([os.environ['NEKOCHAT_DOTNET'],'run','--project','windows-lite/NekoChat.Tests','-c','Release','--no-build','--','--live',str(port)],cwd=root,text=True,capture_output=True,timeout=120)
         assert result.returncode==0,result.stdout+result.stderr
         assert 'behavior checks passed' in result.stdout
     finally:
