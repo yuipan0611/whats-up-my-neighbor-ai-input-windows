@@ -42,16 +42,24 @@ public sealed partial class ChatStore : IChatStore
             throw new StoreException(StoreErrorKind.DataLocationUnsupported, StoreErrors.Describe(StoreErrorKind.DataLocationUnsupported));
         if (options.CommandTimeoutSeconds < 1) throw new ArgumentOutOfRangeException(nameof(options));
         (options.OffRoster ?? throw new ArgumentException("OffRoster limits are required.", nameof(options))).Validate();
-        var store = new ChatStore(options);
-        try
+        for (int attempt = 0; ; attempt++)
         {
-            store.Initialize();
-            return store;
-        }
-        catch
-        {
-            store.AbortInitialize();
-            throw;
+            var store = new ChatStore(options);
+            try
+            {
+                store.Initialize();
+                return store;
+            }
+            catch (StoreException ex) when (attempt < 5 && ex.Kind is StoreErrorKind.IoError or StoreErrorKind.StorageBusy)
+            {
+                store.AbortInitialize();
+                Thread.Sleep(50 * (attempt + 1));
+            }
+            catch
+            {
+                store.AbortInitialize();
+                throw;
+            }
         }
     }
 

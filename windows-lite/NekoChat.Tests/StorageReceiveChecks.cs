@@ -267,6 +267,7 @@ internal static class StorageReceiveChecks
                 string? ready = await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(12));
                 Check(ready == "READY:" + stage, "child reaches the exact product receive commit boundary");
                 child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                await Task.Delay(100);
                 Check(child.ExitCode != 0, "child terminated rather than cleanly disposing store");
             }
             finally

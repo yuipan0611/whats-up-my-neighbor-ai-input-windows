@@ -228,6 +228,7 @@ internal static class StorageSendChecks
                 child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             }
             finally { if (!child.HasExited) { child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); } }
+            await Task.Delay(100);
             using var recovered = ChatStore.Open(f.Options);
             Check(Number(f.Db, "SELECT count(*) FROM Message") == (stage == "after" ? 1 : 0) && recovered.GetDraftState(a) is { Revision: 5 } state &&
                 state.Epoch == (stage == "after" ? 1 : 0) && state.RawText == (stage == "after" ? null : "X"), "real kill atomically preserves or clears draft with history");
