@@ -28,8 +28,10 @@ if (args.SequenceEqual(new[] { "--classroom-inbox" })) { NekoChat.Tests.Classroo
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-ui-policy" })) { NekoChat.Tests.ClassroomSendUiPolicyChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--attachments" })) { await NekoChat.Tests.AttachmentChecks.RunAsync(); return; }
+if (args.SequenceEqual(new[] { "--classroom-ux" })) { NekoChat.Tests.ClassroomUxChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-all" }))
 {
+    NekoChat.Tests.ClassroomUxChecks.Run();
     Console.WriteLine("=== Running all classroom focused test suites (15 suites total) ===");
     try
     {

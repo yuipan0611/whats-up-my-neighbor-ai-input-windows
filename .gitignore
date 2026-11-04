@@ -9,3 +9,6 @@ __pycache__/
 # NekoChat Lite build outputs and local dependency environments
 build/
 .pytest_cache/
+
+# Private classroom sidecar: never commit real roster data
+classroom-roster.csv

@@ -259,7 +259,8 @@ public partial class App : Application
         }
 
         reaction ??= ClassroomReactions.MatchText(text);
-        if (reaction?.TeacherOnly == true && targetIp != settings.TeacherIp) reaction = null;
+        if (reaction is null || !chat.IsSelectedReactionTarget(targetIp, reaction))
+        { chat.SetStatus("聊天對象已變更，貼圖尚未送出。"); return; }
         chat.SetSending(true);
         var displayName = settings.ResolveDisplayName(targetIp);
         chat.SetStatus($"正在傳送至 {displayName}…");

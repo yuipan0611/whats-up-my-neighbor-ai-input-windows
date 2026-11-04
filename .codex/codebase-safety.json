@@ -5,7 +5,7 @@
     "name": "nekochat-lite-attachments-20261104",
     "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",
     "repo_root": ".",
-    "last_reviewed": "2026-11-04"
+    "last_reviewed": "2026-11-05"
   },
   "instructions": {
     "files": [
@@ -115,8 +115,8 @@
   ],
   "evidence": [
     {
-      "fact": "Clipboard/file entrypoints currently add text tags only",
-      "source": "windows-lite/NekoChat.Windows/ChatWindow.Inbox.cs#AppendFilesToDraft"
+      "fact": "Clipboard/file entrypoints stage real attachments; classroom reactions now resolve only the selected conversation recipient",
+      "source": "windows-lite/NekoChat.Windows/ChatWindow.xaml.cs#ReactionSendClick"
     },
     {
       "fact": "SchemaGuard derives expected schema from migration SQL",

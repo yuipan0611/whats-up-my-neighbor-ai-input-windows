@@ -159,22 +159,9 @@ public partial class ChatWindow : Window
         if (_runtime is null) { SetStatus("本機資料尚未就緒，請先重新讀取。"); return; }
         var ip = RecipientIp.Text.Trim();
         var name = ContactName.Text.Trim();
-        if (ip.Length > 0 && !LanInvitation.PrivateIPv4(ip))
-        {
-            SaveContactFeedback.Foreground = System.Windows.Media.Brushes.Firebrick;
-            SaveContactFeedback.Text = "請輸入有效的內網 IP";
-            SetStatus("請先輸入有效的內網 IP（例如 192.168.1.25）。");
-            RecipientIp.Focus();
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            SaveContactFeedback.Foreground = System.Windows.Media.Brushes.Firebrick;
-            SaveContactFeedback.Text = "請輸入備註名稱";
-            SetStatus("請輸入備註名稱（例如 隔壁小明）。");
-            ContactName.Focus();
-            return;
-        }
+        if (!LanInvitation.PrivateIPv4(ip))
+        { SaveContactFeedback.Text = "請輸入有效的內網 IP 位址"; RecipientIp.Focus(); return; }
+        if (string.IsNullOrWhiteSpace(name)) name = TeacherLabel.IsChecked == true ? "老師" : ip;
 
         await SaveRosterAsync(name, ip);
     }
@@ -261,7 +248,9 @@ public partial class ChatWindow : Window
     {
         if (!CanSendReaction || sender is not FrameworkElement element ||
             ClassroomReactions.Find(element.Tag as string) is not { } reaction) return;
-        string target = reaction.TeacherOnly ? settings.TeacherIp : (_runtime is null ? RecipientIp.Text.Trim() : _selected?.Endpoint ?? "");
+        if (_selected is not { Removed: false, CanSend: true } recipient || !NekoChat.Core.Presentation.ClassroomReactionPolicy.CanSend(recipient.IsTeacher, recipient.Removed, recipient.CanSend, reaction.TeacherOnly))
+        { SetStatus("請先開啟對應的聊天室，再傳送貼圖。"); return; }
+        string target = recipient.Endpoint ?? "";
         if (!LanInvitation.PrivateIPv4(target)) { SetStatus("請先設定有效的收件對象 IP。"); return; }
         ReactionRequested?.Invoke(target, reaction);
     }

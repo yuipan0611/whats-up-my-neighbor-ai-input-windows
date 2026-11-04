@@ -58,11 +58,19 @@ public partial class ChatWindow
 
     private void InitializeInbox()
     {
-        InboxList.ItemsSource = _inbox; _initializedInbox = true;
+        InboxList.ItemsSource = _inbox; TeachersList.ItemTemplate = InboxList.ItemTemplate; _initializedInbox = true;
         InitializeAttachments();
         InboxList.PreviewMouseLeftButtonUp += async (_, e) => {
             if (e.OriginalSource is DependencyObject source && ItemsControl.ContainerFromElement(InboxList, source) is ListBoxItem { DataContext: InboxRowView row } &&
                 (!_userOpened || _showInbox || _selected?.Id != row.Entry.Id)) await SelectEntryAsync(row.Entry, true);
+        };
+        TeachersList.PreviewMouseLeftButtonUp += async (_, e) => {
+            if (e.OriginalSource is DependencyObject source && ItemsControl.ContainerFromElement(TeachersList, source) is ListBoxItem { DataContext: InboxRowView row } &&
+                (!_userOpened || _showInbox || _selected?.Id != row.Entry.Id)) await SelectEntryAsync(row.Entry, true);
+        };
+        TeachersList.PreviewKeyDown += async (_, e) => {
+            if (e.Key is System.Windows.Input.Key.Enter or System.Windows.Input.Key.Space && !e.IsRepeat && TeachersList.SelectedItem is InboxRowView row)
+            { e.Handled = true; await SelectEntryAsync(row.Entry, true); }
         };
         InboxList.PreviewKeyDown += async (_, e) => {
             if (e.Key is System.Windows.Input.Key.Enter or System.Windows.Input.Key.Space && !e.IsRepeat && InboxList.SelectedItem is InboxRowView row)
@@ -85,6 +93,7 @@ public partial class ChatWindow
         }
         ReadReceiptToggle.IsChecked = policy.Enabled;
         if (runtime.Presence is { } presence) presence.StateChanged += PresenceChanged;
+        await BootstrapClassRosterAsync();
         await RefreshInboxAsync();
     }
     internal void ShowDataFailure(string message)
@@ -151,20 +160,28 @@ public partial class ChatWindow
     {
         if (!_initializedInbox || _snapshot is null) return;
         string query = InboxSearch.Text.Trim(); bool unread = InboxFilter.SelectedIndex == 1;
-        var entries = _snapshot.Entries.Where(e => (!unread || e.TotalUnread > 0) && (query.Length == 0 || e.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-            e.StudentNumber?.Contains(query, StringComparison.OrdinalIgnoreCase) == true || e.Endpoint?.Contains(query, StringComparison.OrdinalIgnoreCase) == true));
+        var entries = _snapshot.Entries.Where(e => !e.IsTeacher && (!unread || e.TotalUnread > 0) && (query.Length == 0 || e.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            e.StudentNumber?.Contains(query, StringComparison.OrdinalIgnoreCase) == true || e.Endpoint?.Contains(query, StringComparison.OrdinalIgnoreCase) == true)).OrderBy(e => EndpointSortKey(e.Endpoint));
         _changingSelection = true;
         try
         {
+            TeachersList.ItemsSource = _snapshot.Entries.Where(e => e.IsTeacher).Select(e => new InboxRowView(e, StateOf(e))).ToArray();
+            TeachersList.SelectedItem = TeachersList.Items.OfType<InboxRowView>().FirstOrDefault(e => e.Entry.Id == _selected?.Id);
+            SetTeacherButton.Visibility = _snapshot.Entries.Any(e => e.IsTeacher && !e.Removed) ? Visibility.Collapsed : Visibility.Visible;
             _inbox.Clear(); foreach (var entry in entries) _inbox.Add(new(entry, StateOf(entry)));
             InboxList.SelectedItem = _inbox.FirstOrDefault(e => e.Entry.Id == _selected?.Id);
         }
         finally { _changingSelection = false; }
-        InboxCount.Text = $"同學 · 未讀 {_snapshot.TotalUnread} · {_snapshot.Entries.Count} 位";
-        bool noEntries = _snapshot.Entries.Count == 0;
+        InboxCount.Text = $"同學 · {_snapshot.Entries.Count(e => !e.IsTeacher)} 位";
+        bool noEntries = !_snapshot.Entries.Any(e => !e.IsTeacher);
         InboxEmpty.Text = noEntries ? "尚無同學對話。\n新增名單後，即可開始一對一聊天。" : "沒有符合搜尋或篩選的同學。";
         AddFirstContactButton.Visibility = noEntries ? Visibility.Visible : Visibility.Collapsed;
         InboxEmptyPanel.Visibility = _inbox.Count == 0 ? Visibility.Visible : Visibility.Collapsed; UpdatePresenceView();
+    }
+    private static uint EndpointSortKey(string? endpoint)
+    {
+        if (!System.Net.IPAddress.TryParse(endpoint, out var ip) || ip.GetAddressBytes() is not { Length: 4 } bytes) return uint.MaxValue;
+        return ((uint)bytes[0] << 24) | ((uint)bytes[1] << 16) | ((uint)bytes[2] << 8) | bytes[3];
     }
     private void InboxSearchChanged(object sender, TextChangedEventArgs e) => ApplyInboxFilter();
     private void InboxFilterChanged(object sender, SelectionChangedEventArgs e) { if (_initializedInbox) ApplyInboxFilter(); }
@@ -253,7 +270,10 @@ public partial class ChatWindow
         AttachFileButton.IsEnabled = Draft.IsEnabled && !_sending && !_attachmentBusy && _runtime?.Attachments is not null;
         RemoveAttachmentButton.IsEnabled = !_sending && !_attachmentBusy;
         SendButton.IsEnabled = !_attachmentBusy && !_closingRequested && !_sending && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
-        TeacherReactions.IsEnabled = ScrollReaction.IsEnabled = CanSendReaction;
+        bool teacher = _selected?.IsTeacher == true && !_selected.Removed;
+        TeacherReactions.Visibility = teacher ? Visibility.Visible : Visibility.Collapsed;
+        PeerReactions.Visibility = _selected is not null && !teacher ? Visibility.Visible : Visibility.Collapsed;
+        TeacherReactions.IsEnabled = ScrollReaction.IsEnabled = CanSendReaction && _selected?.CanSend == true && !isRemoved;
         var attempt = _selected?.Attempt; AttemptBanner.Visibility = attempt is null ? Visibility.Collapsed : Visibility.Visible;
         bool cancelling = attempt is not null && _runtime?.IsAttemptCancellationRequested(attempt.MessageId, attempt.TryCount) == true;
         AttemptText.Text = ClassroomSendUiPolicy.DecideAttemptBanner(attempt?.State, cancelling);
@@ -404,7 +424,7 @@ public partial class ChatWindow
         var menu = new ContextMenu();
         var attach = new MenuItem { Header = "附加檔案或相片", IsEnabled = CanAddAttachment() && _attachmentDraft is null };
         attach.Click += AttachFileClick; menu.Items.Add(attach); menu.Items.Add(new Separator());
-        foreach (var reaction in ClassroomReactions.All) { var item = new MenuItem { Header = reaction.Text + (reaction.TeacherOnly ? " → 老師" : " → 目前對象"), Tag = reaction.Id, IsEnabled = CanSendReaction }; item.Click += ReactionSendClick; menu.Items.Add(item); }
+        foreach (var reaction in ClassroomReactions.All.Where(r => r.TeacherOnly == (_selected?.IsTeacher == true))) { var item = new MenuItem { Header = reaction.Text + (reaction.TeacherOnly ? " → 老師" : " → 目前對象"), Tag = reaction.Id, IsEnabled = CanSendReaction && _selected?.CanSend == true }; item.Click += ReactionSendClick; menu.Items.Add(item); }
         menu.Items.Add(new Separator());
         foreach (var language in CodeLanguage.Items.OfType<ComboBoxItem>()) { var item = new MenuItem { Header = "插入 " + language.Content + " 程式碼", IsEnabled = Draft.IsEnabled }; item.Click += (_, _) => { CodeLanguage.SelectedItem = language; InsertCodeClick(sender, e); }; menu.Items.Add(item); }
         menu.PlacementTarget = CompactActions; menu.IsOpen = true;
@@ -414,12 +434,15 @@ public partial class ChatWindow
     internal void ShowSettingsForLayoutCheck(bool show) { SettingsPane.Visibility = show ? Visibility.Visible : Visibility.Collapsed; ViewChanged(); }
     private async void OpenSettingsClick(object sender, RoutedEventArgs e) { SettingsPane.Visibility = Visibility.Visible; ViewChanged(); await LoadManualFormAsync(_selected?.RosterId); }
     private void CloseSettingsClick(object sender, RoutedEventArgs e) { ++_manualFormGeneration; SettingsPane.Visibility = Visibility.Collapsed; ViewChanged(); }
-    private async void AddRosterClick(object sender, RoutedEventArgs e) { SettingsPane.Visibility = Visibility.Visible; ViewChanged(); await LoadManualFormAsync(null); ContactName.Focus(); }
+    private async void AddRosterClick(object sender, RoutedEventArgs e) { SettingsPane.Visibility = Visibility.Visible; ViewChanged(); await LoadManualFormAsync(null); RecipientIp.Focus(); }
+    private async void AddTeacherClick(object sender, RoutedEventArgs e) { SettingsPane.Visibility = Visibility.Visible; ViewChanged(); await LoadManualFormAsync(null); TeacherLabel.IsChecked = true; ManualRosterTitle.Text = "加入老師"; SaveContactButton.Content = "加入老師"; RecipientIp.Focus(); }
+    private async void TeacherSelectionChanged(object sender, SelectionChangedEventArgs e)
+    { if (!_changingSelection && TeachersList.SelectedItem is InboxRowView row) await SelectEntryAsync(row.Entry, true); }
     private async Task LoadManualFormAsync(string? rosterId)
     {
         SaveContactFeedback.Text = ""; _editingRosterId = rosterId; _manualFormSnapshot = null; _pairingSelection = null; RefreshPairingControls(); long generation = ++_manualFormGeneration; SaveContactButton.IsEnabled = DeleteContactButton.IsEnabled = false;
-        ManualRosterTitle.Text = rosterId is null ? "手動新增同學" : "編輯目前名單";
-        SaveContactButton.Content = rosterId is null ? "新增到名單" : "儲存這位同學";
+        ManualRosterTitle.Text = rosterId is null ? "加入好友" : "編輯好友 IP";
+        SaveContactButton.Content = rosterId is null ? "加入好友" : "儲存";
         if (_runtime is null) { ContactName.Text = StudentNumberBox.Text = RecipientIp.Text = ""; TeacherLabel.IsChecked = false; return; }
         try
         {
@@ -580,6 +603,8 @@ public partial class ChatWindow
         return ClassroomNotificationNames.Format(sourceIp, entry?.DisplayName, entry?.Removed == true);
     }
     internal string? PeerReplyEndpoint(string peerId) => _snapshot?.Entries.FirstOrDefault(e => e.PeerId == peerId)?.Endpoint;
+    internal bool IsSelectedReactionTarget(string target, ClassroomReaction reaction) =>
+        _selected is { } entry && entry.Endpoint == target && ClassroomReactionPolicy.CanSend(entry.IsTeacher, entry.Removed, entry.CanSend, reaction.TeacherOnly);
     internal bool CanSendReaction => !_closingRequested && _receiverRunning && !_sending;
     internal void AbortClosing() { IsEnabled = true; _closingRequested = false; _stopping = false; UpdateComposer(); }
 }
