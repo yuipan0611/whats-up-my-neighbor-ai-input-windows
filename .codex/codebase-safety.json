@@ -1,0 +1,124 @@
+{
+  "$schema": "safely-modify-codebase/v1",
+  "status": "ready",
+  "project": {
+    "name": "nekochat-lite-attachments-20261104",
+    "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",
+    "repo_root": ".",
+    "last_reviewed": "2026-11-04"
+  },
+  "instructions": {
+    "files": [
+      "../../AGENTS.md"
+    ],
+    "precedence_notes": []
+  },
+  "stack": {
+    "languages": [
+      "C#",
+      "XAML",
+      "Python"
+    ],
+    "frameworks": [
+      ".NET 10",
+      "WPF",
+      "Microsoft.Data.Sqlite 10.0.14"
+    ],
+    "package_managers": [
+      "NuGet with lockfiles"
+    ]
+  },
+  "commands": {
+    "install": [],
+    "test": [
+      "dotnet run --project windows-lite/NekoChat.Tests -c Release -- --classroom-all"
+    ],
+    "lint": [],
+    "typecheck": [],
+    "build": [
+      "dotnet build windows-lite/NekoChat.Windows -c Release -r win-x64 -p:EnableWindowsTargeting=true"
+    ],
+    "notes": "Use workspace dependencies/dotnet-10.0.403/dotnet, workspace NuGet cache, and a real build/tmp TMPDIR. Tests are console checks, not dotnet test."
+  },
+  "architecture": {
+    "entry_points": [
+      "windows-lite/NekoChat.Windows/ChatRuntime.cs",
+      "windows-lite/NekoChat.Windows/ChatWindow.Inbox.cs"
+    ],
+    "feature_roots": [
+      "windows-lite/NekoChat.Core/Classroom",
+      "windows-lite/NekoChat.Core/Storage"
+    ],
+    "shared_modules": [],
+    "state_and_data": [
+      "ChatStore partials serialize immediate SQLite transactions; SchemaGuard verifies normalized DDL; versioned migrations preserve frozen SchemaV1.sql.",
+      "Accepted socket source owns classroom principal; draftEpoch prevents stale clear results."
+    ],
+    "external_integrations": []
+  },
+  "conventions": {
+    "patterns": [
+      "Focused console checks register in NekoChat.Tests/Program.cs",
+      "Classroom listener frames bounded one-request POST connections"
+    ],
+    "naming": [],
+    "error_handling": [
+      "StoreException maps SQLite errors; transport uses reason codes and UI uses localized text"
+    ],
+    "logging": [],
+    "tests": [],
+    "notes": ""
+  },
+  "protected_areas": [
+    {
+      "path_or_symbol": "windows-lite/NekoChat.Core/Classroom/Wire",
+      "reason": "Frozen classroom contract and compatibility",
+      "invariants": [
+        "Preserve existing codecs and frozen vectors; attachments use additive endpoint wrapper."
+      ]
+    },
+    {
+      "path_or_symbol": "windows-lite/NekoChat.Core/Storage/SchemaV1.sql",
+      "reason": "Frozen schema",
+      "invariants": [
+        "No edits; use additive migrations."
+      ]
+    },
+    {
+      "path_or_symbol": "windows-lite/NekoChat.Windows/Assets",
+      "reason": "Approved artwork",
+      "invariants": [
+        "Do not modify."
+      ]
+    }
+  ],
+  "change_policy": {
+    "prefer_local_changes": true,
+    "require_consumer_search_for_shared_changes": true,
+    "forbid_unrelated_refactors": true,
+    "require_baseline_before_edit": true,
+    "preferred_max_files_per_step": 5
+  },
+  "verification": {
+    "minimum_after_change": [
+      "focused tests for changed behavior",
+      "consumer regression checks for shared changes",
+      "final diff and git status review"
+    ],
+    "manual_checks": [],
+    "notes": ""
+  },
+  "known_unknowns": [
+    "Two physical Windows devices, IME, clipboard and DPI acceptance require native execution."
+  ],
+  "evidence": [
+    {
+      "fact": "Clipboard/file entrypoints currently add text tags only",
+      "source": "windows-lite/NekoChat.Windows/ChatWindow.Inbox.cs#AppendFilesToDraft"
+    },
+    {
+      "fact": "SchemaGuard derives expected schema from migration SQL",
+      "source": "windows-lite/NekoChat.Core/Storage/SchemaGuard.cs#CreateExpected"
+    }
+  ]
+}

@@ -512,8 +512,10 @@ public sealed partial class ChatStore
                 ctx.Exec("INSERT OR IGNORE INTO ClassroomCleared(principal,direction,messageId,clearedUtc) SELECT principal,'outgoing',messageId,@now FROM ClassroomAttempt WHERE principal=@p", ("@now", ctx.NowUtc), ("@p", principal.Value));
                 int receipts = ctx.Exec("DELETE FROM ClassroomReceiptOutbox WHERE principal=@p", ("@p", principal.Value));
                 int attempts = ctx.Exec("DELETE FROM ClassroomAttempt WHERE principal=@p", ("@p", principal.Value));
+                if (_migrations.Count >= 11) ctx.Exec("DELETE FROM AttachmentDraft WHERE principal=@p", ("@p", principal.Value));
                 int drafts = ctx.Exec("DELETE FROM ClassroomDraft WHERE principal=@p", ("@p", principal.Value));
                 int messages = ctx.Exec("DELETE FROM ClassroomMessage WHERE principal=@p", ("@p", principal.Value));
+                if (_migrations.Count >= 11) ctx.Exec("UPDATE ClassroomConversation SET attachmentEpoch=attachmentEpoch+1 WHERE principal=@p", ("@p", principal.Value));
                 ctx.Exec("UPDATE ClassroomConversation SET draftEpoch=draftEpoch+1 WHERE principal=@p", ("@p", principal.Value));
                 return (new ClassroomClearResult(messages, drafts, attempts, receipts, epoch + 1, legacy), true);
             });
