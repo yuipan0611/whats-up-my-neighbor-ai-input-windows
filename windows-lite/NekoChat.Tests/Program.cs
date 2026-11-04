@@ -86,6 +86,7 @@ if (args.SequenceEqual(new[] { "--classroom-adapter" })) { await NekoChat.Tests.
 if (args.SequenceEqual(new[] { "--classroom-sink-tcp" })) { await NekoChat.Tests.ClassroomStoreSinkTcpChecks.RunAsync(); return; }
 if (args.SequenceEqual(new[] { "--classroom-store" })) { NekoChat.Tests.ClassroomStoreChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--ui-test-data" })) { NekoChat.Tests.UiTestDataChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--ui-enhancements" })) { NekoChat.Tests.UiEnhancementChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-send" })) { await NekoChat.Tests.ClassroomSendChecks.RunAsync(); return; }
 if (args.SequenceEqual(new[] { "--classroom-receipt" })) { await NekoChat.Tests.ClassroomReceiptChecks.RunAsync(); return; }
 if (args.SequenceEqual(new[] { "--classroom-kill" })) { try { await NekoChat.Tests.ClassroomKillChecks.RunAsync(); } catch (InvalidOperationException e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); } return; }
@@ -238,6 +239,7 @@ Reject(() => DirectLanMessaging.SendDirectAsync("127.0.0.1", "   ").GetAwaiter()
 checks += await DirectMessagingChecks.Run();
 checks += await ReactionChecks.Run();
 checks += NekoChat.Tests.MessageFormattingChecks.Run();
+checks += NekoChat.Tests.UiEnhancementChecks.Run();
 checks += NekoChat.Tests.RosterCsvChecks.Run();
 checks += NekoChat.Tests.RosterImportChecks.Run();
 checks += NekoChat.Tests.StorageFoundationChecks.Run();

@@ -18,7 +18,12 @@
 
 ### 2.1 已整合功能
 - **聊天視窗與資料庫**：持久對話歷史、草稿保存、訊息清除、SQLite attempt 與 ACK 紀錄。
-- **UI 與外觀**：核准的 themeA、黑貓圖示素材、貓咪花色切換與 reaction 圖片顯示。
+- **現代化控制項與圓角設計**：全介面套用現代圓角族群（`CornerRadius="6"` / `8` / `12`），擺脫生硬直角；底部名單按鈕（新增同學、匯入 CSV、設定）高度統一為 30px 且邊距基線精確對齊。
+- **標準向量迴紋針圖標**：解決 Windows 11 Emoji `📎` 會渲染為微軟卡通大眼睛 Clippy 的問題，改用標準 WPF `<Path>` 幾何向量繪製。
+- **深色語法高亮卡片與一鍵複製**：程式碼區塊採用深色背景（`#18181B`）與標題列（`#222226`），純 C# 實作 `SyntaxHighlighter`（Python、C#、JS、純文字）；右上角常駐【📋 複製】按鈕並提供【✅ 已複製！】即時反饋；輸入工具列縮小（高度 26px）且下拉選單文字垂直置中。
+- **檔案與圖片拖曳直接加入草稿 (Drag & Drop)**：整個對話區與輸入框支援檔案拖曳，拖曳時帶有柔和藍光外框反饋（`#2859C5`），放下後自動解析檔名大小追加至草稿。
+- **左右對話流與貓咪全身大頭貼**：左側對方顯示對應花色全身坐姿貓咪（橘虎斑、三花等），未設定時無條件安全保底為經典黑貓 `original.png`；右側我方顯示經典黑貓。
+- **已讀回條與在線狀態預設開啟**：傳送對外已讀回條於新安裝啟動時預設開啟，設定面板清晰標示「（預設開啟）」；在線狀態（Presence）啟動即探測，聯絡人清單渲染前自動保底掃描全名單。
 - **手動傳送取消**：TC-05 / SDS API-02 當次傳送取消接線，支援取消進行中的網路 I/O，保護草稿與狀態，詳見 [SEND-CANCELLATION.md](SEND-CANCELLATION.md)。
 - **教室模式傳輸**：已整合 CM-01 至 CM-18c 工程預設（ClassroomTransport），支援局域網廣播探索、固定通訊埠傳輸、TCP 訊息收發與送達確認。
 
@@ -42,7 +47,24 @@
 - **系統整合**：實際 Windows 檔案系統 ACL、Windows 電源管理（睡眠、喚醒、休眠）對 socket 的影響、實際網路中斷與重連。
 - **雙機通訊**：真實兩台 Windows 實機在實體區域網路的教室模式雙向通訊驗收。
 
-## 5. 重做建置步驟
+## 5. 測試驗證與重做建置步驟
+
+### 5.1 執行全套自動化測試
+
+包含核心邏輯、UI 結構契約、向量圖標、語法高亮、已讀回條與九色貓咪動畫向量回歸（共 10,712+ 項測試）：
+
+```sh
+# 1. 核心邏輯、UI 強化與儲存回歸 (6,351 checks)
+TMPDIR=/private/tmp /完整路徑/dotnet run --project windows-lite/NekoChat.Tests
+
+# 2. 九色貓咪動畫向量回歸 (4,361 checks)
+TMPDIR=/private/tmp /完整路徑/dotnet run --project windows-lite/NekoChat.Animation.Tests -- windows-lite/NekoChat.Animation/Assets/manifest.json
+
+# 3. 單獨驗證 UI 強化結構與外觀契約
+TMPDIR=/private/tmp /完整路徑/dotnet run --project windows-lite/NekoChat.Tests -- --ui-enhancements
+```
+
+### 5.2 重新建置交付產物
 
 任何人員於具備 Python 3.11+、Git 與 .NET 10 SDK 的乾淨工作樹上均可重現建置產物：
 
