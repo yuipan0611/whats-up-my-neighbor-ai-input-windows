@@ -54,7 +54,8 @@
       "ChatStore partials serialize immediate SQLite transactions; SchemaGuard verifies normalized DDL; versioned migrations preserve frozen SchemaV1.sql.",
       "Accepted socket source owns classroom principal; draftEpoch prevents stale clear results.",
       "AttachmentService stages generated blob ids, serves source-IP/token-bound 256KiB chunks on the classroom port, and records verified completion separately from offer ACKs.",
-      "Migration11 adds Attachment/AttachmentDraft and a clear-only attachmentEpoch. Completed timestamps survive local cache cleanup. Existing text codecs, assets and SchemaV1 remain unchanged."
+      "Migration11 adds Attachment/AttachmentDraft and a clear-only attachmentEpoch. Completed timestamps survive local cache cleanup. Existing text codecs, assets and SchemaV1 remain unchanged.",
+      "UI-4 teacher-file index is a read-only, keyset-paged join of incoming Attachment/ClassroomMessage rows to current teacher roster principals and attachmentEpoch; file browsing does not mark chat read."
     ],
     "external_integrations": []
   },
@@ -129,6 +130,10 @@
     {
       "fact": "Attachment test suite uses real TCP/SQLite, hash corruption and forced termination recovery",
       "source": "windows-lite/NekoChat.Tests/AttachmentChecks.cs"
+    },
+    {
+      "fact": "Teacher-file query excludes classmates/outgoing/unknown sources and survives restart; UI reuses attachment actions and gates visible reads while file catalog is open",
+      "source": "windows-lite/NekoChat.Core/Storage/ChatStore.TeacherFiles.cs; windows-lite/NekoChat.Tests/TeacherFileChecks.cs; windows-lite/NekoChat.Windows/ChatWindow.Ui4.cs"
     }
   ]
 }

@@ -28,50 +28,55 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        string[] startupArgs = e.Args;
+#if UI4_LOCAL_PREVIEW
+        if (startupArgs.Length == 0) startupArgs = new[] { "--ui4-native-preview", @"C:\NekoChatUI4QA20261105\Profile" };
+#endif
 
-        if (e.Args.Length > 0 && e.Args[0] == "--restore-backup")
+        if (startupArgs.Length > 0 && startupArgs[0] == "--restore-backup")
         {
-            Environment.Exit(OfflineRestoreCommand.Run(e.Args));
+            Environment.Exit(OfflineRestoreCommand.Run(startupArgs));
             return;
         }
 
-        if (e.Args.Length == 2 && e.Args[0] == "--manual-send-cancel-smoke-test")
+        if (startupArgs.Length == 2 && startupArgs[0] == "--manual-send-cancel-smoke-test")
         {
-            Environment.Exit(await RunManualSendCancelSmokeAsync(e.Args[1]));
+            Environment.Exit(await RunManualSendCancelSmokeAsync(startupArgs[1]));
             return;
         }
 
 
-        if (e.Args.Length == 2 && e.Args[0] == "--update-download-smoke-test")
+        if (startupArgs.Length == 2 && startupArgs[0] == "--update-download-smoke-test")
         {
-            Environment.Exit(UpdateDownloadSmoke.Run(e.Args[1]));
+            Environment.Exit(UpdateDownloadSmoke.Run(startupArgs[1]));
             return;
         }
 
-        if (e.Args.Length == 2 && e.Args[0] == "--smoke-test")
+        if (startupArgs.Length == 2 && startupArgs[0] == "--smoke-test")
         {
-            Environment.Exit(SmokeTest.Run(e.Args[1]));
+            Environment.Exit(SmokeTest.Run(startupArgs[1]));
             return;
         }
 
         try
         {
-            var uiTestOptions = UiTestOptions.Parse(e.Args);
+            bool ui4NativePreview = startupArgs.Length == 2 && startupArgs[0] == "--ui4-native-preview";
+            var uiTestOptions = UiTestOptions.Parse(ui4NativePreview ? new[] { "--ui-test-data", startupArgs[1], "--ui-test-port", "18770" } : startupArgs);
             _uiTestOptions = uiTestOptions;
-            var messagingSmoke = MessagingSmokeOptions.Parse(e.Args);
-            bool keyboardSmoke = e.Args.Length == 2 && e.Args[0] == "--keyboard-smoke-test";
-            bool gestureSmoke = e.Args.Length == 2 && e.Args[0] == "--interaction-smoke-test";
-            bool receiverSmoke = e.Args.Length == 2 && e.Args[0] == "--receiver-failure-smoke-test";
-            bool instanceSmoke = e.Args.Length == 2 && e.Args[0] == "--instance-smoke-test";
-            bool instanceProbe = e.Args.Length == 2 && e.Args[0] == "--instance-probe";
+            var messagingSmoke = MessagingSmokeOptions.Parse(startupArgs);
+            bool keyboardSmoke = startupArgs.Length == 2 && startupArgs[0] == "--keyboard-smoke-test";
+            bool gestureSmoke = startupArgs.Length == 2 && startupArgs[0] == "--interaction-smoke-test";
+            bool receiverSmoke = startupArgs.Length == 2 && startupArgs[0] == "--receiver-failure-smoke-test";
+            bool instanceSmoke = startupArgs.Length == 2 && startupArgs[0] == "--instance-smoke-test";
+            bool instanceProbe = startupArgs.Length == 2 && startupArgs[0] == "--instance-probe";
             if (messagingSmoke is null && !gestureSmoke && !receiverSmoke && !keyboardSmoke)
             {
                 string mutexName = uiTestOptions?.MutexName ?? "Local\\NekoChat.WindowsLite.App";
                 instanceGate = new Mutex(true, mutexName, out bool firstInstance);
                 if (instanceProbe)
                 {
-                    Directory.CreateDirectory(e.Args[1]);
-                    File.WriteAllText(Path.Combine(e.Args[1], "duplicate-result.txt"), firstInstance ? "FAIL: second app acquired the gate" : "PASS: duplicate app stopped before settings, listener or windows");
+                    Directory.CreateDirectory(startupArgs[1]);
+                    File.WriteAllText(Path.Combine(startupArgs[1], "duplicate-result.txt"), firstInstance ? "FAIL: second app acquired the gate" : "PASS: duplicate app stopped before settings, listener or windows");
                     Environment.Exit(firstInstance ? 1 : 0);
                     return;
                 }
@@ -87,10 +92,10 @@ public partial class App : Application
                     return;
                 }
             }
-            var settingsSource = (e.Args.Length == 0 || uiTestOptions is not null) ? Settings.LoadWithStatus(uiTestOptions?.SettingsFilePath) : null;
-            string? smokeDirectory = messagingSmoke?.Directory ?? (e.Args.Length == 2 && (keyboardSmoke || gestureSmoke || receiverSmoke || instanceSmoke ||
-                e.Args[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test") ? e.Args[1] : null);
-            if (e.Args.Length > 0 && smokeDirectory is null && uiTestOptions is null) throw new ArgumentException("不支援這組啟動參數。");
+            var settingsSource = (startupArgs.Length == 0 || uiTestOptions is not null) ? Settings.LoadWithStatus(uiTestOptions?.SettingsFilePath) : null;
+            string? smokeDirectory = messagingSmoke?.Directory ?? (startupArgs.Length == 2 && (keyboardSmoke || gestureSmoke || receiverSmoke || instanceSmoke ||
+                startupArgs[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test") ? startupArgs[1] : null);
+            if (startupArgs.Length > 0 && smokeDirectory is null && uiTestOptions is null) throw new ArgumentException("不支援這組啟動參數。");
             settings = settingsSource?.Value ?? (smokeDirectory is not null ? Settings.ForSmoke(smokeDirectory) : new Settings { AutoStartOnLogin = false, ReadOnlyFallback = true });
             if (uiTestOptions is not null) settings = settings with { AutoStartOnLogin = false };
             if (messagingSmoke is not null) settings = settings with { TeacherIp = "127.0.0.1" };
@@ -185,15 +190,16 @@ public partial class App : Application
             if (messagingSmoke is not null)
                 startupWireConfiguration = await PrepareMessagingFixtureAsync(messagingSmoke);
             await StartDataAsync();
+            if (ui4NativePreview) { pet.Hide(); await chat.RunUi4NativePreviewAsync(uiTestOptions!.DataDirectory); }
             SystemEvents.PowerModeChanged += AppPowerModeChanged;
 
             if (keyboardSmoke)
-                _ = Dispatcher.BeginInvoke(new Action(async () => await RunKeyboardSmokeTestAsync(e.Args[1])));
+                _ = Dispatcher.BeginInvoke(new Action(async () => await RunKeyboardSmokeTestAsync(startupArgs[1])));
 
             if (instanceSmoke)
-                _ = Dispatcher.BeginInvoke(new Action(async () => await RunInstanceSmokeTestAsync(e.Args[1])));
+                _ = Dispatcher.BeginInvoke(new Action(async () => await RunInstanceSmokeTestAsync(startupArgs[1])));
             if (receiverSmoke)
-                _ = Dispatcher.BeginInvoke(new Action(() => RunReceiverFailureSmokeTest(e.Args[1])));
+                _ = Dispatcher.BeginInvoke(new Action(() => RunReceiverFailureSmokeTest(startupArgs[1])));
 
             if (messagingSmoke is not null)
             {
@@ -201,22 +207,22 @@ public partial class App : Application
             }
             if (gestureSmoke)
             {
-                _ = Dispatcher.BeginInvoke(new Action(async () => await RunInteractionSmokeTestAsync(e.Args[1])));
+                _ = Dispatcher.BeginInvoke(new Action(async () => await RunInteractionSmokeTestAsync(startupArgs[1])));
             }
 
-            if (e.Args.Length == 0 && uiTestOptions is null)
+            if (startupArgs.Length == 0 && uiTestOptions is null)
             {
                 _ = Task.Delay(3000).ContinueWith(_ => Dispatcher.Invoke(() => _ = CheckForUpdatesAsync(false)));
             }
 
-            if (e.Args.Length == 2 && e.Args[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test")
+            if (startupArgs.Length == 2 && startupArgs[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test")
             {
                 _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(() =>
                 {
-                    Directory.CreateDirectory(e.Args[1]);
+                    Directory.CreateDirectory(startupArgs[1]);
                     bool visible = pet.IsVisible && chat.IsVisible;
                     bool listenerRunning = directListener?.Running == true;
-                    File.WriteAllText(Path.Combine(e.Args[1], "startup-result.txt"),
+                    File.WriteAllText(Path.Combine(startupArgs[1], "startup-result.txt"),
                         visible && listenerRunning ? "PASS: Lite edition direct LAN startup and UI rendered." : "FAIL: initial windows or listener state were incorrect.");
                     Environment.Exit(visible && listenerRunning ? 0 : 1);
                 }));
@@ -224,10 +230,10 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            if (e.Args.Length == 5 && e.Args[0] == "--messaging-smoke-test")
+            if (startupArgs.Length == 5 && startupArgs[0] == "--messaging-smoke-test")
             {
-                Directory.CreateDirectory(e.Args[1]);
-                File.WriteAllText(Path.Combine(e.Args[1], e.Args[2] + "-result.txt"), "FAIL: fixture startup: " + ex.GetType().Name);
+                Directory.CreateDirectory(startupArgs[1]);
+                File.WriteAllText(Path.Combine(startupArgs[1], startupArgs[2] + "-result.txt"), "FAIL: fixture startup: " + ex.GetType().Name);
             }
             else MessageBox.Show("NekoChat 無法啟動：" + ex.Message, "NekoChat");
             Shutdown(1);

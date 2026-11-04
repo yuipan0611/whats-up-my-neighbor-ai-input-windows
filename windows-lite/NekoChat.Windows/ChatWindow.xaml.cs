@@ -84,6 +84,7 @@ public partial class ChatWindow : Window
     internal void SetReceiverState(bool running, int port, string? error)
     {
         _receiverRunning = running;
+        ReceiverStatus.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
         ReceiverStatus.Foreground = running ? System.Windows.Media.Brushes.DarkGreen : System.Windows.Media.Brushes.Firebrick;
         ReceiverStatus.Text = running
             ? "接收已啟動；對方可輸入你的 IP 傳訊。"

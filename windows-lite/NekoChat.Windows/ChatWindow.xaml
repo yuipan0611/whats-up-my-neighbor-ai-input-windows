@@ -178,29 +178,31 @@
  <Grid>
   <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid x:Name="Shell" SizeChanged="ShellSizeChanged">
-   <Grid.ColumnDefinitions><ColumnDefinition x:Name="InboxColumn" Width="288"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+   <Grid.ColumnDefinitions><ColumnDefinition x:Name="InboxColumn" Width="274"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
    <Border x:Name="InboxPane" Grid.Column="0" BorderBrush="#DCE3EC" BorderThickness="0,0,1,0">
     <DockPanel>
-     <StackPanel DockPanel.Dock="Top" Margin="16,16,16,8">
-      <StackPanel Orientation="Horizontal" Margin="0,0,0,12"><Image Source="Assets/original.png" Width="36" Height="36" Margin="0,0,8,0"/><TextBlock Text="Neko Chat Lite" FontWeight="Bold" FontSize="18" VerticalAlignment="Center"/></StackPanel>
-      <TextBlock Text="老師" FontWeight="Bold" Foreground="#2859C5" Margin="0,0,0,6"/>
-      <ListBox x:Name="TeachersList" MaxHeight="150" BorderThickness="0" SelectionChanged="TeacherSelectionChanged" ItemContainerStyle="{StaticResource InboxItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="置頂老師聊天室"/>
+     <ScrollViewer x:Name="SidebarHeaderScroll" DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="16,16,16,8">
+      <StackPanel x:Name="BrandHeader" Orientation="Horizontal" Margin="0,0,0,12"><Image Source="Assets/original.png" Width="36" Height="36" Margin="0,0,8,0"/><TextBlock Text="Neko Chat Lite" FontWeight="Bold" FontSize="18" VerticalAlignment="Center"/></StackPanel>
+      <TextBlock x:Name="TeacherSectionTitle" Text="老師" FontWeight="Bold" Foreground="#2859C5" Margin="0,0,0,6"/>
+      <ListBox x:Name="TeachersList" MaxHeight="92" BorderThickness="0" SelectionChanged="TeacherSelectionChanged" ItemContainerStyle="{StaticResource InboxItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="置頂老師聊天室"/>
       <Button x:Name="SetTeacherButton" Content="＋ 加入老師" Click="AddTeacherClick" HorizontalAlignment="Left" Margin="0,0,0,12"/>
-      <TextBlock x:Name="InboxCount" Text="同學 · 載入中…" Foreground="#596B80" FontSize="12" Margin="0,0,0,4"/>
-      <TextBox x:Name="InboxSearch" TextChanged="InboxSearchChanged" AutomationProperties.Name="搜尋綽號、完整 IP 或 IP 尾碼" ToolTip="姓名、學號、完整 IP 或 IP 尾碼" Margin="0,0,0,8"/>
-      <ComboBox x:Name="InboxFilter" SelectedIndex="0" SelectionChanged="InboxFilterChanged" AutomationProperties.Name="名單篩選"><ComboBoxItem Content="全部"/><ComboBoxItem Content="未讀"/></ComboBox>
-     </StackPanel>
-     <StackPanel DockPanel.Dock="Bottom" Margin="16,12">
+      <Button x:Name="TeacherFilesButton" Content="▤  老師檔案" Click="TeacherFilesClick" HorizontalContentAlignment="Left" Background="#FAFBFD" Foreground="#536781" Margin="0,6,0,14" Padding="12,8" AutomationProperties.Name="老師檔案"/>
+      <Grid><TextBox x:Name="InboxSearch" TextChanged="InboxSearchChanged" AutomationProperties.Name="搜尋 IP 或綽號" ToolTip="搜尋 IP 或本機綽號" Margin="0,0,0,8"/><TextBlock x:Name="InboxSearchHint" Text="搜尋 IP 或綽號" Foreground="#8A96A7" FontSize="12" Margin="10,7,0,0" IsHitTestVisible="False"/></Grid>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="InboxCount" Text="同學" Foreground="#69778A" FontSize="12" VerticalAlignment="Center"/><StackPanel Grid.Column="1" Orientation="Horizontal"><Button x:Name="FilterAllButton" Content="全部" Click="FilterAllClick" Padding="8,3" FontSize="12" Margin="0,0,4,0"/><Button x:Name="FilterUnreadButton" Content="未讀" Click="FilterUnreadClick" Padding="8,3" FontSize="12"/></StackPanel></Grid>
+      <ComboBox x:Name="InboxFilter" SelectedIndex="0" Visibility="Collapsed" SelectionChanged="InboxFilterChanged" AutomationProperties.Name="名單篩選"><ComboBoxItem Content="全部"/><ComboBoxItem Content="未讀"/></ComboBox>
+     </StackPanel></ScrollViewer>
+     <StackPanel x:Name="SidebarFooter" DockPanel.Dock="Bottom" Margin="16,12">
       <WrapPanel VerticalAlignment="Center">
-       <Button Content="＋ 加入好友" Click="AddRosterClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,8,8"/>
+       <Button Content="＋ 新增對象" Click="AddRosterClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,8,8"/>
        <Button Content="設定" Click="OpenSettingsClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,0,8"/>
       </WrapPanel>
-      <TextBlock x:Name="IdentityStatus" Text="教室區域網路・依名單 IP" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
+      <TextBlock x:Name="NicknameHint" Text="右鍵可設定本機綽號" Foreground="#69778A" FontSize="11" Margin="0,4"/>
+      <TextBlock x:Name="IdentityStatus" Visibility="Collapsed" Text="教室區域網路・依名單 IP" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
      </StackPanel>
      <Grid><ListBox x:Name="InboxList" BorderThickness="0" SelectionChanged="InboxSelectionChanged" ItemContainerStyle="{StaticResource InboxItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
       <ListBox.ItemTemplate><DataTemplate><Grid AutomationProperties.Name="{Binding AccessibleLabel}"><Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-       <Grid Width="36" Height="36" VerticalAlignment="Top" Margin="0,2,0,0"><Image Source="{Binding Avatar}" Width="36" Height="36" RenderOptions.BitmapScalingMode="HighQuality"/><Ellipse Width="12" Height="12" HorizontalAlignment="Right" VerticalAlignment="Bottom" Fill="{Binding DotFill}" Stroke="{Binding DotStroke}" StrokeThickness="2" StrokeDashArray="{Binding DotDash}"/></Grid>
-       <StackPanel Grid.Column="1" Margin="8,0,4,0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Student}" Foreground="#596B80" FontSize="12"/><TextBlock Text="{Binding State}" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/><TextBlock Text="{Binding Draft}" Foreground="#916015" FontSize="12"/></StackPanel>
+       <Grid Width="36" Height="36" VerticalAlignment="Top" Margin="0,2,0,0"><Image Source="{Binding Avatar}" Width="36" Height="36" RenderOptions.BitmapScalingMode="HighQuality"/><Ellipse Visibility="Collapsed" Width="12" Height="12" HorizontalAlignment="Right" VerticalAlignment="Bottom" Fill="{Binding DotFill}" Stroke="{Binding DotStroke}" StrokeThickness="2" StrokeDashArray="{Binding DotDash}"/></Grid>
+       <StackPanel Grid.Column="1" Margin="8,0,4,0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Secondary}" Foreground="#596B80" FontSize="12" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Draft}" Foreground="#916015" FontSize="12"/></StackPanel>
        <Border Grid.Column="2" Background="#2859C5" CornerRadius="10" VerticalAlignment="Top" Padding="6,0" Visibility="{Binding BadgeVisibility}"><TextBlock Text="{Binding Badge}" Foreground="White" FontSize="12"/></Border>
       </Grid></DataTemplate></ListBox.ItemTemplate>
      </ListBox><StackPanel x:Name="InboxEmptyPanel" Margin="16" Visibility="Collapsed"><TextBlock x:Name="InboxEmpty" Text="尚無同學，按「加入好友」輸入對方 IP。" TextWrapping="Wrap" Foreground="#596B80" Margin="0,0,0,12"/><Button x:Name="AddFirstContactButton" Style="{StaticResource PrimaryButton}" Content="＋ 點此新增第一個聊天對象" Click="AddRosterClick" HorizontalAlignment="Left"/></StackPanel></Grid>
@@ -208,14 +210,15 @@
    </Border>
    <Grid x:Name="ConversationPane" Grid.Column="1" AllowDrop="True" PreviewDragOver="ComposerDragOver" PreviewDragLeave="ComposerDragLeave" PreviewDrop="ComposerDrop">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <Border BorderBrush="#DCE3EC" BorderThickness="0,0,0,1" Padding="16,12"><DockPanel>
+    <Border BorderBrush="#DCE3EC" BorderThickness="0,0,0,1" Padding="22,14"><DockPanel>
      <Button x:Name="BackToInbox" Content="← 返回名單" Click="BackToInboxClick" DockPanel.Dock="Left" Margin="0,0,12,0" Visibility="Collapsed"/>
-     <Button x:Name="CompactActions" Content="功能" Click="CompactActionsClick" DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Top" Visibility="Collapsed"/>
-     <Button x:Name="ClearConversationButton" Content="清除對話…" Click="ClearConversationClick" DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Top"/>
+     <Button x:Name="CompactActions" Content="課堂反應" Click="CompactActionsClick" DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Top" Visibility="Collapsed"/>
+     <Button x:Name="ConversationMenuButton" Content="⋯" Click="ConversationMenuClick" DockPanel.Dock="Right" Width="36" Height="32" Padding="4" FontSize="20" BorderThickness="0" AutomationProperties.Name="對話選單"/>
+     <Button x:Name="ClearConversationButton" Content="清除對話…" Visibility="Collapsed" Click="ClearConversationClick"/>
      <StackPanel><TextBlock x:Name="ConversationTitle" Text="選擇一位同學" FontSize="16" FontWeight="Bold" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="ConversationMeta" Text="對話紀錄保存在本機" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/></StackPanel>
     </DockPanel></Border>
     <Border x:Name="TrustBanner" Grid.Row="1" Background="#FFF8E8" Padding="16,6" Visibility="Collapsed"><TextBlock x:Name="TrustBannerText" Text="含舊版訊息；舊版確認不代表對方已儲存或已讀。" Foreground="#916015" FontSize="12" TextWrapping="Wrap"/></Border>
-    <Grid Grid.Row="2"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid x:Name="ChatHistoryPanel" Grid.Row="2"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <Button x:Name="OlderMessages" Content="載入更早訊息" Click="OlderMessagesClick" HorizontalAlignment="Center" Margin="8" Visibility="Collapsed"/>
      <local:MessageHistoryView x:Name="History" Grid.Row="1" BorderThickness="0" Padding="16,8" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" VirtualizingPanel.ScrollUnit="Pixel" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" ScrollViewer.ScrollChanged="HistoryScrolled">
       <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Focusable" Value="False"/></Style></ListBox.ItemContainerStyle>
@@ -224,31 +227,43 @@
      <TextBlock x:Name="HistoryState" Grid.Row="1" Text="尚未選擇對象" Foreground="#596B80" TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
      <Button x:Name="NewMessages" Grid.Row="2" Content="有新訊息，移到最新" Click="NewMessagesClick" HorizontalAlignment="Center" Visibility="Collapsed" Margin="8"/>
     </Grid>
-    <Border Grid.Row="3" BorderBrush="#DCE3EC" BorderThickness="0,1,0,0" Padding="16,12"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><ScrollViewer x:Name="ComposerToolsScroll" Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="170"><StackPanel>
-     <WrapPanel x:Name="TeacherReactions" Margin="0,0,0,8"><TextBlock Text="傳給老師：" VerticalAlignment="Center" FontSize="12" Foreground="#596B80"/><Button Style="{StaticResource PillButton}" Content="講太快了" Tag="too-fast" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Style="{StaticResource PillButton}" Content="跟不上" Tag="cant-keep-up" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Style="{StaticResource PillButton}" Content="聽不懂" Tag="dont-understand" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Style="{StaticResource PillButton}" Content="再講一次" Tag="say-again" Click="ReactionSendClick" Margin="0,0,8,4"/></WrapPanel><WrapPanel x:Name="PeerReactions" Margin="0,0,0,8"><TextBlock Text="傳給目前對象：" VerticalAlignment="Center" FontSize="12" Foreground="#596B80"/><Button x:Name="ScrollReaction" Style="{StaticResource PillButton}" Content="你再給我滑！" Tag="stop-scrolling" Click="ReactionSendClick" Margin="0,0,0,4"/></WrapPanel>
-     <Border x:Name="AttemptBanner" Background="#FFF8E8" BorderBrush="#ECD9A8" BorderThickness="1" CornerRadius="4" Padding="12,8" Margin="0,0,0,8" Visibility="Collapsed"><StackPanel><TextBlock x:Name="AttemptText" Foreground="#916015" TextWrapping="Wrap"/><WrapPanel Margin="0,6,0,0"><Button x:Name="RetryAttempt" Content="重送（沿用原 id）" Click="RetryAttemptClick" Margin="0,0,8,0"/><Button x:Name="CancelAttemptButton" Content="取消當次" Click="CancelAttemptClick"/></WrapPanel></StackPanel></Border>
+    <Grid x:Name="TeacherFilesPane" Grid.Row="1" Grid.RowSpan="3" Background="#FCFDFF" Visibility="Collapsed" Margin="20,16">
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+     <TextBlock Text="老師分享的教材與附件，集中在這裡。" FontSize="12" Foreground="#69778A" Margin="0,0,0,16"/>
+     <ListBox x:Name="TeacherFilesList" Grid.Row="1" BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" VirtualizingStackPanel.IsVirtualizing="True" AutomationProperties.Name="老師檔案清單">
+      <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Focusable" Value="False"/></Style></ListBox.ItemContainerStyle>
+      <ListBox.ItemTemplate><DataTemplate><local:TeacherFileCard File="{Binding}"/></DataTemplate></ListBox.ItemTemplate>
+     </ListBox>
+     <TextBlock x:Name="TeacherFilesState" Grid.Row="1" Text="載入老師檔案中…" Foreground="#69778A" TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+     <Button x:Name="MoreTeacherFilesButton" Grid.Row="2" Content="載入更多檔案" Click="MoreTeacherFilesClick" Visibility="Collapsed" HorizontalAlignment="Center" Margin="0,12,0,0"/>
+    </Grid>
+    <Border x:Name="ComposerPanel" Grid.Row="3" BorderBrush="#DCE3EC" BorderThickness="0,1,0,0" Padding="16,12"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><ScrollViewer x:Name="ComposerToolsScroll" Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="170"><StackPanel>
+     <WrapPanel x:Name="TeacherReactions" Margin="0,0,0,8"><TextBlock Text="課堂反應" VerticalAlignment="Center" FontSize="12" Foreground="#596B80"/><Button Style="{StaticResource PillButton}" Content="講太快了" Tag="too-fast" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Style="{StaticResource PillButton}" Content="跟不上" Tag="cant-keep-up" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Style="{StaticResource PillButton}" Content="聽不懂" Tag="dont-understand" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Style="{StaticResource PillButton}" Content="再講一次" Tag="say-again" Click="ReactionSendClick" Margin="0,0,8,4"/></WrapPanel><WrapPanel x:Name="PeerReactions" Margin="0,0,0,8"><TextBlock Text="傳給目前對象：" VerticalAlignment="Center" FontSize="12" Foreground="#596B80"/><Button x:Name="ScrollReaction" Style="{StaticResource PillButton}" Content="你再給我滑！" Tag="stop-scrolling" Click="ReactionSendClick" Margin="0,0,0,4"/></WrapPanel>
+     <Border x:Name="AttemptBanner" Background="#FFF8E8" BorderBrush="#ECD9A8" BorderThickness="1" CornerRadius="4" Padding="12,8" Margin="0,0,0,8" Visibility="Collapsed"><StackPanel><TextBlock x:Name="AttemptText" Foreground="#916015" TextWrapping="Wrap"/><WrapPanel Margin="0,6,0,0"><Button x:Name="RetryAttempt" Content="重試傳送" Click="RetryAttemptClick" Margin="0,0,8,0"/><Button x:Name="CancelAttemptButton" Content="取消當次" Click="CancelAttemptClick"/></WrapPanel></StackPanel></Border>
      </StackPanel></ScrollViewer>
      <Border x:Name="ComposerBorder" Grid.Row="1" BorderBrush="#DCE3EC" BorderThickness="1" CornerRadius="8" Padding="8" AllowDrop="True" PreviewDragOver="ComposerDragOver" PreviewDragLeave="ComposerDragLeave" PreviewDrop="ComposerDrop"><Grid x:Name="ComposerBox"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition x:Name="CodeToolbarRow" Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
       <Border x:Name="AttachmentDraftPanel" Grid.Row="0" Grid.ColumnSpan="2" Visibility="Collapsed" Background="#F1F5FA" CornerRadius="6" Padding="8" Margin="0,0,0,8"><DockPanel LastChildFill="True"><Button x:Name="RemoveAttachmentButton" DockPanel.Dock="Right" Content="移除" Click="RemoveAttachmentClick" Margin="8,0,0,0"/><Image x:Name="AttachmentDraftImage" DockPanel.Dock="Left" Width="48" Height="42" Stretch="Uniform" Margin="0,0,8,0"/><TextBlock x:Name="AttachmentDraftText" MaxHeight="44" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.Name="待傳附件"/></DockPanel></Border>
       <TextBox x:Name="Draft" Grid.Row="1" Grid.ColumnSpan="2" AcceptsReturn="True" Height="72" MaxHeight="120" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" Padding="4" PreviewKeyDown="DraftPreviewKeyDown" TextChanged="DraftEdited" AutomationProperties.Name="訊息草稿" AllowDrop="True" PreviewDragOver="ComposerDragOver" PreviewDragLeave="ComposerDragLeave" PreviewDrop="ComposerDrop"/>
+      <TextBlock x:Name="DraftPlaceholder" Grid.Row="1" Grid.ColumnSpan="2" Text="輸入訊息…" Foreground="#8A96A7" FontSize="13" Margin="5,5,0,0" IsHitTestVisible="False"/>
       <Button x:Name="SendButton" Style="{StaticResource PrimaryButton}" Grid.Row="2" Grid.Column="1" Content="傳送" Click="SendClick" Margin="8,8,0,0"/>
       <WrapPanel x:Name="CodeToolbar" Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" VerticalAlignment="Center">
-       <Button x:Name="AttachFileButton" Style="{StaticResource CircleIconButton}" ToolTip="附加檔案或相片" Click="AttachFileClick" Margin="0,0,8,0">
+       <Button x:Name="AttachFileButton" Style="{StaticResource CircleIconButton}" ToolTip="附加檔案或相片 · 每則 1 個，最多 25 MiB" AutomationProperties.Name="附加檔案或相片" Width="32" Height="32" Background="Transparent" Click="AttachFileClick" Margin="0,0,8,0">
         <Path Data="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" Stroke="#4B5563" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
        </Button>
-       <Button x:Name="InsertCodeButton" Content="插入程式碼" Click="InsertCodeClick" Height="26" MinHeight="26" Padding="8,2" FontSize="12" VerticalContentAlignment="Center" Margin="0,0,6,0"/>
-       <ComboBox x:Name="CodeLanguage" Style="{StaticResource CompactComboBox}" ItemContainerStyle="{StaticResource CompactComboBoxItem}" SelectedIndex="0" Width="82" Height="26" FontSize="12" VerticalContentAlignment="Center" AutomationProperties.Name="程式碼語言"><ComboBoxItem Content="Python" Tag="python"/><ComboBoxItem Content="C#" Tag="csharp"/><ComboBoxItem Content="JavaScript" Tag="javascript"/><ComboBoxItem Content="純文字" Tag="text"/></ComboBox>
+       <Button x:Name="InsertCodeButton" Content="程式碼" Click="OpenCodeEditorClick" Height="26" MinHeight="26" Padding="8,2" FontSize="12" VerticalContentAlignment="Center" Margin="0,0,6,0"/>
+       <Button x:Name="StickerButton" Content="貼圖" Click="StickerClick" BorderThickness="0" FontSize="12" Padding="8,4" Margin="4,0,0,0" AutomationProperties.Name="貼圖"/>
+       <ComboBox x:Name="CodeLanguage" Visibility="Collapsed" Style="{StaticResource CompactComboBox}" ItemContainerStyle="{StaticResource CompactComboBoxItem}" SelectedIndex="0" Width="82" Height="26" FontSize="12" VerticalContentAlignment="Center" AutomationProperties.Name="程式碼語言"><ComboBoxItem Content="Python" Tag="python"/><ComboBoxItem Content="C#" Tag="csharp"/><ComboBoxItem Content="JavaScript" Tag="javascript"/><ComboBoxItem Content="純文字" Tag="text"/></ComboBox>
       </WrapPanel>
      </Grid></Border>
      <TextBlock Grid.Row="2" x:Name="DraftStatus" Text="Enter 傳送 · Shift＋Enter 換行" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
     </Grid></Border>
    </Grid>
   </Grid>
-  <Border Grid.Row="1" BorderBrush="#DCE3EC" BorderThickness="0,1,0,0" Padding="16,6"><ScrollViewer MaxHeight="76" VerticalScrollBarVisibility="Auto"><StackPanel><TextBlock x:Name="SettingsSaveStatus" Foreground="#B43E3E" TextWrapping="Wrap" FontSize="12" Visibility="Collapsed"/><TextBlock x:Name="StorageStatus" Foreground="#B43E3E" TextWrapping="Wrap" FontSize="12"/><TextBlock x:Name="ReceiverStatus" Text="接收服務啟動中…" Foreground="#596B80" TextWrapping="Wrap" FontSize="12"/><TextBlock x:Name="Status" Text="載入本機資料中…" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/><Button x:Name="ReloadData" Content="重新讀取" Click="ReloadDataClick" HorizontalAlignment="Left" Visibility="Collapsed"/></StackPanel></ScrollViewer></Border>
+  <Border Grid.Row="1" BorderBrush="#DCE3EC" BorderThickness="0,1,0,0" Padding="16,6"><ScrollViewer MaxHeight="76" VerticalScrollBarVisibility="Auto"><StackPanel><TextBlock x:Name="SettingsSaveStatus" Foreground="#B43E3E" TextWrapping="Wrap" FontSize="12" Visibility="Collapsed"/><TextBlock x:Name="StorageStatus" Foreground="#B43E3E" TextWrapping="Wrap" FontSize="12"/><TextBlock x:Name="ReceiverStatus" Text="接收服務啟動中…" Foreground="#596B80" TextWrapping="Wrap" FontSize="12"/><TextBlock x:Name="Status" Text="" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/><Button x:Name="ReloadData" Content="重新讀取" Click="ReloadDataClick" HorizontalAlignment="Left" Visibility="Collapsed"/></StackPanel></ScrollViewer></Border>
   <Border x:Name="SettingsPane" Grid.RowSpan="2" Background="#F3F6FA" BorderBrush="#DCE3EC" BorderThickness="1" Margin="16" Padding="16" Visibility="Collapsed">
    <DockPanel><Button Content="完成" Click="CloseSettingsClick" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,12,0,0"/>
     <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="ChatLayout">
-     <TextBlock Text="名單與設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,16"/>
+     <TextBlock Text="設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,16"/>
      <TextBlock x:Name="MyDirectIP" Text="我的 IP：偵測中…" TextWrapping="Wrap"/><Button x:Name="CopyMyIPButton" Content="複製我的 IP" Click="CopyMyIPClick" HorizontalAlignment="Left" Margin="0,8"/>
      <CheckBox x:Name="AutoStartCheck" Content="開機啟動" Checked="AutoStartChecked" Unchecked="AutoStartUnchecked" Margin="0,8,0,16"/>
      <StackPanel x:Name="ArchivedIdentityPanel" Visibility="Collapsed">
@@ -259,6 +274,7 @@
      <WrapPanel><Button x:Name="OpenPairingButton" Content="核對與綁定…" Click="OpenPairingClick" IsEnabled="False" Margin="0,0,8,8"/><Button x:Name="UnlinkPeerButton" Content="解除名單綁定…" Click="UnlinkPeerClick" IsEnabled="False" Margin="0,0,8,8"/><Button x:Name="RevokePeerButton" Content="撤銷這個身分…" Click="RevokePeerClick" IsEnabled="False" Margin="0,0,8,8"/><Button x:Name="ResetPeerButton" Content="允許重新核對…" Click="ResetPeerClick" IsEnabled="False" Margin="0,0,0,8"/></WrapPanel>
      <TextBlock Text="解除綁定會保留對話與身分信任；撤銷影響所有綁定同一身分的名單。允許重新核對不會直接完成配對。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,20"/>
      </StackPanel>
+     <StackPanel x:Name="ContactSettingsPanel" Visibility="Collapsed">
      <TextBlock x:Name="ManualRosterTitle" Text="手動新增同學" FontWeight="Bold"/>
      <StackPanel Visibility="Collapsed"><TextBox x:Name="ContactName" AutomationProperties.Name="同學姓名"/>
      <TextBlock Text="學號（可留白）" Margin="0,8,0,4"/><TextBox x:Name="StudentNumberBox" AutomationProperties.Name="學號"/>
@@ -269,6 +285,7 @@
       <Button x:Name="DeleteContactButton" Content="移除此名單標籤" Click="DeleteRosterClick" HorizontalAlignment="Left" Margin="8,0,0,0" IsEnabled="False"/>
       <TextBlock x:Name="SaveContactFeedback" Foreground="DarkGreen" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0,0,0"/>
      </WrapPanel>
+     </StackPanel>
      <ComboBox x:Name="ContactsCombo" SelectionChanged="ContactsComboChanged" Visibility="Collapsed"/>
      <StackPanel Visibility="Collapsed">
      <TextBlock Text="課堂反應" FontWeight="Bold" Margin="0,20,0,8"/><TextBlock Text="老師 IP"/><TextBox x:Name="TeacherIpBox" AutomationProperties.Name="老師 IP"/>

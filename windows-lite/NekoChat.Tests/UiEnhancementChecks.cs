@@ -37,7 +37,7 @@ public static class UiEnhancementChecks
         Check(xaml.Contains("TargetType=\"ComboBoxItem\""), "Custom modern ComboBoxItem style is defined");
 
         // Verify the approved sidebar actions; roster import is intentionally absent.
-        Check(xaml.Contains("Content=\"＋ 加入好友\" Click=\"AddRosterClick\" Height=\"30\""), "加入好友 button keeps Height 30");
+        Check(xaml.Contains("Content=\"＋ 新增對象\" Click=\"AddRosterClick\" Height=\"30\""), "新增對象 button keeps Height 30");
         Check(!xaml.Contains("Click=\"ImportRosterClick\""), "approved sidebar has no roster import action");
         Check(xaml.Contains("Content=\"設定\" Click=\"OpenSettingsClick\" Height=\"30\""), "設定 button has Height 30");
 

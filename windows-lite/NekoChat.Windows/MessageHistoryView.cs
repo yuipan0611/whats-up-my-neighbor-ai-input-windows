@@ -27,6 +27,10 @@ internal sealed class MessageView(string key, string rawText, bool outgoing, boo
     public int AttachmentProgress { get => _progress; set { _progress = value; PropertyChanged?.Invoke(this, new(nameof(AttachmentProgress))); } }
     public string? AttachmentPath { get; set; }
     public Func<AttachmentRecord, string, Task>? AttachmentAction { get; set; }
+    public string? AttemptId { get; init; }
+    public bool AttemptFailed { get; init; }
+    public Func<Task>? RetrySend { get; init; }
+    public Func<Task>? CancelSend { get; init; }
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -51,7 +55,7 @@ public sealed class MessageCard : UserControl
         if (_observed is not null) { _observed.PropertyChanged += MessageUpdated; Build(_observed); }
     }
     private void MessageUpdated(object? sender, PropertyChangedEventArgs e)
-    { if (sender is MessageView message && e.PropertyName is nameof(MessageView.Attachment) or nameof(MessageView.AttachmentProgress)) Build(message); }
+    { if (sender is MessageView message && e.PropertyName is nameof(MessageView.Attachment) or nameof(MessageView.AttachmentProgress) or nameof(MessageView.Delivery)) Build(message); }
     private void Build(MessageView message)
     {
         var body = new StackPanel();
@@ -203,13 +207,23 @@ public sealed class MessageCard : UserControl
         {
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brush("#596B80"),
+            Foreground = Brush(message.AttemptFailed ? "#B53737" : "#596B80"),
             Margin = new(0, 4, 0, 0),
             HorizontalAlignment = message.Outgoing ? HorizontalAlignment.Right : HorizontalAlignment.Left
         };
         string prefix = DateTimeOffset.TryParse(message.Utc, out var utc) ? utc.ToLocalTime().ToString("HH:mm") + " · " : "";
         metadata.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(MessageView.Delivery)) { Source = message, StringFormat = prefix + "{0}" });
         body.Children.Add(metadata);
+        if (message.AttemptId is not null)
+        {
+            var actions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0,4,0,0) };
+            var retry = new Button { Content = "重試傳送", IsEnabled = message.RetrySend is not null, FontSize = 12, Margin = new(0,0,8,0),
+                ToolTip = message.RetrySend is null ? "等待目前傳送完成；若已修改草稿，請先還原原文再重試。" : "重試這則訊息，不會重複建立新的訊息" };
+            retry.Click += async (_,_) => { if (message.RetrySend is { } invoke) await invoke(); }; actions.Children.Add(retry);
+            if (message.CancelSend is { } cancel)
+            { var button = new Button { Content = "取消當次", FontSize = 12 }; button.Click += async (_,_) => await cancel(); actions.Children.Add(button); }
+            body.Children.Add(actions);
+        }
 
         var card = new Border
         {

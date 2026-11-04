@@ -36,9 +36,9 @@ public partial class ChatWindow
         panel.Children.Add(input); panel.Children.Add(error);
         var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 12, 0, 0) };
         var cancel = new Button { Content = "取消", IsCancel = true, Margin = new(0, 0, 8, 0) };
-        var save = new Button { Content = teacher ? "加入老師" : "加入好友", IsDefault = true };
+        var save = new Button { Content = teacher ? "加入老師" : "新增對象", IsDefault = true };
         buttons.Children.Add(cancel); buttons.Children.Add(save); panel.Children.Add(buttons);
-        var dialog = new Window { Owner = this, Title = teacher ? "加入老師" : "加入好友", Width = 340,
+        var dialog = new Window { Owner = this, Title = teacher ? "加入老師" : "新增對象", Width = 340,
             SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = panel };
         string? addedIp = null; bool busy = false;
@@ -75,8 +75,9 @@ public partial class ChatWindow
             var rows = await _runtime.Worker.Run(s => s.GetRosterSnapshot());
             var entry = rows.FirstOrDefault(r => r.Entry.Id == id)?.Entry;
             if (entry is null) { SetStatus("這位好友已移除。"); return; }
-            var input = new TextBox { Text = entry.DisplayName, MaxLength = 100, Margin = new(0, 8, 0, 12) };
+            var input = new TextBox { Text = entry.DisplayName, MaxLength = 64, Margin = new(0, 8, 0, 12) };
             var panel = new StackPanel { Margin = new(20) };
+            System.Windows.Automation.AutomationProperties.SetName(input, "本機綽號");
             panel.Children.Add(new TextBlock { Text = "綽號只保存在這台電腦", TextWrapping = TextWrapping.Wrap }); panel.Children.Add(input);
             var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
             var cancel = new Button { Content = "取消", IsCancel = true, Margin = new(0,0,8,0) };

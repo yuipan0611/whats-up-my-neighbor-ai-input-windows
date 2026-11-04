@@ -12,7 +12,7 @@ namespace NekoChat.Windows;
 public partial class ChatWindow
 {
     internal void ShowAttachmentProgress(long sequence, long done, long total)
-    { var row = History.Rows.FirstOrDefault(r => r.Key == "cr:" + sequence); if (row is not null) row.AttachmentProgress = total == 0 ? 100 : (int)(done * 100 / total); }
+    { foreach (var file in _teacherFiles.Where(x => x.Entry.Attachment.LocalSeq == sequence)) file.Progress = total == 0 ? 100 : (int)(done * 100 / total); var row = History.Rows.FirstOrDefault(r => r.Key == "cr:" + sequence); if (row is not null) row.AttachmentProgress = total == 0 ? 100 : (int)(done * 100 / total); }
     private AttachmentDraft? _attachmentDraft;
     private bool _attachmentBusy;
     private long _attachmentLoad;
