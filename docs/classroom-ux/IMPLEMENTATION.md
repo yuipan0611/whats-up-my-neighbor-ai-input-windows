@@ -40,3 +40,6 @@
 2026-11-05 使用者確認移除匯入按鈕後的旁邊預覽，授權套用 Windows 版。此輪只調整原生介面及提示，保留班級包初次自動載入、老師置頂、依聊天室傳貼圖和本機綽號。測試候選標示 `0.1.0-beta.9-classroom-ux.2.local`。原生 Windows／DPI／雙機驗收仍未執行，不把先前 HTML 預覽或交叉建置列為原生通過證據。
 
 本輪驗證：修改前 Inbox workspace 25 項、修改後 UX 26 項＋classroom-all 15 套通過（含附件 69 項）；win-x64 self-contained publish 成功。首次 publish 的 MSBuild 子節點異常退出（MSB4166），原 log `approved-publish.log` 保留；以單節點、停用節點重用再執行成功，見 `approved-publish-retry.log`。未改 schema／wire／動畫資產，沒有執行原生 Windows 驗收。
+
+
+使用者回報 ca9fad3 原生啟動失敗後，已另做 [connectionId 修正](STARTUP-FIX.md)，請測試 UI-3。原啟動失敗未以交叉建置結果掩蓋。

@@ -171,7 +171,6 @@
    </Setter>
   </Style>
   <Style x:Key="InboxItem" TargetType="ListBoxItem">
-   <Setter Property="ContextMenu"><Setter.Value><ContextMenu><MenuItem Header="編輯綽號…" Click="RenameNicknameClick" CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType={x:Type ContextMenu}}}"/></ContextMenu></Setter.Value></Setter>
    <Setter Property="Padding" Value="0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="Transparent"/>
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="RowBackground" Background="{TemplateBinding Background}" Padding="16,8"><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="RowBackground" Property="Background" Value="#EDF2F8"/></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="RowBackground" Property="Background" Value="#E9EFFD"/></Trigger><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="RowBackground" Property="BorderBrush" Value="#2859C5"/><Setter TargetName="RowBackground" Property="BorderThickness" Value="2"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
   </Style>

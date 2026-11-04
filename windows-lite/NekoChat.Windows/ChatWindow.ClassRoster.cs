@@ -9,6 +9,22 @@ namespace NekoChat.Windows;
 
 public partial class ChatWindow
 {
+    private void NicknameMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (sender is not ListBox list) return;
+        var source = e.OriginalSource as DependencyObject;
+        var container = source is null ? null : ItemsControl.ContainerFromElement(list, source) as ListBoxItem;
+        if (container is null && e.CursorLeft < 0 && System.Windows.Input.Keyboard.FocusedElement is DependencyObject focused)
+            container = ItemsControl.ContainerFromElement(list, focused) as ListBoxItem;
+        if (container?.DataContext is not InboxRowView { Entry.RosterId: not null } row)
+        { e.Handled = true; return; }
+        var menu = list.ContextMenu;
+        menu.Items.Clear();
+        var rename = new MenuItem { Header = "編輯綽號…", CommandParameter = row };
+        rename.Click += RenameNicknameClick;
+        menu.Items.Add(rename);
+    }
+
     private async Task AddContactDialogAsync(bool teacher)
     {
         if (_runtime is not { } runtime) { SetStatus("本機資料尚未就緒，請先重新讀取。"); return; }

@@ -58,7 +58,12 @@ public partial class ChatWindow
 
     private void InitializeInbox()
     {
-        InboxList.ItemsSource = _inbox; TeachersList.ItemTemplate = InboxList.ItemTemplate; _initializedInbox = true;
+        InboxList.ItemsSource = _inbox; TeachersList.ItemTemplate = InboxList.ItemTemplate;
+        foreach (var list in new[] { InboxList, TeachersList })
+        {
+            list.ContextMenu = new ContextMenu();
+            list.ContextMenuOpening += NicknameMenuOpening;
+        } _initializedInbox = true;
         InitializeAttachments();
         InboxList.PreviewMouseLeftButtonUp += async (_, e) => {
             if (e.OriginalSource is DependencyObject source && ItemsControl.ContainerFromElement(InboxList, source) is ListBoxItem { DataContext: InboxRowView row } &&
