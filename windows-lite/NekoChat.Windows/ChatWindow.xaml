@@ -71,18 +71,80 @@
    <Setter Property="Background" Value="#EDF2F8"/>
    <Setter Property="BorderThickness" Value="0"/>
    <Setter Property="Cursor" Value="Hand"/>
-   <Setter Property="Width" Value="32"/>
-   <Setter Property="Height" Value="32"/>
-   <Setter Property="FontSize" Value="15"/>
+   <Setter Property="Width" Value="28"/>
+   <Setter Property="Height" Value="28"/>
    <Setter Property="Template">
     <Setter.Value>
      <ControlTemplate TargetType="Button">
-      <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="16" Width="{TemplateBinding Width}" Height="{TemplateBinding Height}" SnapsToDevicePixels="True">
+      <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="14" Width="{TemplateBinding Width}" Height="{TemplateBinding Height}" SnapsToDevicePixels="True">
        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
       </Border>
       <ControlTemplate.Triggers>
        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="border" Property="Background" Value="#DCE3EC"/></Trigger>
        <Trigger Property="IsPressed" Value="True"><Setter TargetName="border" Property="Background" Value="#CBD5E1"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+  </Style>
+  <Style TargetType="ComboBox">
+   <Setter Property="VerticalContentAlignment" Value="Center"/>
+   <Setter Property="HorizontalContentAlignment" Value="Left"/>
+   <Setter Property="Background" Value="White"/>
+   <Setter Property="BorderBrush" Value="#DCE3EC"/>
+   <Setter Property="BorderThickness" Value="1"/>
+   <Setter Property="Foreground" Value="#1C2C41"/>
+   <Setter Property="SnapsToDevicePixels" Value="True"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="ComboBox">
+      <Grid>
+       <ToggleButton x:Name="ToggleButton" Focusable="false" IsChecked="{Binding Path=IsDropDownOpen,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}" ClickMode="Press">
+        <ToggleButton.Template>
+         <ControlTemplate TargetType="ToggleButton">
+          <Border x:Name="border" Background="White" BorderBrush="#DCE3EC" BorderThickness="1" CornerRadius="6" SnapsToDevicePixels="True">
+           <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="20"/></Grid.ColumnDefinitions>
+            <Path x:Name="arrow" Grid.Column="1" Data="M0 0 L4 4 L8 0" Stroke="#596B80" StrokeThickness="1.5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+           </Grid>
+          </Border>
+          <ControlTemplate.Triggers>
+           <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="border" Property="BorderBrush" Value="#2859C5"/><Setter TargetName="border" Property="Background" Value="#F3F6FA"/></Trigger>
+           <Trigger Property="IsChecked" Value="True"><Setter TargetName="border" Property="BorderBrush" Value="#2859C5"/></Trigger>
+          </ControlTemplate.Triggers>
+         </ControlTemplate>
+        </ToggleButton.Template>
+       </ToggleButton>
+       <ContentPresenter Name="ContentSite" IsHitTestVisible="False" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" Margin="8,0,24,0" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+       <Popup Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+        <Border x:Name="DropDownBorder" Background="White" BorderBrush="#DCE3EC" BorderThickness="1" CornerRadius="6" Margin="0,2,0,0" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}" SnapsToDevicePixels="True">
+         <ScrollViewer Margin="2" SnapsToDevicePixels="True">
+          <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+         </ScrollViewer>
+        </Border>
+       </Popup>
+      </Grid>
+      <ControlTemplate.Triggers>
+       <Trigger Property="HasItems" Value="false"><Setter TargetName="DropDownBorder" Property="MinHeight" Value="95"/></Trigger>
+       <Trigger Property="IsEnabled" Value="false"><Setter Property="Opacity" Value="0.5"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+  </Style>
+  <Style TargetType="ComboBoxItem">
+   <Setter Property="Padding" Value="8,4"/>
+   <Setter Property="HorizontalContentAlignment" Value="Left"/>
+   <Setter Property="VerticalContentAlignment" Value="Center"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="ComboBoxItem">
+      <Border x:Name="Border" Padding="{TemplateBinding Padding}" Background="Transparent" CornerRadius="4" Margin="2,1" SnapsToDevicePixels="True">
+       <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Left"/>
+      </Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Border" Property="Background" Value="#EDF2F8"/><Setter Property="Foreground" Value="#2859C5"/></Trigger>
+       <Trigger Property="IsSelected" Value="True"><Setter TargetName="Border" Property="Background" Value="#E9EFFD"/><Setter Property="Foreground" Value="#2859C5"/></Trigger>
       </ControlTemplate.Triggers>
      </ControlTemplate>
     </Setter.Value>
@@ -128,7 +190,11 @@
       <ComboBox x:Name="InboxFilter" SelectedIndex="0" SelectionChanged="InboxFilterChanged" AutomationProperties.Name="名單篩選"><ComboBoxItem Content="全部"/><ComboBoxItem Content="未讀"/></ComboBox>
      </StackPanel>
      <StackPanel DockPanel.Dock="Bottom" Margin="16,12">
-      <WrapPanel><Button Content="新增同學" Click="AddRosterClick" Margin="0,0,8,8"/><Button Content="匯入 CSV" Click="ImportRosterClick" Margin="0,0,0,8"/><Button Content="設定" Click="OpenSettingsClick"/></WrapPanel>
+      <WrapPanel VerticalAlignment="Center">
+       <Button Content="新增同學" Click="AddRosterClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,8,8"/>
+       <Button Content="匯入 CSV" Click="ImportRosterClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,8,8"/>
+       <Button Content="設定" Click="OpenSettingsClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,0,8"/>
+      </WrapPanel>
       <TextBlock x:Name="IdentityStatus" Text="教室區域網路・依名單 IP" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
      </StackPanel>
      <Grid><ListBox x:Name="InboxList" BorderThickness="0" SelectionChanged="InboxSelectionChanged" ItemContainerStyle="{StaticResource InboxItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
@@ -166,9 +232,11 @@
       <TextBox x:Name="Draft" Grid.Row="0" Grid.ColumnSpan="2" AcceptsReturn="True" Height="72" MaxHeight="120" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" Padding="4" PreviewKeyDown="DraftPreviewKeyDown" TextChanged="DraftEdited" AutomationProperties.Name="訊息草稿" AllowDrop="True" PreviewDragOver="ComposerDragOver" PreviewDragLeave="ComposerDragLeave" PreviewDrop="ComposerDrop"/>
       <Button x:Name="SendButton" Style="{StaticResource PrimaryButton}" Grid.Row="1" Grid.Column="1" Content="傳送" Click="SendClick" Margin="8,8,0,0"/>
       <WrapPanel x:Name="CodeToolbar" Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" VerticalAlignment="Center">
-       <Button x:Name="AttachFileButton" Style="{StaticResource CircleIconButton}" Content="📎" ToolTip="附加檔案或相片" Click="AttachFileClick" Margin="0,0,8,0"/>
-       <Button Content="插入程式碼" Click="InsertCodeClick" Margin="0,0,8,0"/>
-       <ComboBox x:Name="CodeLanguage" SelectedIndex="0" Width="88" AutomationProperties.Name="程式碼語言"><ComboBoxItem Content="Python" Tag="python"/><ComboBoxItem Content="C#" Tag="csharp"/><ComboBoxItem Content="JavaScript" Tag="javascript"/><ComboBoxItem Content="純文字" Tag="text"/></ComboBox>
+       <Button x:Name="AttachFileButton" Style="{StaticResource CircleIconButton}" ToolTip="附加檔案或相片" Click="AttachFileClick" Margin="0,0,8,0">
+        <Path Data="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" Stroke="#4B5563" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+       </Button>
+       <Button x:Name="InsertCodeButton" Content="插入程式碼" Click="InsertCodeClick" Height="26" MinHeight="26" Padding="8,2" FontSize="12" VerticalContentAlignment="Center" Margin="0,0,6,0"/>
+       <ComboBox x:Name="CodeLanguage" SelectedIndex="0" Width="82" Height="26" FontSize="12" VerticalContentAlignment="Center" AutomationProperties.Name="程式碼語言"><ComboBoxItem Content="Python" Tag="python"/><ComboBoxItem Content="C#" Tag="csharp"/><ComboBoxItem Content="JavaScript" Tag="javascript"/><ComboBoxItem Content="純文字" Tag="text"/></ComboBox>
       </WrapPanel>
      </Grid></Border>
      <TextBlock Grid.Row="2" x:Name="DraftStatus" Text="Enter 傳送 · Shift＋Enter 換行" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
@@ -205,7 +273,7 @@
      <Button Content="記住老師" Click="SaveTeacherClick" HorizontalAlignment="Left" Margin="0,8"/><TextBlock x:Name="TeacherTarget" TextWrapping="Wrap"/><TextBlock x:Name="ScrollTarget" TextWrapping="Wrap" Margin="0,8"/>
      <TextBlock Text="提醒螢幕" Margin="0,8"/><ComboBox x:Name="ReactionDisplay" DisplayMemberPath="Label" SelectedValuePath="DeviceName" SelectionChanged="ReactionDisplayChanged" DropDownOpened="ReactionDisplayOpened" AutomationProperties.Name="提醒螢幕"/>
      <CheckBox x:Name="ReactionPreviewToggle" Content="允許桌面顯示課堂反應圖片（可能透露內容）" Click="ReactionPreviewToggleClick" Margin="0,12,0,4"/>
-     <CheckBox x:Name="ReadReceiptToggle" Content="傳送對外已讀回條（預設關閉）" Click="ReadReceiptToggleClick" Margin="0,20,0,4"/><TextBlock Text="本機看過才標已讀。關閉不影響本機未讀，未送出的回條會移除；已送出的回條無法撤回。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/>
+     <CheckBox x:Name="ReadReceiptToggle" IsChecked="True" Content="傳送對外已讀回條（預設開啟）" Click="ReadReceiptToggleClick" Margin="0,20,0,4"/><TextBlock Text="本機看過才標已讀。關閉不影響本機未讀，未送出的回條會移除；已送出的回條無法撤回。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/>
     </StackPanel></ScrollViewer>
    </DockPanel>
   </Border>

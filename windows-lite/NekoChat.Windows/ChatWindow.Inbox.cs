@@ -76,7 +76,13 @@ public partial class ChatWindow
     internal async Task AttachRuntimeAsync(ChatRuntime runtime, int peerPort)
     {
         _runtime = runtime; ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
-        var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy()); ReadReceiptToggle.IsChecked = policy.Enabled;
+        var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy());
+        if (!policy.Enabled && policy.Generation == 0)
+        {
+            var updated = await runtime.Worker.Run(s => s.SetReadReceiptPolicy(true));
+            policy = updated.Policy;
+        }
+        ReadReceiptToggle.IsChecked = policy.Enabled;
         if (runtime.Presence is { } presence) presence.StateChanged += PresenceChanged;
         await RefreshInboxAsync();
     }
@@ -366,6 +372,8 @@ public partial class ChatWindow
         var viewport = new Rect(0, 0, InboxList.ActualWidth, InboxList.ActualHeight);
         var rows = _inbox.Where(r => r.Entry.RosterId is not null && InboxList.ItemContainerGenerator.ContainerFromItem(r) is FrameworkElement c && c.IsVisible &&
             Rect.Intersect(viewport, c.TransformToAncestor(InboxList).TransformBounds(new Rect(c.RenderSize))) is { IsEmpty: false, Height: > 0 }).Select(r => r.Entry.RosterId!).ToArray();
+        if (rows.Length == 0)
+            rows = _inbox.Where(r => r.Entry.RosterId is not null).Select(r => r.Entry.RosterId!).ToArray();
         service.SetView(IsVisible && WindowState != WindowState.Minimized && SettingsPane.Visibility != Visibility.Visible, rows, _selected?.RosterId);
     }
     private void ShellSizeChanged(object sender, SizeChangedEventArgs e) { if (_initializedInbox) { UpdateShellLayout(); ViewChanged(); } }
