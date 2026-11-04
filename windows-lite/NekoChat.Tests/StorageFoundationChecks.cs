@@ -294,7 +294,7 @@ internal static class StorageFoundationChecks
             using (var connection = Connect(path, create: true))
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "PRAGMA journal_mode=WAL;" + Migration.ReadSchemaV1().Replace("\n", "\r\n", StringComparison.Ordinal);
+                command.CommandText = "PRAGMA journal_mode=WAL;" + Migration.ReadSchemaV1().Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\n", "\r\n", StringComparison.Ordinal);
                 command.Parameters.AddWithValue("@now", "2026-01-01T00:00:00.000Z"); command.Parameters.AddWithValue("@appVersion", "synthetic-windows-lines");
                 command.ExecuteNonQuery();
             }

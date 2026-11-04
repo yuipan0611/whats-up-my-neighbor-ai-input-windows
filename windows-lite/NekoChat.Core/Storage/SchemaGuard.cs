@@ -57,7 +57,7 @@ internal static class SchemaGuard
         using var reader = command.ExecuteReader();
         var result = new List<Definition>();
         while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2),
-            reader.IsDBNull(3) ? "" : reader.GetString(3).Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n')));
+            reader.IsDBNull(3) ? "" : reader.GetString(3).Replace("\r\r\n", "\n", StringComparison.Ordinal).Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n')));
         return result;
     }
 
