@@ -243,7 +243,6 @@ internal sealed class ChatRuntime : IAsyncDisposable
     }
     private static async Task<CancelResult> FinishCancellation(Task<bool>? cancellation, Task<CancelResult> stored)
     {
-        if (cancellation is not null) await Task.WhenAll(cancellation, stored).ConfigureAwait(false);
         return await stored.ConfigureAwait(false);
     }
     private async Task<T> Finish<T>(Task<T> task)
