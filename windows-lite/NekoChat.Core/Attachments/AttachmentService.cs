@@ -18,6 +18,10 @@ public sealed class AttachmentService : IAsyncDisposable
     private readonly Dictionary<long, (CancellationTokenSource Cancellation, Task Work)> _jobs = [];
     // One download and one serving lane: at most two binary transfers, with text slots reserved by the listener.
     private readonly SemaphoreSlim _download = new(1), _serve = new(1), _filesGate = new(1);
+    internal SemaphoreSlim DownloadLane => _download;
+    internal SemaphoreSlim ServeLane => _serve;
+    internal SemaphoreSlim FilesGate => _filesGate;
+    internal bool CacheClearing => _cacheClearing;
     private volatile bool _cacheClearing;
     private readonly CancellationTokenSource _lifetime = new();
     private Task? _disposal;
@@ -31,7 +35,7 @@ public sealed class AttachmentService : IAsyncDisposable
     public AttachmentService(ChatStore store, string root, int port, long capacity = AttachmentLimits.StorageBytes)
     {
         _store = store; Port = port; Vault = new(root, capacity);
-        _store.RecoverAttachments(); Vault.Collect(_store.AttachmentReferences());
+        _store.RecoverAttachments(); Vault.Collect(_store.AttachmentReferences().Concat(_store.ClassroomFileReferences()).ToHashSet());
         foreach (var row in _store.ListAttachments().Where(r => r.State == "complete" && !Vault.Exists(r.File)))
             _store.SetAttachmentState(row, "unavailable", "missing_file");
     }
@@ -216,7 +220,7 @@ public sealed class AttachmentService : IAsyncDisposable
             foreach (var token in tokens) SafeCancel(token);
             try { await Task.WhenAll(tasks).ConfigureAwait(false); } catch (Exception) { /* each job persisted its result */ }
             await _serve.WaitAsync().ConfigureAwait(false);
-            try { await Task.Run(() => { _store.ForgetAttachmentFiles(); Vault.Collect(_store.AttachmentDraftReferences()); }).ConfigureAwait(false); }
+            try { await Task.Run(() => { _store.ForgetAttachmentFiles(); _store.ForgetClassroomFileCaches(); Vault.Collect(_store.AttachmentDraftReferences().Concat(_store.ClassroomFileReferences()).ToHashSet()); }).ConfigureAwait(false); }
             finally { _serve.Release(); }
         }
         finally { _filesGate.Release(); lock (_gate) _cacheClearing = false; Notify(); }

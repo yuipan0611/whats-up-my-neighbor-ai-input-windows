@@ -28,12 +28,14 @@ if (args.SequenceEqual(new[] { "--classroom-inbox" })) { NekoChat.Tests.Classroo
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-ui-policy" })) { NekoChat.Tests.ClassroomSendUiPolicyChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--attachments" })) { await NekoChat.Tests.AttachmentChecks.RunAsync(); return; }
+if (args.SequenceEqual(new[] { "--classroom-files" })) { await NekoChat.Tests.ClassroomFileChecks.RunAsync(); return; }
 if (args.SequenceEqual(new[] { "--teacher-files" })) { NekoChat.Tests.TeacherFileChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-ux" })) { NekoChat.Tests.ClassroomUxChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-all" }))
 {
     NekoChat.Tests.ClassroomUxChecks.Run();
     NekoChat.Tests.TeacherFileChecks.Run();
+    await NekoChat.Tests.ClassroomFileChecks.RunAsync();
     Console.WriteLine("=== Running all classroom focused test suites (15 suites total) ===");
     try
     {
@@ -250,6 +252,7 @@ checks += NekoChat.Tests.MessageFormattingChecks.Run();
 checks += NekoChat.Tests.UiEnhancementChecks.Run();
 checks += NekoChat.Tests.RosterCsvChecks.Run();
 checks += NekoChat.Tests.RosterImportChecks.Run();
+checks += await NekoChat.Tests.ClassroomFileChecks.RunAsync();
 checks += NekoChat.Tests.StorageFoundationChecks.Run();
 checks += await NekoChat.Tests.StorageReceiveChecks.Run();
 checks += await NekoChat.Tests.StorageSendChecks.Run();

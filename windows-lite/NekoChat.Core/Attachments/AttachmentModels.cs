@@ -36,7 +36,7 @@ public sealed class AttachmentException(string code, Exception? inner = null) : 
 {
     public string Code { get; } = code;
     public static string Describe(Exception error) => error is AttachmentException attachment ? attachment.Code switch {
-        "too_large" => "單一附件不能超過 25 MB。", "storage_full" => "附件空間已滿，請清理本機附件後重試。",
+        "too_large" => "單一附件不能超過 25 MiB。", "catalog_full" => "課堂檔案目錄已達上限，無法新增分享。", "not_owner" => "只有分享者能撤下這份檔案。", "withdrawn" => "這份分享已撤下。", "storage_full" => "附件空間已滿，請清理本機附件後重試。",
         "unsupported_version" => "對方版本尚不支援附件，請先更新；草稿已保留。",
         "invalid_name" => "檔名含不支援的字元，請重新命名。", "hash_mismatch" => "檔案校驗失敗，請重新下載。",
         "source_changed" => "檔案在準備時改變，請重新選取。", "unavailable" => "對方離線或附件已不可用，請稍後重試。",

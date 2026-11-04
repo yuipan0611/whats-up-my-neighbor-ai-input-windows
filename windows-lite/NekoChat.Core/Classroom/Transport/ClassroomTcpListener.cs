@@ -182,7 +182,7 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
                 {
                     // Classification only selects a quota; the supplied codec still validates the entire head.
                     bool classroom = IsClassroomRequestLine(bytes.Span);
-                    bool attachment = NekoChat.Core.Attachments.AttachmentEndpoint.Operation(bytes.Span) is not null;
+                    bool attachment = NekoChat.Core.Attachments.AttachmentEndpoint.Operation(bytes.Span) is not null || NekoChat.Core.ClassroomFiles.ClassroomFileEndpoint.Operation(bytes.Span) is not null;
                     if (!(attachment ? _attachments : classroom ? _classroom : _legacy).Allow(connection.SourceIp)) return new("rate_limited");
                     return _endpoint.ValidateHead(bytes);
                 }, timeout.Token).ConfigureAwait(false);
@@ -192,7 +192,7 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
                 else
                 {
                     // Never WaitAsync(timeout) around storage work: a closed socket must not release its physical slot.
-                    bool attachment = frame.Frame!.Route.StartsWith("attachment.", StringComparison.Ordinal);
+                    bool attachment = (frame.Frame!.Route.StartsWith("attachment.", StringComparison.Ordinal) || frame.Frame.Route.StartsWith("classroom-files.", StringComparison.Ordinal));
                     bool admitted = true;
                     if (attachment) { attachmentSlot = Interlocked.Increment(ref _attachmentRequests) <= 2; if (!attachmentSlot) { Interlocked.Decrement(ref _attachmentRequests); admitted = false; } }
                     response = admitted ? await _endpoint.HandleAsync(frame.Frame!, connection, Current, timeout.Token).ConfigureAwait(false) : _endpoint.Error("rate_limited");
