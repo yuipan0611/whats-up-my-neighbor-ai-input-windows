@@ -1,6 +1,10 @@
 # NekoChat Windows Lite 本機交叉建置候選交付
 
-本批是本機交叉建置產物，供後續 Windows 驗收使用；未經 Authenticode 簽章、未執行安裝、未上傳且未公開發布。
+本批是 GitHub Actions 官方 CI 與本機交叉建置的驗證產物，正式發布於 GitHub Release：
+👉 **[NekoChat Lite v0.1.0-beta.9 正式發布頁面](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.9)**
+- 官方 CI 驗證綠勾：[Run 41834511796](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/runs/41834511796)（Windows & Relay 全數 PASS）
+- 來源 Commit：`ecbed3dd9b679b8569b44fda80243d8f352d8b1e`
+- 本機 Windows 11 VM 共享目錄：`worktrees/nekochat-lite-nwin-tom/build/vm-share/NekoChat-交付/Final-L-ecbed3d/`（VM 內為 `Y:\Final-L-ecbed3d`）
 
 ## 1. 交付產物
 
