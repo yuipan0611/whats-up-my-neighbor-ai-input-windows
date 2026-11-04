@@ -29,7 +29,7 @@ public sealed record AttachmentRecord(long LocalSeq, string Principal, string Di
         "sending" => "傳送附件通知中", "offered" => Direction == "outgoing" ? "通知已送出 · 等待收件確認" : "等待下載",
         "receiving" => "下載中", "complete" => Direction == "outgoing" ? "附件已送達" : "已接收",
         "cancelled" => "已取消；可手動重試", "unconfirmed" => "結果未確認；可手動重試",
-        "unavailable" => CompletedUtc is not null ? (Direction == "outgoing" ? "附件已送達 · 本機副本不可用" : "已接收 · 本機副本不可用") : "檔案不可用", _ => "失敗；可手動重試" };
+        "unavailable" => CompletedUtc is not null ? (Direction == "outgoing" ? "附件已送達 · 本機副本不可用" : "已接收 · 本機副本不可用") : "檔案不可用", _ => Problem switch { "storage_full" => "附件空間已滿，請清理後重試", "hash_mismatch" => "內容校驗失敗，請重新下載", "unsupported_version" => "對方版本不支援附件；草稿已保留", "unavailable" => "對方離線或附件不可用；可手動重試", _ => "失敗；可手動重試" } };
 }
 
 public sealed class AttachmentException(string code, Exception? inner = null) : IOException(code, inner)

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
@@ -14,6 +15,22 @@ namespace NekoChat.Tests;
 
 public static class AttachmentChecks
 {
+    public static async Task<bool> RunChildAsync(string[] args)
+    {
+        if (args.Length != 3 || args[0] != "--attachment-crash-child") return false;
+        string root = args[1], phase = args[2];
+        using var store = ChatStore.Open(new(Path.Combine(root,"data")));
+        var vault = new AttachmentVault(Path.Combine(root,"files"));
+        byte[] bytes = Encoding.UTF8.GetBytes("durable attachment bytes");
+        var wire = new AttachmentFile(Guid.NewGuid().ToString("N"),"child.txt",bytes.Length,Convert.ToHexStringLower(SHA256.HashData(bytes)));
+        var row = store.ReceiveAttachmentOffer("127.0.0.1",8768,Guid.NewGuid().ToString("D"),wire,"",AttachmentLimits.Token(),()=>true).Record!;
+        store.SetAttachmentState(row,"receiving");
+        await using (var part = vault.Reserve(row.File.BlobId,row.File.Size)) { await part.WriteAsync(bytes); part.Flush(true); }
+        if (phase is "renamed" or "committed") await vault.CommitAsync(row.File,default);
+        if (phase == "committed") store.SetAttachmentState(row,"complete");
+        File.WriteAllText(Path.Combine(root,"ready"),"ready");
+        await Task.Delay(Timeout.Infinite); return true;
+    }
     private sealed class Node : IAsyncDisposable
     {
         internal ChatStore Store { get; }
@@ -200,6 +217,21 @@ public static class AttachmentChecks
                 Check(store.GetAttachmentDraft(p)?.File.BlobId == blob && File.Exists(files.Vault.PathFor(blob)), "draft survives reopen");
                 long epoch = store.GetClassroomDraftState(p).Epoch; store.ClearClassroomConversation(p);
                 Check(!store.SaveAttachmentDraft(p, new(blob, "x.py", small.Length, Convert.ToHexStringLower(SHA256.HashData(small))), epoch), "stale staged save rejected after clear");
+            }
+            foreach(string phase in new[]{"part","renamed","committed"})
+            {
+                string childRoot=Path.Combine(root,"crash-"+phase); Directory.CreateDirectory(childRoot);
+                var info=new ProcessStartInfo(Environment.ProcessPath!){UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true};
+                if(Path.GetFileNameWithoutExtension(Environment.ProcessPath!)=="dotnet") info.ArgumentList.Add(typeof(AttachmentChecks).Assembly.Location);
+                info.ArgumentList.Add("--attachment-crash-child"); info.ArgumentList.Add(childRoot); info.ArgumentList.Add(phase);
+                using var child=Process.Start(info)!;
+                try { await Wait(()=>File.Exists(Path.Combine(childRoot,"ready"))); child.Kill(entireProcessTree:true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10)); }
+                finally { if(!child.HasExited) { child.Kill(entireProcessTree:true); await child.WaitForExitAsync(); } }
+                using var recovered=ChatStore.Open(new(Path.Combine(childRoot,"data")));
+                await using var files=new AttachmentService(recovered,Path.Combine(childRoot,"files"),8768);
+                var row=recovered.ListAttachments().Single();
+                Check(row.State==(phase=="committed"?"complete":"failed"),"forced termination "+phase+" restores honest state");
+                Check(!File.Exists(files.Vault.PathFor(row.File.BlobId)+".part") && files.Vault.Exists(row.File)==(phase!="part"),"forced termination "+phase+" preserves only atomically renamed bytes");
             }
             Console.WriteLine($"Attachments: {checks} checks passed (real TCP, SQLite, staged bytes and SHA-256). Native clipboard, WPF and two Windows devices: NOT RUN."); return checks;
         }
