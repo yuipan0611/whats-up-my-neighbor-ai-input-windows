@@ -190,7 +190,7 @@ public partial class ChatWindow
         if (_runtime is null) { _replyLookupPending = false; return; }
         try
         {
-            var snapshot = await _runtime.Worker.Run(s => s.GetInboxSnapshot()); if (request != _selectionRequest) return;
+            var snapshot = await _runtime.Worker.Run(s => _runtime.ArchivedIdentityFixture ? s.GetInboxSnapshot() : s.GetClassroomInboxSnapshot().ToInboxSnapshot()); if (request != _selectionRequest) return;
             _snapshot = snapshot; ApplyInboxFilter(); _replyLookupPending = false;
             if (Find(snapshot) is { } found) await SelectEntryAsync(found, true);
             else { _showInbox = true; UpdateShellLayout(); SetStatus("尚無這個來源的對話；請確認名單與來源後再選擇對象。"); }
@@ -280,7 +280,7 @@ public partial class ChatWindow
     }
     private async Task LoadHistoryAsync(bool older, bool reset)
     {
-        if (_runtime is null || _selected is not { } entry) return; long generation = Volatile.Read(ref _viewGeneration);
+        if (_runtime is null || _selected is not { } entry) return;
         if (reset) { HistoryState.Text = "載入對話中…"; HistoryState.Visibility = Visibility.Visible; }
         bool wasAtEnd = History.Items.Count == 0 || IsAtEnd();
         var oldScroll = FindVisual<ScrollViewer>(History); double oldOffset = oldScroll?.VerticalOffset ?? 0, oldExtent = oldScroll?.ExtentHeight ?? 0; long selection = _selectionRequest;
@@ -298,7 +298,7 @@ public partial class ChatWindow
                     Message: entry.ConversationId is { } conv && (!older || before is not null) ? s.ListMessages(conv, before) : null,
                     Legacy: entry.LegacyScope is { } legScope && (!older || legacyBefore is not null) ? s.ListLegacyMessages(legScope, legacyBefore) : null);
             });
-            if (_stopping || generation != Volatile.Read(ref _viewGeneration) || entry.Id != _selected?.Id) return;
+            if (_stopping || selection != _selectionRequest || entry.Id != _selected?.Id) return;
             if (reset) History.Rows.Clear();
             var peerAvatar = CatArtwork.ResolvePeerAvatar(entry.PeerId ?? entry.RosterId, entry.StudentNumber ?? entry.DisplayName);
             var crRows = page.Classroom?.Items.Select(m => new MessageView("cr:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
