@@ -61,7 +61,7 @@ public sealed class MessageCard : UserControl
             if (message.AttachmentPath is { } path && AttachmentImage.Load(path, attachment.File.Name) is { } image)
                 fileBody.Children.Add(new Image { Source = image, MaxWidth = 300, MaxHeight = 200, Stretch = Stretch.Uniform, Margin = new(0,0,0,8) });
             fileBody.Children.Add(Literal(attachment.File.Name, wrap: true));
-            fileBody.Children.Add(Literal(ChatWindow.AttachmentSize(attachment.File.Size) + " · " + attachment.StateText + (attachment.State == "receiving" ? $" {message.AttachmentProgress}%" : ""), wrap: true));
+            fileBody.Children.Add(Literal(ChatWindow.AttachmentSize(attachment.File.Size) + " · " + attachment.StateText + (attachment.State == "receiving" ? $" {message.AttachmentProgress}%" : attachment.Direction == "outgoing" && attachment.State == "offered" && message.AttachmentProgress > 0 ? $" · 下載進度 {message.AttachmentProgress}%" : ""), wrap: true));
             var actions = new WrapPanel { Margin = new(0,6,0,0) };
             void Button(string label, string action) {
                 var button = new Button { Content = label, Margin = new(0,0,8,4), Padding = new(8,4,8,4), MinHeight = 30 };

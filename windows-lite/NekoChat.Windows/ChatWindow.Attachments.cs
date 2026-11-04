@@ -173,7 +173,7 @@ internal static class AttachmentImage
     internal static bool ValidDimensions(int width, int height) => width is > 0 and <= 16384 && height is > 0 and <= 16384 && (long)width * height <= 32_000_000;
     internal static ImageSource? Load(string path, string name)
     {
-        if (!new[] { ".png", ".jpg", ".jpeg", ".gif", ".bmp" }.Contains(Path.GetExtension(name).ToLowerInvariant())) return null;
+        if (!new[] { ".png", ".jpg", ".jpeg", ".bmp" }.Contains(Path.GetExtension(name).ToLowerInvariant())) return null;
         try
         {
             using var stream = File.OpenRead(path);

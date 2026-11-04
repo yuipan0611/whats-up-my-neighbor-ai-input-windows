@@ -26,7 +26,7 @@ public sealed record AttachmentRecord(long LocalSeq, string Principal, string Di
 {
     public override string ToString() => $"Attachment({MessageId},{Direction},{State})";
     public string StateText => State switch {
-        "sending" => "傳送附件通知中", "offered" => Direction == "outgoing" ? "等待對方下載" : "等待下載",
+        "sending" => "傳送附件通知中", "offered" => Direction == "outgoing" ? "通知已送出 · 等待收件確認" : "等待下載",
         "receiving" => "下載中", "complete" => Direction == "outgoing" ? "附件已送達" : "已接收",
         "cancelled" => "已取消；可手動重試", "unconfirmed" => "結果未確認；可手動重試",
         "unavailable" => CompletedUtc is not null ? (Direction == "outgoing" ? "附件已送達 · 本機副本不可用" : "已接收 · 本機副本不可用") : "檔案不可用", _ => "失敗；可手動重試" };

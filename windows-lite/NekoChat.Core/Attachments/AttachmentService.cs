@@ -259,6 +259,7 @@ public sealed class AttachmentService : IAsyncDisposable
                 Exact(root, "protocol", "version", "kind", "message_id", "token", "size", "sha256");
                 if (Get(root, "sha256") != outgoing.File.Sha256 || root.GetProperty("size").GetInt64() != outgoing.File.Size) throw new AttachmentException("hash_mismatch");
                 if (!_store.SetAttachmentState(outgoing, "complete", current: current)) throw new AttachmentException("cleared");
+                try { Progress?.Invoke(outgoing.LocalSeq, outgoing.File.Size, outgoing.File.Size); } catch { }
                 Notify(); return Ack(id, outgoing.File, "complete");
             }
             if (operation != "chunk") throw new AttachmentException("invalid_payload");
@@ -272,6 +273,8 @@ public sealed class AttachmentService : IAsyncDisposable
                 file.Position = offset; byte[] bytes = new byte[count]; await file.ReadExactlyAsync(bytes, cancellation).ConfigureAwait(false);
                 await Task.Delay(10, cancellation).ConfigureAwait(false);
                 if (!current() || !_store.AttachmentCurrent(outgoing)) throw new AttachmentException("cleared");
+                // The next chunk request proves the preceding offset was received; this is not a completed-file ACK.
+                try { Progress?.Invoke(outgoing.LocalSeq, offset, outgoing.File.Size); } catch { }
                 return new(200, bytes, Binary: true);
             }
             finally { _serve.Release(); }

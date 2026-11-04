@@ -127,6 +127,7 @@ public static class AttachmentChecks
             {
                 receiver.KnownLoopbackFixture(); var outgoing = await Send(sender, receiver, large); var incoming = receiver.Store.ListAttachments().Single();
                 Check(incoming.State == "offered" && !receiver.Files.Vault.Exists(incoming.File), "known large file waits for click");
+                long senderProgress = 0; sender.Files.Progress += (_, done, _) => Interlocked.Exchange(ref senderProgress, done);
                 int chunks = 0; Action<long,long,long> stop = (seq,_,_) => { if (Interlocked.Increment(ref chunks) == 1) receiver.Files.Cancel(seq); };
                 receiver.Files.Progress += stop;
                 try { await receiver.Files.DownloadAsync(incoming.LocalSeq); Check(false, "cancel must interrupt"); } catch (OperationCanceledException) { Check(true, "cancel interrupts socket work"); }
@@ -136,6 +137,7 @@ public static class AttachmentChecks
                 await receiver.Files.DownloadAsync(incoming.LocalSeq);
                 Check((await File.ReadAllBytesAsync(receiver.Files.Vault.PathFor(incoming.File.BlobId))).SequenceEqual(big), "manual retry all multi-chunk bytes");
                 Check(sender.Store.GetAttachment(outgoing.LocalSeq)!.State == "complete", "retry completes sender fact");
+                Check(Interlocked.Read(ref senderProgress) == big.Length && sender.Store.GetAttachment(outgoing.LocalSeq)!.CompletedUtc is not null, "sender progress completion follows durable confirmation");
             }
             await using (var sender = new Node(Path.Combine(root, "space-a")))
             await using (var receiver = new Node(Path.Combine(root, "space-b"), capacity: 1))
@@ -182,6 +184,7 @@ public static class AttachmentChecks
                 await receiver.Files.AddDraftAsync(p,source); var draft=receiver.Store.GetAttachmentDraft(p)!; await receiver.Files.ClearCacheAsync();
                 Check(File.Exists(exported) && receiver.Files.Vault.Exists(draft.File),"cleanup preserves exported files and pending draft");
                 Check(receiver.Store.GetAttachment(row.LocalSeq)!.State=="unavailable" && !receiver.Files.Vault.Exists(row.File),"cleanup keeps history with honest unavailable state");
+                Check(receiver.Store.GetAttachment(row.LocalSeq)!.CompletedUtc is not null, "cleanup does not erase verified receive fact");
             }
             var exactVault=new AttachmentVault(Path.Combine(root,"exact")); string exactId=Guid.NewGuid().ToString("N");
             using(var reservation=exactVault.Reserve(exactId,AttachmentLimits.MaximumFileBytes)) Check(reservation.Length==AttachmentLimits.MaximumFileBytes,"25MiB exact boundary accepted and reserved"); exactVault.Delete(exactId);
