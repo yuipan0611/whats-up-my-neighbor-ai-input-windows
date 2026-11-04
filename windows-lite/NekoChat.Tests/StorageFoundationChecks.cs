@@ -363,7 +363,11 @@ internal static class StorageFoundationChecks
     {
         using var c = Connect(path); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return Convert.ToString(cmd.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) ?? "";
     }
-    private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+    private static string Hash(string path)
+    {
+        using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return Convert.ToHexString(SHA256.HashData(s));
+    }
     private sealed class Area : IDisposable
     {
         internal string Root { get; } = Path.Combine(Path.GetTempPath(), "neko-store-" + Guid.NewGuid().ToString("N"));

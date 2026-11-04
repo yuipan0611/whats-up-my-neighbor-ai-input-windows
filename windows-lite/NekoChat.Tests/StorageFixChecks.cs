@@ -45,7 +45,11 @@ internal static class StorageFixKit
         internal void Check(bool value, string name) { Count++; if (!value) throw new Exception(name); }
     }
 
-    internal static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+    internal static string Hash(string path)
+    {
+        using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return Convert.ToHexString(SHA256.HashData(s)).ToLowerInvariant();
+    }
 
     internal static SqliteConnection Connect(string db)
     {

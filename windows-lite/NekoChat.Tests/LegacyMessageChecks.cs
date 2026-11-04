@@ -211,7 +211,11 @@ internal static class LegacyMessageChecks
     private static object? Query(string path, string sql)
     { using var c = new SqliteConnection("Data Source=" + path + ";Mode=ReadOnly;Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return cmd.ExecuteScalar(); }
     private static long Number(string path, string sql) => Convert.ToInt64(Query(path, sql));
-    private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+    private static string Hash(string path)
+    {
+        using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return Convert.ToHexString(SHA256.HashData(s));
+    }
     private static void Execute(string path, string sql)
     { using var c = new SqliteConnection("Data Source=" + path + ";Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
     private sealed class Fixture : IDisposable

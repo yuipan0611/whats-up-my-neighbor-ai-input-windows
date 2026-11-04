@@ -166,7 +166,16 @@ internal static class StorageBackupChecks
         psi.ArgumentList.Add(ChildMode); psi.ArgumentList.Add(data); psi.ArgumentList.Add(startupDelayMs.ToString(System.Globalization.CultureInfo.InvariantCulture));
         return Process.Start(psi) ?? throw new InvalidOperationException("Backup lease child did not start.");
     }
-    private static string Hash(string path) => File.Exists(path) ? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))) : "absent";
+    private static string Hash(string path)
+    {
+        if (!File.Exists(path)) return "absent";
+        try
+        {
+            using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(s));
+        }
+        catch (IOException) { return "inaccessible"; }
+    }
     private static object? Query(string db, string sql)
     {
         using var c = new SqliteConnection("Data Source=" + db + ";Mode=ReadOnly;Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return cmd.ExecuteScalar();

@@ -145,7 +145,11 @@ internal static class BackupRestoreChecks
         foreach (string arg in new[] { ChildMode, backup, target, checkpoint }) start.ArgumentList.Add(arg);
         return Process.Start(start) ?? throw new Exception("Restore child did not start.");
     }
-    private static string Hash(string path) { using var file = File.OpenRead(path); return Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant(); }
+    private static string Hash(string path)
+    {
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant();
+    }
     private static void Execute(string path, string sql)
     { using var db = Open(path); using var command = db.CreateCommand(); command.CommandText = sql; command.ExecuteNonQuery(); }
     private static long Number(string path, string sql)

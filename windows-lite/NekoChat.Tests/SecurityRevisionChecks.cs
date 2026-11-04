@@ -151,7 +151,11 @@ internal static class SecurityRevisionChecks
     }
     private static long Number(string path, string sql) => Convert.ToInt64(Query(path, sql));
     private static string Text(string path, string sql) => Convert.ToString(Query(path, sql)) ?? "";
-    private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+    private static string Hash(string path)
+    {
+        using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return Convert.ToHexString(SHA256.HashData(s));
+    }
     private static void Execute(string path, string sql, params (string Name, object Value)[] args)
     {
         using var c = new SqliteConnection("Data Source=" + path + ";Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = "PRAGMA foreign_keys=ON;" + sql;
