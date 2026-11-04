@@ -26,9 +26,9 @@ Core 6,363 項；教室15組全過，其中附件69項；教室強殺202項／32
 - 新增庫容量預留與512MiB上限；額滿測試以小容量注入重現同一產品路徑，25MiB精確邊界另驗。
 - 一般／窄視窗HTML預覽已由瀏覽器檢視；它是設計參考，不是WPF或Windows互動證據。
 
-## 未執行
+## 原生驗收進度
 
-Windows原生Ctrl+V、右鍵貼上、拖曳、選檔、WPF渲染、IME、DPI，以及兩台實際Windows和教室網路均未執行。操作單見 WINDOWS-ACCEPTANCE.md。尚未安裝、push、PR、合併、正式發布或部署。CI設定已補classroom-all，但未觸發遠端CI。
+2026-11-05 已在 Parallels Windows 11 完成部分選檔、截圖Ctrl+V、WPF與250%版面、Windows ↔ Mac Core 真實傳輸，見 [部分驗收紀錄](PARALLELS-20261105.md)。右鍵貼上、拖曳、IME、100/150/200% DPI，以及兩台實際Windows和教室網路尚未完成。操作單見 WINDOWS-ACCEPTANCE.md。尚未安裝、push、PR、合併、正式發布或部署。CI設定已補classroom-all，但未觸發遠端CI。
 
 ## 候選與回退
 

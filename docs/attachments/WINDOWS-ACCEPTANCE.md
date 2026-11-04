@@ -1,4 +1,6 @@
-# Windows 附件驗收（待執行）
+# Windows 附件驗收（部分執行）
+
+2026-11-05 已在一台 Parallels Windows 11 進行部分原生操作與 Windows ↔ Mac Core 傳輸；逐項證據與限制見 [本次紀錄](PARALLELS-20261105.md)。下表是完整雙 Windows 操作單，部分案例不等於整列驗收完成。
 
 只使用候選ZIP與合成資料，不覆蓋日常App。兩台Windows各自解壓，執行：
 
@@ -6,7 +8,7 @@
 .\NekoChat.Windows.exe --ui-test-data C:\NekoChatAttachmentQA --ui-test-port 18768
 ```
 
-各自新增另一台實際區網IPv4的名單標籤。若網路或防火牆阻擋，紀錄blocked；本任務不修改防火牆或擴權。兩台同時執行，互傳方向都要測。
+各自新增另一台實際區網IPv4的名單標籤。若網路或防火牆阻擋，先紀錄blocked，不自行擴權。2026-11-05 使用者另行同意的暫時限定規則與還原證據，見本次紀錄。兩台同時執行，互傳方向都要測。
 
 | 案例 | 預期／要保存的證據 | 狀態 |
 |---|---|---|
