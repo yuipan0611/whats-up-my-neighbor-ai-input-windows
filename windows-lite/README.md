@@ -1,3 +1,7 @@
+# 本機附件測試分支
+
+真實附件實作及限制見 [ATTACHMENTS.md](ATTACHMENTS.md)。本分支尚未發布；兩台Windows原生驗收尚未執行。
+
 # NekoNode / NekoChat Windows Lite (教室輕量版)
 
 專為電腦教室與區域網路設計的 Windows 桌面貓咪與局域網即時通訊小工具。

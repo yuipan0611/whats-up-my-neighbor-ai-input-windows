@@ -1,3 +1,7 @@
+# 附件功能本機候選
+
+本分支在ecbed3d上新增真實附件；歷史交付狀態不代表本次候選已驗收或發布。功能與限制見 [ATTACHMENTS.md](ATTACHMENTS.md)，本次驗證見 docs/attachments/VALIDATION.md。
+
 # NekoChat Windows Lite 本機交叉建置候選交付
 
 本批是本機交叉建置產物，供後續 Windows 驗收使用；未經 Authenticode 簽章、未執行安裝、未上傳且未公開發布。

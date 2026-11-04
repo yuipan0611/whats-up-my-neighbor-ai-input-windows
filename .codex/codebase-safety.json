@@ -52,7 +52,9 @@
     "shared_modules": [],
     "state_and_data": [
       "ChatStore partials serialize immediate SQLite transactions; SchemaGuard verifies normalized DDL; versioned migrations preserve frozen SchemaV1.sql.",
-      "Accepted socket source owns classroom principal; draftEpoch prevents stale clear results."
+      "Accepted socket source owns classroom principal; draftEpoch prevents stale clear results.",
+      "AttachmentService stages generated blob ids, serves source-IP/token-bound 256KiB chunks on the classroom port, and records verified completion separately from offer ACKs.",
+      "Migration11 adds Attachment/AttachmentDraft and a clear-only attachmentEpoch. Completed timestamps survive local cache cleanup. Existing text codecs, assets and SchemaV1 remain unchanged."
     ],
     "external_integrations": []
   },
@@ -119,6 +121,14 @@
     {
       "fact": "SchemaGuard derives expected schema from migration SQL",
       "source": "windows-lite/NekoChat.Core/Storage/SchemaGuard.cs#CreateExpected"
+    },
+    {
+      "fact": "Separate attachment admission/quota preserves default text response bound; only binary responses can reach 256KiB",
+      "source": "windows-lite/NekoChat.Core/Classroom/Transport/ClassroomTcpListener.cs#RespondAsync"
+    },
+    {
+      "fact": "Attachment test suite uses real TCP/SQLite, hash corruption and forced termination recovery",
+      "source": "windows-lite/NekoChat.Tests/AttachmentChecks.cs"
     }
   ]
 }
