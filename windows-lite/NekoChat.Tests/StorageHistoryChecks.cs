@@ -176,7 +176,21 @@ internal static class StorageHistoryChecks
     private static long Number(string path, string sql) { using var c = Connect(path); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return Convert.ToInt64(cmd.ExecuteScalar()); }
     private static void Execute(string path, string sql) { using var c = Connect(path); using var cmd = c.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
     private static long Count(string path, string table, string conv) => Number(path, $"SELECT count(*) FROM {table} WHERE conversationId='{conv}'");
-    private static bool Contains(string path, string marker) => File.Exists(path) && File.ReadAllBytes(path).AsSpan().IndexOf(Encoding.UTF8.GetBytes(marker)) >= 0;
+    private static bool Contains(string path, string marker)
+    {
+        if (!File.Exists(path)) return false;
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            return ms.ToArray().AsSpan().IndexOf(Encoding.UTF8.GetBytes(marker)) >= 0;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
     private sealed class Fixture : IDisposable
     {
         internal string Root { get; } = Path.Combine(Path.GetTempPath(), "neko-history-" + Guid.NewGuid().ToString("N"));
