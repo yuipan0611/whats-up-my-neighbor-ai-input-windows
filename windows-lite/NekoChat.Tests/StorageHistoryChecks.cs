@@ -132,6 +132,7 @@ internal static class StorageHistoryChecks
                 child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             }
             finally { if (!child.HasExited) { child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); } }
+            await Task.Delay(100);
             using var recovered = ChatStore.Open(f.Options); bool after = stage == "after";
             Check(Count(f.Db, "Message", a) == (after ? 0 : 3) && Count(f.Db, "ManualSendAttempt", a) == (after ? 0 : 2) &&
                 Count(f.Db, "ReceiptOutbox", a) == (after ? 0 : 1) && recovered.GetDraftState(a) is { Revision: 9 } state && state.Epoch == (after ? 1 : 0) &&
@@ -170,8 +171,32 @@ internal static class StorageHistoryChecks
     }
     private static SqliteConnection Connect(string path)
     {
-        var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 1 }.ToString()); c.Open();
-        using var cmd = c.CreateCommand(); cmd.CommandText = "PRAGMA foreign_keys=ON"; cmd.ExecuteNonQuery(); return c;
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 2 }.ToString());
+                c.Open();
+                using var cmd = c.CreateCommand();
+                cmd.CommandText = "PRAGMA foreign_keys=ON";
+                cmd.ExecuteNonQuery();
+                return c;
+            }
+            catch (SqliteException ex) when (attempt < 4 && (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 10))
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+        }
+        var finalConn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 2 }.ToString());
+        finalConn.Open();
+        using var finalCmd = finalConn.CreateCommand();
+        finalCmd.CommandText = "PRAGMA foreign_keys=ON";
+        finalCmd.ExecuteNonQuery();
+        return finalConn;
     }
     private static long Number(string path, string sql) { using var c = Connect(path); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return Convert.ToInt64(cmd.ExecuteScalar()); }
     private static void Execute(string path, string sql) { using var c = Connect(path); using var cmd = c.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }

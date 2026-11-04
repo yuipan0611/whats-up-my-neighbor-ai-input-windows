@@ -187,6 +187,7 @@ internal static class LegacyMessageChecks
                 Task<bool> sending = DirectLanMessaging.SendDirectAsync("127.0.0.1", "legacy crash", int.Parse(ready[5..]));
                 Check(await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(12)) == "BOUNDARY:" + stage, "actual TCP legacy receive reaches exact commit boundary " + stage);
                 child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                await Task.Delay(150);
                 bool noAck = false; try { _ = await sending; } catch (InvalidOperationException) { noAck = true; }
                 int expected = stage == "after" ? 1 : 0;
                 Check(child.ExitCode != 0 && noAck && Number(f.Db, "SELECT count(*) FROM LegacyMessage") == expected && Number(f.Db, "SELECT count(*) FROM Message") == 0, "true killed legacy transaction native DB proves0/1 with no false courtesy ACK");
@@ -209,7 +210,32 @@ internal static class LegacyMessageChecks
         info.ArgumentList.Add(ChildMode); info.ArgumentList.Add(data); info.ArgumentList.Add(stage); return Process.Start(info)!;
     }
     private static object? Query(string path, string sql)
-    { using var c = new SqliteConnection("Data Source=" + path + ";Mode=ReadOnly;Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return cmd.ExecuteScalar(); }
+    {
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                using var c = new SqliteConnection("Data Source=" + path + ";Mode=ReadOnly;Pooling=False");
+                c.Open();
+                using var cmd = c.CreateCommand();
+                cmd.CommandText = sql;
+                return cmd.ExecuteScalar();
+            }
+            catch (SqliteException ex) when (attempt < 4 && (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 10))
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+        }
+        using var finalConn = new SqliteConnection("Data Source=" + path + ";Mode=ReadOnly;Pooling=False");
+        finalConn.Open();
+        using var finalCmd = finalConn.CreateCommand();
+        finalCmd.CommandText = sql;
+        return finalCmd.ExecuteScalar();
+    }
     private static long Number(string path, string sql) => Convert.ToInt64(Query(path, sql));
     private static string Hash(string path)
     {
@@ -217,7 +243,33 @@ internal static class LegacyMessageChecks
         return Convert.ToHexString(SHA256.HashData(s));
     }
     private static void Execute(string path, string sql)
-    { using var c = new SqliteConnection("Data Source=" + path + ";Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
+    {
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                using var c = new SqliteConnection("Data Source=" + path + ";Pooling=False");
+                c.Open();
+                using var cmd = c.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+                return;
+            }
+            catch (SqliteException ex) when (attempt < 4 && (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 10))
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+        }
+        using var finalConn = new SqliteConnection("Data Source=" + path + ";Pooling=False");
+        finalConn.Open();
+        using var finalCmd = finalConn.CreateCommand();
+        finalCmd.CommandText = sql;
+        finalCmd.ExecuteNonQuery();
+    }
     private sealed class Fixture : IDisposable
     {
         internal string Data { get; } = Path.Combine(Path.GetTempPath(), "neko-legacy-msg-" + Guid.NewGuid().ToString("N"));

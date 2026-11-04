@@ -109,6 +109,7 @@ internal static class StorageLegacyRosterChecks
                 child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             }
             finally { if (!child.HasExited) { child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); } }
+            await Task.Delay(100);
             using var recovered = ChatStore.Open(f.Options); bool after = stage == "after";
             Check(recovered.LegacyRosterImportCompleted() == after && recovered.GetRosterSnapshot().Count == (after ? 2 : 0), "kill leaves whole bootstrap or none");
             var retry = recovered.ImportLegacyRoster(Valid);
@@ -120,7 +121,30 @@ internal static class StorageLegacyRosterChecks
     private static string Token(ChatStore store) => RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot());
     private static long Number(string db, string sql)
     {
-        using var c = new SqliteConnection("Data Source=" + db + ";Mode=ReadOnly;Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return Convert.ToInt64(cmd.ExecuteScalar());
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                using var c = new SqliteConnection("Data Source=" + db + ";Mode=ReadOnly;Pooling=False");
+                c.Open();
+                using var cmd = c.CreateCommand();
+                cmd.CommandText = sql;
+                return Convert.ToInt64(cmd.ExecuteScalar());
+            }
+            catch (SqliteException ex) when (attempt < 4 && (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 10))
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+        }
+        using var finalConn = new SqliteConnection("Data Source=" + db + ";Mode=ReadOnly;Pooling=False");
+        finalConn.Open();
+        using var finalCmd = finalConn.CreateCommand();
+        finalCmd.CommandText = sql;
+        return Convert.ToInt64(finalCmd.ExecuteScalar());
     }
     private static string Hash(string path)
     {

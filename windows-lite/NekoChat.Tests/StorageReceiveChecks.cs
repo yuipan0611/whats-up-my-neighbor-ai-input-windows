@@ -329,8 +329,32 @@ internal static class StorageReceiveChecks
     }
     private static SqliteConnection Connect(string path)
     {
-        var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 1 }.ToString());
-        c.Open(); using var command = c.CreateCommand(); command.CommandText = "PRAGMA foreign_keys=ON"; command.ExecuteNonQuery(); return c;
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 2 }.ToString());
+                c.Open();
+                using var command = c.CreateCommand();
+                command.CommandText = "PRAGMA foreign_keys=ON";
+                command.ExecuteNonQuery();
+                return c;
+            }
+            catch (SqliteException ex) when (attempt < 4 && (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 10))
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+        }
+        var finalConn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 2 }.ToString());
+        finalConn.Open();
+        using var finalCmd = finalConn.CreateCommand();
+        finalCmd.CommandText = "PRAGMA foreign_keys=ON";
+        finalCmd.ExecuteNonQuery();
+        return finalConn;
     }
     private static long Number(SqliteConnection connection, string sql)
     {

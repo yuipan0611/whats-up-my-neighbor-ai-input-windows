@@ -166,6 +166,7 @@ internal static class StorageRosterChecks
                 child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             }
             finally { if (!child.HasExited) { child.Kill(entireProcessTree: true); await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); } }
+            await Task.Delay(100);
             using var recovered = ChatStore.Open(f.Options); bool after = stage == "after";
             Check(recovered.GetRosterSnapshot().Count == (after ? 3 : 2) && Text(f.Db, "SELECT endpoint FROM RosterEntry WHERE studentNumberKey='1'") == (after ? "10.0.0.2" : "10.0.0.1") &&
                 Text(f.Db, "SELECT peerId FROM RosterEntry WHERE studentNumberKey='1'") == "A" && Number(f.Db, "SELECT count(*) FROM Message") == 1, "kill commits whole import or none, preserving binding and chat");
@@ -186,13 +187,60 @@ internal static class StorageRosterChecks
     }
     private static object? Query(string db, string sql)
     {
-        using var c = new SqliteConnection("Data Source=" + db + ";Mode=ReadOnly;Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return cmd.ExecuteScalar();
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                using var c = new SqliteConnection("Data Source=" + db + ";Mode=ReadOnly;Pooling=False");
+                c.Open();
+                using var cmd = c.CreateCommand();
+                cmd.CommandText = sql;
+                return cmd.ExecuteScalar();
+            }
+            catch (SqliteException ex) when (attempt < 4 && (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 10))
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+        }
+        using var finalConn = new SqliteConnection("Data Source=" + db + ";Mode=ReadOnly;Pooling=False");
+        finalConn.Open();
+        using var finalCmd = finalConn.CreateCommand();
+        finalCmd.CommandText = sql;
+        return finalCmd.ExecuteScalar();
     }
     private static long Number(string db, string sql) => Convert.ToInt64(Query(db, sql));
     private static string Text(string db, string sql) => Convert.ToString(Query(db, sql)) ?? "";
     private static void Execute(string db, string sql)
     {
-        using var c = new SqliteConnection("Data Source=" + db + ";Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery();
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                using var c = new SqliteConnection("Data Source=" + db + ";Pooling=False");
+                c.Open();
+                using var cmd = c.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+                return;
+            }
+            catch (SqliteException ex) when (attempt < 4 && (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 10))
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(50 * (attempt + 1));
+            }
+        }
+        using var finalConn = new SqliteConnection("Data Source=" + db + ";Pooling=False");
+        finalConn.Open();
+        using var finalCmd = finalConn.CreateCommand();
+        finalCmd.CommandText = sql;
+        finalCmd.ExecuteNonQuery();
     }
     private static Process StartChild(string data, string stage)
     {
