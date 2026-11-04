@@ -15,6 +15,7 @@
     <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
     <NuGetLockFilePath Condition="'$(PublishSingleFile)' == 'true'">packages.singlefile.lock.json</NuGetLockFilePath>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../NekoChat.Core/NekoChat.Core.csproj" />

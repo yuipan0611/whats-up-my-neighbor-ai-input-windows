@@ -11,8 +11,43 @@ namespace NekoChat.Windows;
 internal static class CatArtwork
 {
     private static string Asset(string name)=>Path.Combine(AppContext.BaseDirectory,"Assets",name);
+    internal static readonly string[] KnownPresets = ["original", "black", "white", "blue", "orange-tabby", "tuxedo", "calico", "tortoiseshell", "colorpoint"];
     internal static string PresetJson(string id)=>File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"Coats",id+".json"));
     internal static BitmapSource Preset(string id)=>LoadPng(Asset(id+".png"));
+    internal static BitmapSource SafePreset(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return Preset("original");
+        try
+        {
+            var p = id.Trim().ToLowerInvariant();
+            if (KnownPresets.Contains(p)) return Preset(p);
+            return Preset("original");
+        }
+        catch
+        {
+            return Preset("original");
+        }
+    }
+    internal static BitmapSource ResolvePeerAvatar(string? peerKey, string? seed)
+    {
+        if (!string.IsNullOrWhiteSpace(peerKey))
+        {
+            try
+            {
+                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NekoChat", "Peers");
+                var configPath = Path.Combine(dir, $"{peerKey}.cat.json");
+                if (File.Exists(configPath)) return FromConfig(configPath);
+            }
+            catch { }
+        }
+        if (!string.IsNullOrWhiteSpace(seed))
+        {
+            int hash = Math.Abs(seed.GetHashCode(StringComparison.Ordinal));
+            string preset = KnownPresets[hash % KnownPresets.Length];
+            return SafePreset(preset);
+        }
+        return Preset("original");
+    }
     private static BitmapSource LoadPng(string path)
     {
         var bytes=File.ReadAllBytes(path);

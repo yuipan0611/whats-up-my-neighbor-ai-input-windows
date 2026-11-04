@@ -17,6 +17,7 @@ internal sealed record InboxRowView(InboxEntry Entry, string State)
 {
     public string Name => Entry.DisplayName;
     public string Initial => Entry.IsTeacher ? "師" : StringInfoInitial(Entry.DisplayName);
+    public ImageSource Avatar => CatArtwork.ResolvePeerAvatar(Entry.PeerId ?? Entry.RosterId, Entry.StudentNumber ?? Entry.DisplayName);
     public string Student => Entry.IsTeacher ? "老師" : Entry.StudentNumber is { } number ? "學號 " + number : "";
     public string Badge => Entry.TotalUnread > 99 ? "99+" : Entry.TotalUnread.ToString();
     public Visibility BadgeVisibility => Entry.TotalUnread > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -292,11 +293,12 @@ public partial class ChatWindow
             });
             if (_stopping || generation != Volatile.Read(ref _viewGeneration) || entry.Id != _selected?.Id) return;
             if (reset) History.Rows.Clear();
+            var peerAvatar = CatArtwork.ResolvePeerAvatar(entry.PeerId ?? entry.RosterId, entry.StudentNumber ?? entry.DisplayName);
             var crRows = page.Classroom?.Items.Select(m => new MessageView("cr:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
-                m.Direction == "outgoing" ? (m.DeliveryLabel ?? (m.RemoteReadAt is not null ? "已讀" : m.RemoteStoredAt is not null ? "對方已儲存" : "")) : (m.LocalReadAt is not null ? "本機已讀" : ""))) ?? [];
+                m.Direction == "outgoing" ? (m.DeliveryLabel ?? (m.RemoteReadAt is not null ? "已讀" : m.RemoteStoredAt is not null ? "對方已儲存" : "")) : (m.LocalReadAt is not null ? "本機已讀" : ""), peerAvatar)) ?? [];
             var rows = page.Message?.Items.Select(m => new MessageView("v2:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
-                m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "")) ?? [];
-            var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""))) ?? [];
+                m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "", peerAvatar)) ?? [];
+            var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""), peerAvatar)) ?? [];
             var existing = History.Rows.ToDictionary(m => m.Key, StringComparer.Ordinal); int oldCount = existing.Count;
             foreach (var row in crRows.Concat(rows).Concat(legacy)) { if (existing.TryGetValue(row.Key, out var old)) old.Delivery = row.Delivery; else existing.Add(row.Key, row); }
             var sorted = existing.Values.OrderBy(m => m.Utc, StringComparer.Ordinal).ThenBy(m => m.Legacy).ThenBy(m => m.Sequence).ToArray();
@@ -474,6 +476,34 @@ public partial class ChatWindow
         bool enabled = ReadReceiptToggle.IsChecked == true; long edit = ++_readPolicyEdit;
         try { var result = await _runtime.Worker.Run(s => s.SetReadReceiptPolicy(enabled)); if (edit == _readPolicyEdit) ReadReceiptToggle.IsChecked = result.Policy.Enabled; _runtime.Receipts?.Pulse(); _runtime.ClassroomReceipts?.Pulse(); SetStatus(result.Policy.Enabled ? "對外已讀回條已開啟；不補送先前已讀。" : $"對外已讀回條已關閉，移除 {result.DroppedReceipts} 筆未送回條。"); }
         catch (Exception ex) { ReadReceiptToggle.IsEnabled = false; ShowStorageError(ex); }
+    }
+    private void AttachFileClick(object sender, RoutedEventArgs e)
+    {
+        if (!Draft.IsEnabled) return;
+        var picker = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "選取要傳送的相片或檔案",
+            Filter = "所有支援檔案|*.*|圖片檔案 (*.png;*.jpg;*.jpeg;*.gif)|*.png;*.jpg;*.jpeg;*.gif|文件檔案 (*.pdf;*.txt)|*.pdf;*.txt"
+        };
+        if (picker.ShowDialog(this) == true)
+        {
+            var fileName = System.IO.Path.GetFileName(picker.FileName);
+            var fileInfo = new System.IO.FileInfo(picker.FileName);
+            var sizeStr = fileInfo.Length < 1024 * 1024
+                ? $"{fileInfo.Length / 1024.0:F1} KB"
+                : $"{fileInfo.Length / (1024.0 * 1024.0):F1} MB";
+            var tag = $"[檔案: {fileName} ({sizeStr})]";
+            if (string.IsNullOrWhiteSpace(Draft.Text))
+            {
+                Draft.Text = tag;
+            }
+            else
+            {
+                Draft.Text = Draft.Text.TrimEnd() + " " + tag;
+            }
+            Draft.CaretIndex = Draft.Text.Length;
+            Draft.Focus();
+        }
     }
     private void InsertCodeClick(object sender, RoutedEventArgs e)
     {

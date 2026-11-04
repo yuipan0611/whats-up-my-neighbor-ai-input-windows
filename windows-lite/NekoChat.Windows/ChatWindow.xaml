@@ -1,11 +1,115 @@
 <Window x:Class="NekoChat.Windows.ChatWindow"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:NekoChat.Windows"
- Title="Neko Chat Lite" Width="1100" Height="740" MinWidth="440" MinHeight="360" Background="White" Foreground="#1C2C41"
+ Title="Neko Chat Lite" Icon="Assets/app.ico" Width="1100" Height="740" MinWidth="440" MinHeight="360" Background="White" Foreground="#1C2C41"
  FontFamily="Microsoft JhengHei UI, Microsoft JhengHei" FontSize="13" WindowStartupLocation="CenterScreen">
  <Window.Resources>
-  <Style TargetType="Button"><Setter Property="Padding" Value="8,4"/><Setter Property="MinHeight" Value="28"/><Setter Property="Background" Value="White"/><Setter Property="BorderBrush" Value="#596B80"/><Setter Property="Cursor" Value="Hand"/></Style>
-  <Style TargetType="TextBox"><Setter Property="Padding" Value="6,4"/><Setter Property="BorderBrush" Value="#596B80"/></Style>
-  <Style x:Key="InboxItem" TargetType="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="Transparent"/>
+  <Style TargetType="Button">
+   <Setter Property="Padding" Value="10,5"/>
+   <Setter Property="MinHeight" Value="28"/>
+   <Setter Property="Background" Value="White"/>
+   <Setter Property="BorderBrush" Value="#DCE3EC"/>
+   <Setter Property="BorderThickness" Value="1"/>
+   <Setter Property="Foreground" Value="#1C2C41"/>
+   <Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="Button">
+      <Border x:Name="border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+       <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      </Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="border" Property="Background" Value="#F3F6FA"/><Setter TargetName="border" Property="BorderBrush" Value="#2859C5"/></Trigger>
+       <Trigger Property="IsPressed" Value="True"><Setter TargetName="border" Property="Background" Value="#E9EFFD"/></Trigger>
+       <Trigger Property="IsEnabled" Value="False"><Setter TargetName="border" Property="Opacity" Value="0.5"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+  </Style>
+  <Style x:Key="PrimaryButton" TargetType="Button">
+   <Setter Property="Padding" Value="18,8"/>
+   <Setter Property="MinHeight" Value="38"/>
+   <Setter Property="Background" Value="#2859C5"/>
+   <Setter Property="Foreground" Value="White"/>
+   <Setter Property="BorderThickness" Value="0"/>
+   <Setter Property="FontWeight" Value="Bold"/>
+   <Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="Button">
+      <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+       <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      </Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="border" Property="Background" Value="#1E429F"/></Trigger>
+       <Trigger Property="IsPressed" Value="True"><Setter TargetName="border" Property="Background" Value="#1A367E"/></Trigger>
+       <Trigger Property="IsEnabled" Value="False"><Setter TargetName="border" Property="Opacity" Value="0.5"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+  </Style>
+  <Style x:Key="PillButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+   <Setter Property="Padding" Value="10,3"/>
+   <Setter Property="MinHeight" Value="24"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="Button">
+      <Border x:Name="border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+       <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      </Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="border" Property="Background" Value="#F3F6FA"/><Setter TargetName="border" Property="BorderBrush" Value="#2859C5"/></Trigger>
+       <Trigger Property="IsPressed" Value="True"><Setter TargetName="border" Property="Background" Value="#E9EFFD"/></Trigger>
+       <Trigger Property="IsEnabled" Value="False"><Setter TargetName="border" Property="Opacity" Value="0.5"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+  </Style>
+  <Style x:Key="CircleIconButton" TargetType="Button">
+   <Setter Property="Background" Value="#EDF2F8"/>
+   <Setter Property="BorderThickness" Value="0"/>
+   <Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="Width" Value="32"/>
+   <Setter Property="Height" Value="32"/>
+   <Setter Property="FontSize" Value="15"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="Button">
+      <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="16" Width="{TemplateBinding Width}" Height="{TemplateBinding Height}" SnapsToDevicePixels="True">
+       <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      </Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="border" Property="Background" Value="#DCE3EC"/></Trigger>
+       <Trigger Property="IsPressed" Value="True"><Setter TargetName="border" Property="Background" Value="#CBD5E1"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+  </Style>
+  <Style TargetType="TextBox">
+   <Setter Property="Padding" Value="8,5"/>
+   <Setter Property="BorderBrush" Value="#DCE3EC"/>
+   <Setter Property="BorderThickness" Value="1"/>
+   <Setter Property="Background" Value="White"/>
+   <Setter Property="Foreground" Value="#1C2C41"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="TextBox">
+      <Border x:Name="border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" SnapsToDevicePixels="True">
+       <ScrollViewer x:Name="PART_ContentHost" Focusable="false" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" Padding="{TemplateBinding Padding}"/>
+      </Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="border" Property="BorderBrush" Value="#94A3B8"/></Trigger>
+       <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="border" Property="BorderBrush" Value="#2859C5"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+  </Style>
+  <Style x:Key="InboxItem" TargetType="ListBoxItem">
+   <Setter Property="Padding" Value="0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Background" Value="Transparent"/>
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="RowBackground" Background="{TemplateBinding Background}" Padding="16,8"><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="RowBackground" Property="Background" Value="#EDF2F8"/></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="RowBackground" Property="Background" Value="#E9EFFD"/></Trigger><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="RowBackground" Property="BorderBrush" Value="#2859C5"/><Setter TargetName="RowBackground" Property="BorderThickness" Value="2"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
   </Style>
  </Window.Resources>
@@ -29,11 +133,11 @@
      </StackPanel>
      <Grid><ListBox x:Name="InboxList" BorderThickness="0" SelectionChanged="InboxSelectionChanged" ItemContainerStyle="{StaticResource InboxItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
       <ListBox.ItemTemplate><DataTemplate><Grid AutomationProperties.Name="{Binding AccessibleLabel}"><Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-       <Grid Width="36" Height="36" VerticalAlignment="Top" Margin="0,2,0,0"><Ellipse Fill="#E9EFFD"/><TextBlock Text="{Binding Initial}" Foreground="#2859C5" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/><Ellipse Width="12" Height="12" HorizontalAlignment="Right" VerticalAlignment="Bottom" Fill="{Binding DotFill}" Stroke="{Binding DotStroke}" StrokeThickness="2" StrokeDashArray="{Binding DotDash}"/></Grid>
+       <Grid Width="36" Height="36" VerticalAlignment="Top" Margin="0,2,0,0"><Image Source="{Binding Avatar}" Width="36" Height="36" RenderOptions.BitmapScalingMode="HighQuality"/><Ellipse Width="12" Height="12" HorizontalAlignment="Right" VerticalAlignment="Bottom" Fill="{Binding DotFill}" Stroke="{Binding DotStroke}" StrokeThickness="2" StrokeDashArray="{Binding DotDash}"/></Grid>
        <StackPanel Grid.Column="1" Margin="8,0,4,0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Student}" Foreground="#596B80" FontSize="12"/><TextBlock Text="{Binding State}" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/><TextBlock Text="{Binding Draft}" Foreground="#916015" FontSize="12"/></StackPanel>
        <Border Grid.Column="2" Background="#2859C5" CornerRadius="10" VerticalAlignment="Top" Padding="6,0" Visibility="{Binding BadgeVisibility}"><TextBlock Text="{Binding Badge}" Foreground="White" FontSize="12"/></Border>
       </Grid></DataTemplate></ListBox.ItemTemplate>
-     </ListBox><StackPanel x:Name="InboxEmptyPanel" Margin="16" Visibility="Collapsed"><TextBlock x:Name="InboxEmpty" Text="尚無同學，可手動新增或匯入 CSV。" TextWrapping="Wrap" Foreground="#596B80" Margin="0,0,0,12"/><Button x:Name="AddFirstContactButton" Content="＋ 點此新增第一個聊天對象" Click="AddRosterClick" Background="#2859C5" Foreground="White" BorderThickness="0" FontWeight="Bold" Padding="12,8" HorizontalAlignment="Left" Cursor="Hand"/></StackPanel></Grid>
+     </ListBox><StackPanel x:Name="InboxEmptyPanel" Margin="16" Visibility="Collapsed"><TextBlock x:Name="InboxEmpty" Text="尚無同學，可手動新增或匯入 CSV。" TextWrapping="Wrap" Foreground="#596B80" Margin="0,0,0,12"/><Button x:Name="AddFirstContactButton" Style="{StaticResource PrimaryButton}" Content="＋ 點此新增第一個聊天對象" Click="AddRosterClick" HorizontalAlignment="Left"/></StackPanel></Grid>
     </DockPanel>
    </Border>
    <Grid x:Name="ConversationPane" Grid.Column="1">
@@ -55,13 +159,17 @@
      <Button x:Name="NewMessages" Grid.Row="2" Content="有新訊息，移到最新" Click="NewMessagesClick" HorizontalAlignment="Center" Visibility="Collapsed" Margin="8"/>
     </Grid>
     <Border Grid.Row="3" BorderBrush="#DCE3EC" BorderThickness="0,1,0,0" Padding="16,12"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><ScrollViewer x:Name="ComposerToolsScroll" Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="170"><StackPanel>
-     <WrapPanel x:Name="TeacherReactions" Margin="0,0,0,8"><TextBlock Text="傳給老師：" VerticalAlignment="Center" FontSize="12" Foreground="#596B80"/><Button Content="講太快了" Tag="too-fast" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Content="跟不上" Tag="cant-keep-up" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Content="聽不懂" Tag="dont-understand" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Content="再講一次" Tag="say-again" Click="ReactionSendClick" Margin="0,0,8,4"/><TextBlock Text="傳給目前對象：" VerticalAlignment="Center" FontSize="12" Foreground="#596B80"/><Button x:Name="ScrollReaction" Content="你再給我滑！" Tag="stop-scrolling" Click="ReactionSendClick" Margin="0,0,0,4"/></WrapPanel>
+     <WrapPanel x:Name="TeacherReactions" Margin="0,0,0,8"><TextBlock Text="傳給老師：" VerticalAlignment="Center" FontSize="12" Foreground="#596B80"/><Button Style="{StaticResource PillButton}" Content="講太快了" Tag="too-fast" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Style="{StaticResource PillButton}" Content="跟不上" Tag="cant-keep-up" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Style="{StaticResource PillButton}" Content="聽不懂" Tag="dont-understand" Click="ReactionSendClick" Margin="0,0,8,4"/><Button Style="{StaticResource PillButton}" Content="再講一次" Tag="say-again" Click="ReactionSendClick" Margin="0,0,8,4"/><TextBlock Text="傳給目前對象：" VerticalAlignment="Center" FontSize="12" Foreground="#596B80"/><Button x:Name="ScrollReaction" Style="{StaticResource PillButton}" Content="你再給我滑！" Tag="stop-scrolling" Click="ReactionSendClick" Margin="0,0,0,4"/></WrapPanel>
      <Border x:Name="AttemptBanner" Background="#FFF8E8" BorderBrush="#ECD9A8" BorderThickness="1" CornerRadius="4" Padding="12,8" Margin="0,0,0,8" Visibility="Collapsed"><StackPanel><TextBlock x:Name="AttemptText" Foreground="#916015" TextWrapping="Wrap"/><WrapPanel Margin="0,6,0,0"><Button x:Name="RetryAttempt" Content="重送（沿用原 id）" Click="RetryAttemptClick" Margin="0,0,8,0"/><Button x:Name="CancelAttemptButton" Content="取消當次" Click="CancelAttemptClick"/></WrapPanel></StackPanel></Border>
      </StackPanel></ScrollViewer>
-     <Border Grid.Row="1" BorderBrush="#596B80" BorderThickness="1" CornerRadius="8" Padding="8"><Grid x:Name="ComposerBox"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition x:Name="CodeToolbarRow" Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <Border Grid.Row="1" BorderBrush="#DCE3EC" BorderThickness="1" CornerRadius="8" Padding="8"><Grid x:Name="ComposerBox"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition x:Name="CodeToolbarRow" Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
       <TextBox x:Name="Draft" Grid.Row="0" Grid.ColumnSpan="2" AcceptsReturn="True" Height="72" MaxHeight="120" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" Padding="4" PreviewKeyDown="DraftPreviewKeyDown" TextChanged="DraftEdited" AutomationProperties.Name="訊息草稿"/>
-      <Button x:Name="SendButton" Grid.Row="1" Grid.Column="1" Content="傳送" Click="SendClick" Background="#2859C5" Foreground="White" BorderThickness="0" FontWeight="Bold" Padding="18,8" MinHeight="40" Margin="8,8,0,0"/>
-      <WrapPanel x:Name="CodeToolbar" Grid.Row="1" Grid.Column="0" Margin="0,8,0,0"><Button Content="插入程式碼" Click="InsertCodeClick" Margin="0,0,8,0"/><ComboBox x:Name="CodeLanguage" SelectedIndex="0" Width="88" AutomationProperties.Name="程式碼語言"><ComboBoxItem Content="Python" Tag="python"/><ComboBoxItem Content="C#" Tag="csharp"/><ComboBoxItem Content="JavaScript" Tag="javascript"/><ComboBoxItem Content="純文字" Tag="text"/></ComboBox></WrapPanel>
+      <Button x:Name="SendButton" Style="{StaticResource PrimaryButton}" Grid.Row="1" Grid.Column="1" Content="傳送" Click="SendClick" Margin="8,8,0,0"/>
+      <WrapPanel x:Name="CodeToolbar" Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" VerticalAlignment="Center">
+       <Button x:Name="AttachFileButton" Style="{StaticResource CircleIconButton}" Content="📎" ToolTip="附加檔案或相片" Click="AttachFileClick" Margin="0,0,8,0"/>
+       <Button Content="插入程式碼" Click="InsertCodeClick" Margin="0,0,8,0"/>
+       <ComboBox x:Name="CodeLanguage" SelectedIndex="0" Width="88" AutomationProperties.Name="程式碼語言"><ComboBoxItem Content="Python" Tag="python"/><ComboBoxItem Content="C#" Tag="csharp"/><ComboBoxItem Content="JavaScript" Tag="javascript"/><ComboBoxItem Content="純文字" Tag="text"/></ComboBox>
+      </WrapPanel>
      </Grid></Border>
      <TextBlock Grid.Row="2" x:Name="DraftStatus" Text="Enter 傳送 · Shift＋Enter 換行" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
     </Grid></Border>
