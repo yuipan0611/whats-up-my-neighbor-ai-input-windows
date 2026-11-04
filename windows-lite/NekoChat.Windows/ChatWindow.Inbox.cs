@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -487,23 +488,88 @@ public partial class ChatWindow
         };
         if (picker.ShowDialog(this) == true)
         {
-            var fileName = System.IO.Path.GetFileName(picker.FileName);
-            var fileInfo = new System.IO.FileInfo(picker.FileName);
-            var sizeStr = fileInfo.Length < 1024 * 1024
-                ? $"{fileInfo.Length / 1024.0:F1} KB"
-                : $"{fileInfo.Length / (1024.0 * 1024.0):F1} MB";
-            var tag = $"[檔案: {fileName} ({sizeStr})]";
-            if (string.IsNullOrWhiteSpace(Draft.Text))
-            {
-                Draft.Text = tag;
-            }
-            else
-            {
-                Draft.Text = Draft.Text.TrimEnd() + " " + tag;
-            }
-            Draft.CaretIndex = Draft.Text.Length;
-            Draft.Focus();
+            AppendFilesToDraft(new[] { picker.FileName });
         }
+    }
+    private void ComposerDragOver(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            e.Effects = DragDropEffects.Copy;
+            e.Handled = true;
+            if (ComposerBorder is not null)
+            {
+                ComposerBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(40, 89, 197));
+                ComposerBorder.Background = new SolidColorBrush(Color.FromRgb(243, 246, 250));
+            }
+        }
+        else
+        {
+            e.Effects = DragDropEffects.None;
+        }
+    }
+    private void ComposerDragLeave(object sender, DragEventArgs e)
+    {
+        if (ComposerBorder is not null)
+        {
+            ComposerBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(220, 227, 236));
+            ComposerBorder.Background = Brushes.Transparent;
+        }
+    }
+    private void ComposerDrop(object sender, DragEventArgs e)
+    {
+        if (ComposerBorder is not null)
+        {
+            ComposerBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(220, 227, 236));
+            ComposerBorder.Background = Brushes.Transparent;
+        }
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
+            {
+                AppendFilesToDraft(files);
+                e.Handled = true;
+            }
+        }
+    }
+    private void AppendFilesToDraft(IEnumerable<string> paths)
+    {
+        if (!Draft.IsEnabled) return;
+        var tags = new List<string>();
+        foreach (var p in paths)
+        {
+            try
+            {
+                if (Directory.Exists(p))
+                {
+                    var dirName = Path.GetFileName(p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                    tags.Add($"[資料夾: {dirName}]");
+                }
+                else if (File.Exists(p))
+                {
+                    var fileName = Path.GetFileName(p);
+                    var info = new FileInfo(p);
+                    var sizeStr = info.Length < 1024 * 1024
+                        ? $"{info.Length / 1024.0:F1} KB"
+                        : $"{info.Length / (1024.0 * 1024.0):F1} MB";
+                    tags.Add($"[檔案: {fileName} ({sizeStr})]");
+                }
+            }
+            catch { }
+        }
+        if (tags.Count == 0) return;
+        var tagStr = string.Join(" ", tags);
+        if (string.IsNullOrWhiteSpace(Draft.Text))
+        {
+            Draft.Text = tagStr;
+        }
+        else
+        {
+            Draft.Text = Draft.Text.TrimEnd() + " " + tagStr;
+        }
+        Draft.CaretIndex = Draft.Text.Length;
+        Draft.Focus();
+        SetStatus($"已加入 {tags.Count} 個檔案標籤至訊息草稿。");
     }
     private void InsertCodeClick(object sender, RoutedEventArgs e)
     {
