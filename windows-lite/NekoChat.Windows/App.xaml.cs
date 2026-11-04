@@ -385,6 +385,7 @@ public partial class App : Application
             candidate = await ChatRuntime.OpenAsync(startupSource, isolatedData, startupPort, startupWireConfiguration);
             if (closingApp) return;
             await chat.AttachRuntimeAsync(candidate, directSendPort);
+            candidate.AttachmentProgress += (id, done, total) => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.ShowAttachmentProgress(id, done, total); }));
             candidate.DataChanged += () => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.DataChanged(); }));
             var listener = candidate.Listener; directListener = listener;
             listener.LegacyMessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {

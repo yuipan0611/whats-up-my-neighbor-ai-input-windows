@@ -59,6 +59,7 @@ public partial class ChatWindow
     private void InitializeInbox()
     {
         InboxList.ItemsSource = _inbox; _initializedInbox = true;
+        InitializeAttachments();
         InboxList.PreviewMouseLeftButtonUp += async (_, e) => {
             if (e.OriginalSource is DependencyObject source && ItemsControl.ContainerFromElement(InboxList, source) is ListBoxItem { DataContext: InboxRowView row } &&
                 (!_userOpened || _showInbox || _selected?.Id != row.Entry.Id)) await SelectEntryAsync(row.Entry, true);
@@ -206,6 +207,7 @@ public partial class ChatWindow
             { _drafts[id] = new(state); if (_selected?.ConversationId == id) SetDraftText(state.RawText ?? ""); }
         }
         if (!_historyLoaded) SetDraftText(CurrentDraft()?.Text ?? "");
+        _ = RefreshAttachmentDraftAsync();
     }
     private DraftEditBuffer? CurrentDraft() => _selected?.ConversationId is { } id && _drafts.TryGetValue(id, out var buffer) ? buffer : null;
     private void SetDraftText(string text) { _settingDraft = true; try { Draft.Text = text; } finally { _settingDraft = false; } }
@@ -246,8 +248,11 @@ public partial class ChatWindow
         bool isRemoved = _selected?.Removed == true;
         Draft.IsReadOnly = isRemoved;
         Draft.IsEnabled = !_stopping && !_closingRequested && (attached ? buffer is { Clearing: false } : _receiverRunning) && !isRemoved;
-        bool valid = !string.IsNullOrWhiteSpace(Draft.Text) && (_runtime?.MaximumTextBytes is not { } limit || V2Text.Check(Draft.Text, limit) == V2TextProblem.None);
-        SendButton.IsEnabled = !_closingRequested && !_sending && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
+        bool hasAttachment = _attachmentDraft is not null;
+        bool valid = hasAttachment ? Encoding.UTF8.GetByteCount(Draft.Text) <= (_runtime?.MaximumTextBytes ?? 65536) : !string.IsNullOrWhiteSpace(Draft.Text) && (_runtime?.MaximumTextBytes is not { } limit || V2Text.Check(Draft.Text, limit) == V2TextProblem.None);
+        AttachFileButton.IsEnabled = Draft.IsEnabled && !_sending && !_attachmentBusy && _runtime?.Attachments is not null;
+        RemoveAttachmentButton.IsEnabled = !_sending && !_attachmentBusy;
+        SendButton.IsEnabled = !_attachmentBusy && !_closingRequested && !_sending && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
         TeacherReactions.IsEnabled = ScrollReaction.IsEnabled = CanSendReaction;
         var attempt = _selected?.Attempt; AttemptBanner.Visibility = attempt is null ? Visibility.Collapsed : Visibility.Visible;
         bool cancelling = attempt is not null && _runtime?.IsAttemptCancellationRequested(attempt.MessageId, attempt.TryCount) == true;
@@ -301,13 +306,16 @@ public partial class ChatWindow
             if (_stopping || selection != _selectionRequest || entry.Id != _selected?.Id) return;
             if (reset) History.Rows.Clear();
             var peerAvatar = CatArtwork.ResolvePeerAvatar(entry.PeerId ?? entry.RosterId, entry.StudentNumber ?? entry.DisplayName);
+            var attachmentRows = _runtime.Attachments is { } attachments ? await attachments.HistoryAsync(entry.ConversationId ?? "") : [];
+            if (selection != _selectionRequest || entry.Id != _selected?.Id) return;
             var crRows = page.Classroom?.Items.Select(m => new MessageView("cr:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
                 m.Direction == "outgoing" ? (m.DeliveryLabel ?? (m.RemoteReadAt is not null ? "已讀" : m.RemoteStoredAt is not null ? "對方已儲存" : "")) : (m.LocalReadAt is not null ? "本機已讀" : ""), peerAvatar)) ?? [];
+            crRows = crRows.Select(row => { row.Attachment = attachmentRows.FirstOrDefault(a => a.LocalSeq == row.Sequence); if (row.Attachment is { } info) row.Delivery = info.StateText; row.AttachmentAction = AttachmentActionAsync; row.AttachmentPath = row.Attachment is { } a && _runtime.Attachments is { } service && service.Vault.Exists(a.File) ? service.Vault.PathFor(a.File.BlobId) : null; return row; });
             var rows = page.Message?.Items.Select(m => new MessageView("v2:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
                 m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "", peerAvatar)) ?? [];
             var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""), peerAvatar)) ?? [];
             var existing = History.Rows.ToDictionary(m => m.Key, StringComparer.Ordinal); int oldCount = existing.Count;
-            foreach (var row in crRows.Concat(rows).Concat(legacy)) { if (existing.TryGetValue(row.Key, out var old)) old.Delivery = row.Delivery; else existing.Add(row.Key, row); }
+            foreach (var row in crRows.Concat(rows).Concat(legacy)) { if (existing.TryGetValue(row.Key, out var old)) { old.Delivery = row.Delivery; old.AttachmentPath = row.AttachmentPath; old.Attachment = row.Attachment; } else existing.Add(row.Key, row); }
             var sorted = existing.Values.OrderBy(m => m.Utc, StringComparer.Ordinal).ThenBy(m => m.Legacy).ThenBy(m => m.Sequence).ToArray();
             for (int i = 0; i < sorted.Length; i++)
             {
@@ -385,15 +393,17 @@ public partial class ChatWindow
         Grid.SetColumnSpan(InboxPane, inbox ? 2 : 1); BackToInbox.Visibility = narrow ? Visibility.Visible : Visibility.Collapsed;
         bool compact = Shell.ActualHeight > 0 && Shell.ActualHeight < 430;
         Draft.Height = compact ? 55 : 72; Grid.SetColumnSpan(Draft, compact ? 1 : 2); Grid.SetRowSpan(Draft, compact ? 2 : 1);
-        Grid.SetRow(SendButton, compact ? 0 : 1); Grid.SetRowSpan(SendButton, compact ? 2 : 1); SendButton.MinHeight = compact ? 55 : 40; SendButton.Margin = compact ? new(8, 0, 0, 0) : new(8, 8, 0, 0);
+        Grid.SetRow(SendButton, compact ? 1 : 2); Grid.SetRowSpan(SendButton, compact ? 2 : 1); SendButton.MinHeight = compact ? 55 : 40; SendButton.Margin = compact ? new(8, 0, 0, 0) : new(8, 8, 0, 0);
         CodeToolbar.Visibility = compact ? Visibility.Collapsed : Visibility.Visible; CodeToolbarRow.Height = compact ? new(0) : GridLength.Auto;
-        ComposerToolsScroll.MaxHeight = Math.Min(170, Math.Max(0, Shell.ActualHeight - 80 - (compact ? 140 : 210) - 40));
+        ComposerToolsScroll.MaxHeight = Math.Min(170, Math.Max(0, Shell.ActualHeight - 80 - (compact ? 140 : 210) - (_attachmentDraft is null ? 0 : 64) - 40));
         CompactActions.Visibility = compact || ComposerToolsScroll.MaxHeight < 40 ? Visibility.Visible : Visibility.Collapsed;
     }
     private void BackToInboxClick(object sender, RoutedEventArgs e) { _showInbox = true; _userOpened = false; UpdateShellLayout(); ViewChanged(); }
     private void CompactActionsClick(object sender, RoutedEventArgs e)
     {
         var menu = new ContextMenu();
+        var attach = new MenuItem { Header = "附加檔案或相片", IsEnabled = CanAddAttachment() && _attachmentDraft is null };
+        attach.Click += AttachFileClick; menu.Items.Add(attach); menu.Items.Add(new Separator());
         foreach (var reaction in ClassroomReactions.All) { var item = new MenuItem { Header = reaction.Text + (reaction.TeacherOnly ? " → 老師" : " → 目前對象"), Tag = reaction.Id, IsEnabled = CanSendReaction }; item.Click += ReactionSendClick; menu.Items.Add(item); }
         menu.Items.Add(new Separator());
         foreach (var language in CodeLanguage.Items.OfType<ComboBoxItem>()) { var item = new MenuItem { Header = "插入 " + language.Content + " 程式碼", IsEnabled = Draft.IsEnabled }; item.Click += (_, _) => { CodeLanguage.SelectedItem = language; InsertCodeClick(sender, e); }; menu.Items.Add(item); }
@@ -486,7 +496,7 @@ public partial class ChatWindow
         try { var result = await _runtime.Worker.Run(s => s.SetReadReceiptPolicy(enabled)); if (edit == _readPolicyEdit) ReadReceiptToggle.IsChecked = result.Policy.Enabled; _runtime.Receipts?.Pulse(); _runtime.ClassroomReceipts?.Pulse(); SetStatus(result.Policy.Enabled ? "對外已讀回條已開啟；不補送先前已讀。" : $"對外已讀回條已關閉，移除 {result.DroppedReceipts} 筆未送回條。"); }
         catch (Exception ex) { ReadReceiptToggle.IsEnabled = false; ShowStorageError(ex); }
     }
-    private void AttachFileClick(object sender, RoutedEventArgs e)
+    private async void AttachFileClick(object sender, RoutedEventArgs e)
     {
         if (!Draft.IsEnabled) return;
         var picker = new Microsoft.Win32.OpenFileDialog
@@ -496,12 +506,12 @@ public partial class ChatWindow
         };
         if (picker.ShowDialog(this) == true)
         {
-            AppendFilesToDraft(new[] { picker.FileName });
+            await AddAttachmentPathsAsync(new[] { picker.FileName });
         }
     }
     private void ComposerDragOver(object sender, DragEventArgs e)
     {
-        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        if (CanAddAttachment() && _attachmentDraft is null && e.Data.GetDataPresent(DataFormats.FileDrop))
         {
             e.Effects = DragDropEffects.Copy;
             e.Handled = true;
@@ -513,7 +523,7 @@ public partial class ChatWindow
         }
         else
         {
-            e.Effects = DragDropEffects.None;
+            e.Effects = DragDropEffects.None; e.Handled = true;
         }
     }
     private void ComposerDragLeave(object sender, DragEventArgs e)
@@ -524,7 +534,7 @@ public partial class ChatWindow
             ComposerBorder.Background = Brushes.Transparent;
         }
     }
-    private void ComposerDrop(object sender, DragEventArgs e)
+    private async void ComposerDrop(object sender, DragEventArgs e)
     {
         if (ComposerBorder is not null)
         {
@@ -535,49 +545,10 @@ public partial class ChatWindow
         {
             if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
             {
-                AppendFilesToDraft(files);
                 e.Handled = true;
+                await AddAttachmentPathsAsync(files);
             }
         }
-    }
-    private void AppendFilesToDraft(IEnumerable<string> paths)
-    {
-        if (!Draft.IsEnabled) return;
-        var tags = new List<string>();
-        foreach (var p in paths)
-        {
-            try
-            {
-                if (Directory.Exists(p))
-                {
-                    var dirName = Path.GetFileName(p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-                    tags.Add($"[資料夾: {dirName}]");
-                }
-                else if (File.Exists(p))
-                {
-                    var fileName = Path.GetFileName(p);
-                    var info = new FileInfo(p);
-                    var sizeStr = info.Length < 1024 * 1024
-                        ? $"{info.Length / 1024.0:F1} KB"
-                        : $"{info.Length / (1024.0 * 1024.0):F1} MB";
-                    tags.Add($"[檔案: {fileName} ({sizeStr})]");
-                }
-            }
-            catch { }
-        }
-        if (tags.Count == 0) return;
-        var tagStr = string.Join(" ", tags);
-        if (string.IsNullOrWhiteSpace(Draft.Text))
-        {
-            Draft.Text = tagStr;
-        }
-        else
-        {
-            Draft.Text = Draft.Text.TrimEnd() + " " + tagStr;
-        }
-        Draft.CaretIndex = Draft.Text.Length;
-        Draft.Focus();
-        SetStatus($"已加入 {tags.Count} 個檔案標籤至訊息草稿。");
     }
     private void InsertCodeClick(object sender, RoutedEventArgs e)
     {

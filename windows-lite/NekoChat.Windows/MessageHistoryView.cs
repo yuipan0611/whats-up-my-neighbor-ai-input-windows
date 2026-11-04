@@ -6,6 +6,7 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
 using NekoChat.Core.Presentation;
+using NekoChat.Core.Attachments;
 
 namespace NekoChat.Windows;
 
@@ -20,6 +21,12 @@ internal sealed class MessageView(string key, string rawText, bool outgoing, boo
     public ImageSource? PeerAvatar { get; } = peerAvatar;
     private string _delivery = delivery;
     public string Delivery { get => _delivery; set { if (_delivery != value) { _delivery = value; PropertyChanged?.Invoke(this, new(nameof(Delivery))); } } }
+    private AttachmentRecord? _attachment;
+    public AttachmentRecord? Attachment { get => _attachment; set { if (_attachment != value) { _attachment = value; PropertyChanged?.Invoke(this, new(nameof(Attachment))); } } }
+    private int _progress;
+    public int AttachmentProgress { get => _progress; set { _progress = value; PropertyChanged?.Invoke(this, new(nameof(AttachmentProgress))); } }
+    public string? AttachmentPath { get; set; }
+    public Func<AttachmentRecord, string, Task>? AttachmentAction { get; set; }
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -36,11 +43,40 @@ public sealed class MessageCard : UserControl
     public object Message { get => GetValue(MessageProperty); set => SetValue(MessageProperty, value); }
     public static readonly DependencyProperty MessageProperty = DependencyProperty.Register(nameof(Message), typeof(object), typeof(MessageCard), new PropertyMetadata(null, (d, e) => ((MessageCard)d).Render(e.NewValue)));
 
+    private MessageView? _observed;
     private void Render(object newContent)
     {
-        if (newContent is not MessageView message) return;
+        if (_observed is not null) _observed.PropertyChanged -= MessageUpdated;
+        _observed = newContent as MessageView;
+        if (_observed is not null) { _observed.PropertyChanged += MessageUpdated; Build(_observed); }
+    }
+    private void MessageUpdated(object? sender, PropertyChangedEventArgs e)
+    { if (sender is MessageView message && e.PropertyName is nameof(MessageView.Attachment) or nameof(MessageView.AttachmentProgress)) Build(message); }
+    private void Build(MessageView message)
+    {
         var body = new StackPanel();
-        var document = MessageDocument.Parse(message.RawText);
+        if (message.Attachment is { } attachment)
+        {
+            var fileBody = new StackPanel();
+            if (message.AttachmentPath is { } path && AttachmentImage.Load(path, attachment.File.Name) is { } image)
+                fileBody.Children.Add(new Image { Source = image, MaxWidth = 300, MaxHeight = 200, Stretch = Stretch.Uniform, Margin = new(0,0,0,8) });
+            fileBody.Children.Add(Literal(attachment.File.Name, wrap: true));
+            fileBody.Children.Add(Literal(ChatWindow.AttachmentSize(attachment.File.Size) + " · " + attachment.StateText + (attachment.State == "receiving" ? $" {message.AttachmentProgress}%" : ""), wrap: true));
+            var actions = new WrapPanel { Margin = new(0,6,0,0) };
+            void Button(string label, string action) {
+                var button = new Button { Content = label, Margin = new(0,0,8,4), Padding = new(8,4,8,4), MinHeight = 30 };
+                button.Click += async (_,_) => { if (message.AttachmentAction is { } invoke) await invoke(attachment, action); };
+                actions.Children.Add(button);
+            }
+            if (attachment.State is "sending" or "receiving" || attachment.Direction == "outgoing" && attachment.State == "offered") Button("取消", "cancel");
+            else if (attachment.Direction == "incoming" && attachment.State != "complete") Button("下載", "download");
+            else if (attachment.Direction == "outgoing" && attachment.State is not ("complete" or "offered" or "unavailable")) Button("重試", "retry");
+            if (attachment.State == "complete" && attachment.Problem == "confirmation_pending") Button("重送確認", "download");
+            if (message.AttachmentPath is not null) Button("另存", "save");
+            fileBody.Children.Add(actions);
+            body.Children.Add(new Border { Child = fileBody, Background = Brush("#F1F5FA"), BorderBrush = Brush("#DCE3EC"), BorderThickness = new(1), CornerRadius = new(8), Padding = new(10), Margin = new(0,4,0,6) });
+        }
+        var document = MessageDocument.Parse(message.Attachment?.Caption ?? message.RawText);
 
         for (int i = 0; i < document.Blocks.Count; i++)
         {

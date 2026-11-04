@@ -13,7 +13,9 @@ public partial class ChatWindow
     private async Task SendCoreAsync(bool retry)
     {
         if (_runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) return;
-        var runtime = _runtime; var sent = buffer.Capture(); if (string.IsNullOrWhiteSpace(sent.Text)) return;
+        var runtime = _runtime; var sent = buffer.Capture();
+        if (_attachmentDraft is not null) { await SendAttachmentCoreAsync(runtime, entry, buffer, sent); return; }
+        if (string.IsNullOrWhiteSpace(sent.Text)) return;
         if (entry.Attempt is { State: not "sending" } previous && previous.RawSnapshot != sent.Text &&
             MessageBox.Show(this, "前一次訊息可能已送達。這次內容不同，會建立新的訊息；是否仍要傳送？", "傳送新內容", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
         SetSending(true);
