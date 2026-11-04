@@ -77,7 +77,7 @@ public partial class ChatWindow
     {
         _runtime = runtime; ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
         var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy());
-        if (!policy.Enabled && policy.Generation == 0)
+        if (!runtime.ArchivedIdentityFixture && !policy.Enabled && policy.Generation == 0)
         {
             var updated = await runtime.Worker.Run(s => s.SetReadReceiptPolicy(true));
             policy = updated.Policy;

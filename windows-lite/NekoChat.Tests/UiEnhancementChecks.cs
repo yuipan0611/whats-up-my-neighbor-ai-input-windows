@@ -33,8 +33,8 @@ public static class UiEnhancementChecks
         Check(xaml.Contains("x:Name=\"InsertCodeButton\""), "InsertCodeButton has dedicated name");
         Check(xaml.Contains("Height=\"26\""), "InsertCodeButton has compact Height 26");
         Check(xaml.Contains("x:Name=\"CodeLanguage\""), "CodeLanguage ComboBox exists");
-        Check(xaml.Contains("<Style TargetType=\"ComboBox\">"), "Custom modern ComboBox style is defined");
-        Check(xaml.Contains("<Style TargetType=\"ComboBoxItem\">"), "Custom modern ComboBoxItem style is defined");
+        Check(xaml.Contains("TargetType=\"ComboBox\""), "Custom modern ComboBox style is defined");
+        Check(xaml.Contains("TargetType=\"ComboBoxItem\""), "Custom modern ComboBoxItem style is defined");
 
         // Verify bottom 3 buttons height & margin consistency
         Check(xaml.Contains("Content=\"新增同學\" Click=\"AddRosterClick\" Height=\"30\""), "新增同學 button has Height 30");

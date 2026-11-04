@@ -87,7 +87,7 @@
     </Setter.Value>
    </Setter>
   </Style>
-  <Style TargetType="ComboBox">
+  <Style x:Key="CompactComboBox" TargetType="ComboBox">
    <Setter Property="VerticalContentAlignment" Value="Center"/>
    <Setter Property="HorizontalContentAlignment" Value="Left"/>
    <Setter Property="Background" Value="White"/>
@@ -132,7 +132,7 @@
     </Setter.Value>
    </Setter>
   </Style>
-  <Style TargetType="ComboBoxItem">
+  <Style x:Key="CompactComboBoxItem" TargetType="ComboBoxItem">
    <Setter Property="Padding" Value="8,4"/>
    <Setter Property="HorizontalContentAlignment" Value="Left"/>
    <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -236,7 +236,7 @@
         <Path Data="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" Stroke="#4B5563" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
        </Button>
        <Button x:Name="InsertCodeButton" Content="插入程式碼" Click="InsertCodeClick" Height="26" MinHeight="26" Padding="8,2" FontSize="12" VerticalContentAlignment="Center" Margin="0,0,6,0"/>
-       <ComboBox x:Name="CodeLanguage" SelectedIndex="0" Width="82" Height="26" FontSize="12" VerticalContentAlignment="Center" AutomationProperties.Name="程式碼語言"><ComboBoxItem Content="Python" Tag="python"/><ComboBoxItem Content="C#" Tag="csharp"/><ComboBoxItem Content="JavaScript" Tag="javascript"/><ComboBoxItem Content="純文字" Tag="text"/></ComboBox>
+       <ComboBox x:Name="CodeLanguage" Style="{StaticResource CompactComboBox}" ItemContainerStyle="{StaticResource CompactComboBoxItem}" SelectedIndex="0" Width="82" Height="26" FontSize="12" VerticalContentAlignment="Center" AutomationProperties.Name="程式碼語言"><ComboBoxItem Content="Python" Tag="python"/><ComboBoxItem Content="C#" Tag="csharp"/><ComboBoxItem Content="JavaScript" Tag="javascript"/><ComboBoxItem Content="純文字" Tag="text"/></ComboBox>
       </WrapPanel>
      </Grid></Border>
      <TextBlock Grid.Row="2" x:Name="DraftStatus" Text="Enter 傳送 · Shift＋Enter 換行" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>

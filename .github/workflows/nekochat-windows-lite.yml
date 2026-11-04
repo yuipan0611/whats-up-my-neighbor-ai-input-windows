@@ -105,7 +105,13 @@ jobs:
             $proof = Join-Path $env:GITHUB_WORKSPACE "build/windows-lite-smoke/manual-cancel-$index"
             $probe = Start-Process -FilePath (Resolve-Path $app).Path -ArgumentList @('--manual-send-cancel-smoke-test', "`"$proof`"") -PassThru
             if (!$probe.WaitForExit(60000)) { $probe.Kill(); throw 'Manual send Cancel fixture timed out' }
-            if ($probe.ExitCode -ne 0) { throw 'Manual send Cancel fixture failed' }
+            if (Test-Path "$proof/manual-send-cancel-result.json") {
+              Get-Content "$proof/manual-send-cancel-result.json"
+            }
+            if ($probe.ExitCode -ne 0) {
+              Get-ChildItem -Path $proof -ErrorAction SilentlyContinue | Format-List
+              throw "Manual send Cancel fixture failed with exit code $($probe.ExitCode)"
+            }
             $result = Get-Content "$proof/manual-send-cancel-result.json" -Raw | ConvertFrom-Json
             if (!$result.passed -or !$result.cleaned -or $result.productIdentityModeSelected -or $result.productMaximumTextBytesSelected) { throw 'Invalid isolated cancellation result' }
             $index++

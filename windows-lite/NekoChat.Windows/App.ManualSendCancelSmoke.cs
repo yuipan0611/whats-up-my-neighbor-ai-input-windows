@@ -81,15 +81,35 @@ public partial class App
             Check(!window.CancelAttemptButton.IsEnabled && !runtime.CanCancelAttempt(attempt.MessageId, attempt.TryCount), "finished operation cannot be canceled again");
             Capture(window, Path.Combine(output, "manual-send-cancelled.png"));
         }
-        catch (Exception ex) { failure = ex.GetType().Name; }
+        catch (Exception ex)
+        {
+            failure = ex.ToString();
+            Console.Error.WriteLine("ManualSendCancelSmoke failed: " + ex);
+        }
         finally
         {
             release.TrySetResult(); listener.Stop(); await timeout.CancelAsync();
             try { if (heldSocket is not null) await heldSocket; } catch (Exception ex) when (ex is OperationCanceledException or SocketException or EndOfStreamException) { }
-            catch (Exception ex) { failure ??= ex.GetType().Name; }
+            catch (Exception ex) { failure ??= ex.ToString(); Console.Error.WriteLine("heldSocket cleanup failed: " + ex); }
             try { if (window is not null) await window.PrepareForShutdownAsync(); if (runtime is not null) await runtime.DisposeAsync(); window?.DetachRuntime(); window?.Hide(); }
-            catch (Exception ex) { failure ??= ex.GetType().Name; }
-            try { if (Directory.Exists(fixture)) Directory.Delete(fixture, true); cleaned = true; } catch { failure ??= "FixtureCleanupFailed"; }
+            catch (Exception ex) { failure ??= ex.ToString(); Console.Error.WriteLine("window/runtime cleanup failed: " + ex); }
+            for (int i = 0; i < 10; i++)
+            {
+                try
+                {
+                    if (Directory.Exists(fixture)) Directory.Delete(fixture, true);
+                    cleaned = true;
+                    break;
+                }
+                catch (IOException) when (i < 9) { await Task.Delay(100); }
+                catch (UnauthorizedAccessException) when (i < 9) { await Task.Delay(100); }
+                catch (Exception ex) { failure ??= "FixtureCleanupFailed: " + ex; break; }
+            }
+            if (!cleaned && Directory.Exists(fixture))
+            {
+                try { Directory.Delete(fixture, true); cleaned = true; } catch (Exception ex) { failure ??= "FixtureCleanupFailed: " + ex; }
+            }
+            else { cleaned = true; }
         }
         Directory.CreateDirectory(output);
         await File.WriteAllTextAsync(Path.Combine(output, "manual-send-cancel-result.json"), JsonSerializer.Serialize(new {
