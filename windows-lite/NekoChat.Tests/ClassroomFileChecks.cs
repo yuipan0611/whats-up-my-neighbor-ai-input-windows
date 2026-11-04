@@ -154,6 +154,18 @@ public static class ClassroomFileChecks
                 Check(new FileInfo(sink.Shares.LocalPath(sink.Shares.List().Single())!).Length==0,"empty file transfers and verifies empty SHA-256");
                 await source.Shares.WithdrawAsync(source.Shares.List().Single().File.Id);await source.Attachments.ClearCacheAsync();Check(source.Attachments.Vault.UsedBytes==0,"withdrawn owned content can be explicitly cleaned");
             }
+            await using(var source=new Node(Path.Combine(root,"automatic-source")))
+            await using(var sink=new Node(Path.Combine(root,"automatic-sink")))
+            {
+                var reservation=new System.Net.Sockets.TcpListener(IPAddress.Loopback,0);reservation.Start();int offlinePort=((IPEndPoint)reservation.LocalEndpoint).Port;reservation.Stop();
+                source.Peers.AddRange([new("127.0.0.1",offlinePort,true),sink.Peer()]);sink.Peers.AddRange([new("127.0.0.1",offlinePort,true),source.Peer()]);
+                source.Shares.Start();sink.Shares.Start();var item=await source.Shares.ShareAsync(path);
+                async Task Until(Func<bool> predicate){using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));while(!predicate())await Task.Delay(50,timeout.Token);}
+                await Until(()=>sink.Shares.List().Any(f=>sink.Shares.LocalPath(f)!=null));
+                Check(sink.Shares.List().Single().File.Id==item.File.Id,"automatic background replication works with teacher unavailable and no manual sync");
+                await source.Shares.WithdrawAsync(item.File.Id);await Until(()=>sink.Shares.List().Count==0);
+                Check(sink.Shares.List().Count==0,"automatic background withdrawal propagates without teacher");
+            }
             using(var key=ECDsa.Create(ECCurve.NamedCurves.nistP256))
             {
                 var f=new ShareManifest(ShareProtocol.Id(key),Convert.ToBase64String(key.ExportSubjectPublicKeyInfo()),"../oops",0,Convert.ToHexStringLower(SHA256.HashData([])),"127.0.0.1","",DateTimeOffset.UtcNow.ToString("O"));
