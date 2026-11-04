@@ -54,8 +54,16 @@ public partial class ChatWindow
             Width = normalWidth; Height = Math.Max(MinHeight, Math.Min(720, SystemParameters.WorkArea.Height - 24));
             Show(); Activate(); await SelectEntryAsync(teacher, false);
             await CaptureUi4VisualAsync(Path.Combine(evidence, "01-teacher-chat.png"));
-            _showTeacherFiles = true; _showInbox = false; _userOpened = false;
+            var retryRow = History.Rows.FirstOrDefault(x => x.AttemptId is not null);
+            if (retryRow is null || History.ItemContainerGenerator.ContainerFromItem(retryRow) is not FrameworkElement retryContainer)
+                throw new InvalidOperationException("失敗訊息沒有產生可見的原生訊息卡。");
+            var retryBounds = retryContainer.TransformToAncestor(History).TransformBounds(new Rect(retryContainer.RenderSize));
+            if (Rect.Intersect(new Rect(History.RenderSize), retryBounds).Height < 18)
+                throw new InvalidOperationException("失敗訊息卡未位於對話可見範圍。");
+            _showTeacherFiles = true; _showInbox = false; _userOpened = false; ApplyInboxFilter();
             UpdateHeader(); UpdateComposer(); UpdateShellLayout(); ViewChanged(); await LoadTeacherFilesAsync(false);
+            if (TeachersList.SelectedItem is not null || InboxList.SelectedItem is not null)
+                throw new InvalidOperationException("檔案頁仍同時選取聊天室。");
             await CaptureUi4VisualAsync(Path.Combine(evidence, "02-teacher-files.png"));
             Width = 520; await CaptureUi4VisualAsync(Path.Combine(evidence, "03-narrow-teacher-files.png"));
             Width = normalWidth; UpdateShellLayout();
@@ -64,7 +72,7 @@ public partial class ChatWindow
                 result = "WPF rendering captured", captureKind = "Actual Windows WPF RenderTargetBitmap, not desktop or input acceptance",
                 sourceVersion = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(ChatWindow).Assembly)?.InformationalVersion,
                 dpiX = dpi.PixelsPerInchX, dpiY = dpi.PixelsPerInchY,
-                width = ActualWidth, height = ActualHeight, teacherFileRows = _teacherFiles.Count,
+                width = ActualWidth, height = ActualHeight, teacherFileRows = _teacherFiles.Count, retryCardVisible = true, exclusiveFileSelection = true,
                 profile = "isolated QA", networkMessagesSentByFixture = 0,
                 unexecuted = new[] { "Native keyboard/IME", "Real clipboard and drag/drop", "Other DPI settings", "Two Windows delivery" }
             }, new JsonSerializerOptions { WriteIndented = true }));
@@ -88,8 +96,9 @@ public partial class ChatWindow
     {
         await Dispatcher.InvokeAsync(UpdateLayout, DispatcherPriority.ApplicationIdle);
         var dpi = VisualTreeHelper.GetDpi(this);
-        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(ActualWidth * dpi.DpiScaleX), (int)Math.Ceiling(ActualHeight * dpi.DpiScaleY), dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
-        bitmap.Render(this);
+        var visual = (FrameworkElement)Content;
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(visual.ActualWidth * dpi.DpiScaleX), (int)Math.Ceiling(visual.ActualHeight * dpi.DpiScaleY), dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
         var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
         using var output = File.Create(path); png.Save(output);
     }

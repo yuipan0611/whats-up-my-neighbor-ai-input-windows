@@ -26,7 +26,7 @@ public partial class ChatWindow
         await FlushDraftsAsync();
         if (_closingRequested) return;
         _showTeacherFiles = true; _showInbox = false; _userOpened = false;
-        History.Visibility = Visibility.Collapsed;
+        History.Visibility = Visibility.Collapsed; ApplyInboxFilter();
         UpdateHeader(); UpdateComposer(); UpdateShellLayout(); ViewChanged();
         await LoadTeacherFilesAsync(false);
     }
@@ -126,17 +126,21 @@ public partial class ChatWindow
 
     private void SyncAttemptMessage()
     {
-        foreach (var old in History.Rows.Where(x => x.AttemptId is not null).ToArray()) History.Rows.Remove(old);
-        if (_selected?.Attempt is not { } attempt || _showTeacherFiles) return;
+        var attempt = _selected?.Attempt;
+        foreach (var old in History.Rows.Where(x => x.AttemptId is not null && x.AttemptId != attempt?.MessageId).ToArray()) History.Rows.Remove(old);
+        if (attempt is null || _showTeacherFiles) return;
         bool cancelling = _runtime?.IsAttemptCancellationRequested(attempt.MessageId, attempt.TryCount) == true;
-        string selectedId = _selected.Id;
+        string selectedId = _selected!.Id;
         bool CurrentAttempt() => !_showTeacherFiles && _selected is { Attempt: { } active } entry && entry.Id == selectedId && active.MessageId == attempt.MessageId && active.TryCount == attempt.TryCount;
-        var row = new MessageView("attempt:" + attempt.MessageId, attempt.RawSnapshot, true, false, 0, "", ClassroomSendUiPolicy.DecideAttemptBanner(attempt.State, cancelling))
-        {
-            AttemptId = attempt.MessageId, AttemptFailed = attempt.State is "failed" or "unconfirmed",
-            RetrySend = RetryAttempt.IsEnabled ? () => CurrentAttempt() ? SendCurrentAsync(true) : Task.CompletedTask : null,
-            CancelSend = CancelAttemptButton.IsEnabled ? () => { if (CurrentAttempt()) CancelAttemptClick(this, new RoutedEventArgs()); return Task.CompletedTask; } : null
-        };
-        History.Rows.Add(row); HistoryState.Visibility = Visibility.Collapsed;
+        var row = History.Rows.FirstOrDefault(x => x.AttemptId == attempt.MessageId);
+        bool added = row is null;
+        row ??= new MessageView("attempt:" + attempt.MessageId, attempt.RawSnapshot, true, false, 0, "", "") { AttemptId = attempt.MessageId };
+        row.AttemptFailed = attempt.State is "failed" or "unconfirmed";
+        row.RetrySend = RetryAttempt.IsEnabled ? () => CurrentAttempt() ? SendCurrentAsync(true) : Task.CompletedTask : null;
+        row.CancelSend = CancelAttemptButton.IsEnabled ? () => { if (CurrentAttempt()) CancelAttemptClick(this, new RoutedEventArgs()); return Task.CompletedTask; } : null;
+        row.Delivery = ClassroomSendUiPolicy.DecideAttemptBanner(attempt.State, cancelling);
+        row.RefreshActions();
+        if (added) History.Rows.Add(row);
+        HistoryState.Visibility = Visibility.Collapsed;
     }
 }

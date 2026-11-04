@@ -30,7 +30,7 @@ public partial class App : Application
         base.OnStartup(e);
         string[] startupArgs = e.Args;
 #if UI4_LOCAL_PREVIEW
-        if (startupArgs.Length == 0) startupArgs = new[] { "--ui4-native-preview", @"C:\NekoChatUI4QA20261105\Profile" };
+        if (startupArgs.Length == 0) startupArgs = new[] { "--ui4-native-preview", System.IO.Path.Combine(@"C:\NekoChatUI4QA20261105", System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(App).Assembly)!.InformationalVersion.Split('+')[0]) };
 #endif
 
         if (startupArgs.Length > 0 && startupArgs[0] == "--restore-backup")
@@ -61,7 +61,7 @@ public partial class App : Application
         try
         {
             bool ui4NativePreview = startupArgs.Length == 2 && startupArgs[0] == "--ui4-native-preview";
-            var uiTestOptions = UiTestOptions.Parse(ui4NativePreview ? new[] { "--ui-test-data", startupArgs[1], "--ui-test-port", "18770" } : startupArgs);
+            var uiTestOptions = UiTestOptions.Parse(ui4NativePreview ? new[] { "--ui-test-data", startupArgs[1], "--ui-test-port", "18771" } : startupArgs);
             _uiTestOptions = uiTestOptions;
             var messagingSmoke = MessagingSmokeOptions.Parse(startupArgs);
             bool keyboardSmoke = startupArgs.Length == 2 && startupArgs[0] == "--keyboard-smoke-test";

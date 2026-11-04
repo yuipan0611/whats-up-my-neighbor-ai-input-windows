@@ -173,10 +173,10 @@ public partial class ChatWindow
         try
         {
             TeachersList.ItemsSource = _snapshot.Entries.Where(e => e.IsTeacher).Select(e => new InboxRowView(e, StateOf(e))).ToArray();
-            TeachersList.SelectedItem = TeachersList.Items.OfType<InboxRowView>().FirstOrDefault(e => e.Entry.Id == _selected?.Id);
+            TeachersList.SelectedItem = _showTeacherFiles ? null : TeachersList.Items.OfType<InboxRowView>().FirstOrDefault(e => e.Entry.Id == _selected?.Id);
             SetTeacherButton.Visibility = _snapshot.Entries.Any(e => e.IsTeacher && !e.Removed) ? Visibility.Collapsed : Visibility.Visible;
             _inbox.Clear(); foreach (var entry in entries) _inbox.Add(new(entry, StateOf(entry)));
-            InboxList.SelectedItem = _inbox.FirstOrDefault(e => e.Entry.Id == _selected?.Id);
+            InboxList.SelectedItem = _showTeacherFiles ? null : _inbox.FirstOrDefault(e => e.Entry.Id == _selected?.Id);
         }
         finally { _changingSelection = false; }
         InboxCount.Text = $"同學 · {_snapshot.Entries.Count(e => !e.IsTeacher)} 位";
@@ -201,7 +201,7 @@ public partial class ChatWindow
     {
         ++_selectionRequest; ++_teacherFilesRequest; _showTeacherFiles = false; History.Visibility = Visibility.Visible; _replyLookupPending = false;
         _selected = entry; _userOpened = userOpened; _showInbox = false; _historyLoaded = false; _beforeMessage = _beforeLegacy = null;
-        ViewChanged(); History.Rows.Clear(); EnsureDraft(entry); SetDraftText(CurrentDraft()?.Text ?? "");
+        ApplyInboxFilter(); ViewChanged(); History.Rows.Clear(); EnsureDraft(entry); SetDraftText(CurrentDraft()?.Text ?? "");
         RecipientIp.Text = entry.Endpoint ?? ""; UpdateHeader(); UpdateShellLayout(); UpdateComposer(); await LoadHistoryAsync(false, true, focusSequence);
         ViewChanged();
     }
@@ -359,6 +359,7 @@ public partial class ChatWindow
             if (older || reset) { _beforeMessage = page.Classroom?.NextBeforeLocalSeq ?? page.Message?.NextBeforeLocalSeq; _beforeLegacy = page.Legacy?.NextBeforeLegacySeq; }
             OlderMessages.Visibility = _beforeMessage is not null || _beforeLegacy is not null ? Visibility.Visible : Visibility.Collapsed;
             _historyLoaded = true; HistoryState.Text = History.Rows.Count == 0 ? "還沒有訊息" : ""; HistoryState.Visibility = History.Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            SyncAttemptMessage();
             if (!older && (reset || wasAtEnd)) ScrollLatest(); else if (!older && History.Rows.Count > oldCount) NewMessages.Visibility = Visibility.Visible;
             if (older && oldScroll is not null) _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => {
                 if (selection == _selectionRequest && _selected?.Id == entry.Id) oldScroll.ScrollToVerticalOffset(oldOffset + Math.Max(0, oldScroll.ExtentHeight - oldExtent));

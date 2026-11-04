@@ -28,9 +28,10 @@ internal sealed class MessageView(string key, string rawText, bool outgoing, boo
     public string? AttachmentPath { get; set; }
     public Func<AttachmentRecord, string, Task>? AttachmentAction { get; set; }
     public string? AttemptId { get; init; }
-    public bool AttemptFailed { get; init; }
-    public Func<Task>? RetrySend { get; init; }
-    public Func<Task>? CancelSend { get; init; }
+    public bool AttemptFailed { get; set; }
+    public Func<Task>? RetrySend { get; set; }
+    public Func<Task>? CancelSend { get; set; }
+    internal void RefreshActions() => PropertyChanged?.Invoke(this, new(nameof(RetrySend)));
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -55,7 +56,7 @@ public sealed class MessageCard : UserControl
         if (_observed is not null) { _observed.PropertyChanged += MessageUpdated; Build(_observed); }
     }
     private void MessageUpdated(object? sender, PropertyChangedEventArgs e)
-    { if (sender is MessageView message && e.PropertyName is nameof(MessageView.Attachment) or nameof(MessageView.AttachmentProgress) or nameof(MessageView.Delivery)) Build(message); }
+    { if (sender is MessageView message && e.PropertyName is nameof(MessageView.Attachment) or nameof(MessageView.AttachmentProgress) or nameof(MessageView.Delivery) or nameof(MessageView.RetrySend)) Build(message); }
     private void Build(MessageView message)
     {
         var body = new StackPanel();
