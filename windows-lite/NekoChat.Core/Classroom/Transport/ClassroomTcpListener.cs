@@ -23,7 +23,7 @@ public sealed class ClassroomConnectionContext
     public string SourceIp { get; }
     public string LocalIp { get; }
 }
-public sealed record ClassroomTransportResponse(int StatusCode, ReadOnlyMemory<byte> Body);
+public sealed record ClassroomTransportResponse(int StatusCode, ReadOnlyMemory<byte> Body, bool Binary = false);
 
 /// <summary>The host owns the endpoint/store. SetReady must be fast, clear RAM sessions, and never wait for storage.</summary>
 public interface IClassroomRequestEndpoint
@@ -48,7 +48,8 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<Task, TcpClient> _workers = new();
-    private readonly SourceQuota _classroom, _legacy;
+    private readonly SourceQuota _classroom, _legacy, _attachments;
+    private int _attachmentRequests;
     private Task? _loop, _disposal;
     private long _generation, _acceptFailures;
     private int _running, _port, _failed;
@@ -70,6 +71,7 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
         _listener = new(_options.BindAddress, _options.Port); _port = _options.Port;
         _classroom = new(_options.Clock, _options.ClassroomRequestsPerMinute, _options.MaximumSources);
         _legacy = new(_options.Clock, 20, _options.MaximumSources);
+        _attachments = new(_options.Clock, 2400, _options.MaximumSources);
     }
     public void Start()
     {
@@ -172,7 +174,7 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
             timeout.CancelAfter(_options.ConnectionTimeout);
             using var closeOnDeadline = timeout.Token.Register(static value => ((TcpClient)value!).Dispose(), client);
             bool Current() => Running && generation == Volatile.Read(ref _generation) && !timeout.IsCancellationRequested;
-            NetworkStream? stream = null;
+            NetworkStream? stream = null; bool attachmentSlot = false;
             try
             {
                 stream = client.GetStream();
@@ -180,7 +182,8 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
                 {
                     // Classification only selects a quota; the supplied codec still validates the entire head.
                     bool classroom = IsClassroomRequestLine(bytes.Span);
-                    if (!(classroom ? _classroom : _legacy).Allow(connection.SourceIp)) return new("rate_limited");
+                    bool attachment = NekoChat.Core.Attachments.AttachmentEndpoint.Operation(bytes.Span) is not null;
+                    if (!(attachment ? _attachments : classroom ? _classroom : _legacy).Allow(connection.SourceIp)) return new("rate_limited");
                     return _endpoint.ValidateHead(bytes);
                 }, timeout.Token).ConfigureAwait(false);
                 ClassroomTransportResponse response;
@@ -189,13 +192,16 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
                 else
                 {
                     // Never WaitAsync(timeout) around storage work: a closed socket must not release its physical slot.
-                    response = await _endpoint.HandleAsync(frame.Frame!, connection, Current, timeout.Token).ConfigureAwait(false);
+                    bool attachment = frame.Frame!.Route.StartsWith("attachment.", StringComparison.Ordinal);
+                    bool admitted = true;
+                    if (attachment) { attachmentSlot = Interlocked.Increment(ref _attachmentRequests) <= 2; if (!attachmentSlot) { Interlocked.Decrement(ref _attachmentRequests); admitted = false; } }
+                    response = admitted ? await _endpoint.HandleAsync(frame.Frame!, connection, Current, timeout.Token).ConfigureAwait(false) : _endpoint.Error("rate_limited");
                 }
                 if (Current()) await RespondAsync(stream, response, timeout.Token).ConfigureAwait(false);
             }
             catch (Exception e) when (e is IOException or SocketException or ObjectDisposedException or OperationCanceledException) { }
             catch { Report("request_failed"); }
-            finally { if (stream is not null) await FinishAsync(client, stream, _lifetime.Token).ConfigureAwait(false); }
+            finally { try { if (stream is not null) await FinishAsync(client, stream, _lifetime.Token).ConfigureAwait(false); } finally { if (attachmentSlot) Interlocked.Decrement(ref _attachmentRequests); } }
         }
     }
     private static bool IsClassroomRequestLine(ReadOnlySpan<byte> bytes)
@@ -208,10 +214,10 @@ public sealed class ClassroomTcpListener : IAsyncDisposable
     }
     private static async Task RespondAsync(Stream stream, ClassroomTransportResponse response, CancellationToken token)
     {
-        if (response.Body.Length > 8192 || response.StatusCode is < 200 or > 599)
+        if (response.Body.Length > (response.Binary ? NekoChat.Core.Attachments.AttachmentLimits.ChunkBytes : 8192) || response.StatusCode is < 200 or > 599)
             throw new InvalidOperationException("Invalid classroom endpoint response.");
         string reason = response.StatusCode switch { 200 => "OK", 403 => "Forbidden", 409 => "Conflict", 413 => "Content Too Large", 429 => "Too Many Requests", 503 => "Service Unavailable", _ => "Bad Request" };
-        byte[] header = Encoding.ASCII.GetBytes($"HTTP/1.1 {response.StatusCode} {reason}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {response.Body.Length}\r\nConnection: close\r\n\r\n");
+        byte[] header = Encoding.ASCII.GetBytes($"HTTP/1.1 {response.StatusCode} {reason}\r\nContent-Type: {(response.Binary ? "application/octet-stream" : "application/json; charset=utf-8")}\r\nContent-Length: {response.Body.Length}\r\nConnection: close\r\n\r\n");
         await stream.WriteAsync(header, token).ConfigureAwait(false); await stream.WriteAsync(response.Body, token).ConfigureAwait(false); await stream.FlushAsync(token).ConfigureAwait(false);
     }
     private static async Task FinishAsync(TcpClient client, NetworkStream stream, CancellationToken parent)
