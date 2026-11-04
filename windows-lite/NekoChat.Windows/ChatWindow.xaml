@@ -87,8 +87,11 @@
      <TextBlock Text="學號（可留白）" Margin="0,8,0,4"/><TextBox x:Name="StudentNumberBox" AutomationProperties.Name="學號"/>
      <TextBlock Text="內網 IP（可留白）" Margin="0,8,0,4"/><TextBox x:Name="RecipientIp" TextChanged="RecipientChanged" AutomationProperties.Name="同學內網 IP"/>
      <CheckBox x:Name="TeacherLabel" Content="老師標籤（不授權）" Margin="0,8"/>
-     <Button x:Name="SaveContactButton" Content="新增到名單" Click="SaveContactClick" HorizontalAlignment="Left"/>
-     <Button x:Name="DeleteContactButton" Content="移除此名單標籤" Click="DeleteRosterClick" HorizontalAlignment="Left" Margin="0,8,0,0" IsEnabled="False"/>
+     <WrapPanel Margin="0,4,0,0">
+      <Button x:Name="SaveContactButton" Content="新增到名單" Click="SaveContactClick" HorizontalAlignment="Left"/>
+      <Button x:Name="DeleteContactButton" Content="移除此名單標籤" Click="DeleteRosterClick" HorizontalAlignment="Left" Margin="8,0,0,0" IsEnabled="False"/>
+      <TextBlock x:Name="SaveContactFeedback" Foreground="DarkGreen" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0,0,0"/>
+     </WrapPanel>
      <ComboBox x:Name="ContactsCombo" SelectionChanged="ContactsComboChanged" Visibility="Collapsed"/>
      <TextBlock Text="課堂反應" FontWeight="Bold" Margin="0,20,0,8"/><TextBlock Text="老師 IP"/><TextBox x:Name="TeacherIpBox" AutomationProperties.Name="老師 IP"/>
      <Button Content="記住老師" Click="SaveTeacherClick" HorizontalAlignment="Left" Margin="0,8"/><TextBlock x:Name="TeacherTarget" TextWrapping="Wrap"/><TextBlock x:Name="ScrollTarget" TextWrapping="Wrap" Margin="0,8"/>

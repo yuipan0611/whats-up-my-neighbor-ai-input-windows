@@ -397,7 +397,7 @@ public partial class ChatWindow
     private async void AddRosterClick(object sender, RoutedEventArgs e) { SettingsPane.Visibility = Visibility.Visible; ViewChanged(); await LoadManualFormAsync(null); ContactName.Focus(); }
     private async Task LoadManualFormAsync(string? rosterId)
     {
-        _editingRosterId = rosterId; _manualFormSnapshot = null; _pairingSelection = null; RefreshPairingControls(); long generation = ++_manualFormGeneration; SaveContactButton.IsEnabled = DeleteContactButton.IsEnabled = false;
+        SaveContactFeedback.Text = ""; _editingRosterId = rosterId; _manualFormSnapshot = null; _pairingSelection = null; RefreshPairingControls(); long generation = ++_manualFormGeneration; SaveContactButton.IsEnabled = DeleteContactButton.IsEnabled = false;
         ManualRosterTitle.Text = rosterId is null ? "手動新增同學" : "編輯目前名單";
         SaveContactButton.Content = rosterId is null ? "新增到名單" : "儲存這位同學";
         if (_runtime is null) { ContactName.Text = StudentNumberBox.Text = RecipientIp.Text = ""; TeacherLabel.IsChecked = false; return; }
@@ -425,11 +425,22 @@ public partial class ChatWindow
             var result = await _runtime.Worker.Run(s => s.SaveManualRosterEntry(id, edit, token));
             if (result.Changed || result.Reason == "unchanged")
             {
-                if (generation == _manualFormGeneration) { _editingRosterId = result.EntryId; _manualFormSnapshot = result.SnapshotToken; SaveContactButton.Content = "儲存這位同學"; DeleteContactButton.IsEnabled = true; }
+                if (generation == _manualFormGeneration) { _editingRosterId = result.EntryId; _manualFormSnapshot = result.SnapshotToken; SaveContactButton.Content = "儲存這位同學"; DeleteContactButton.IsEnabled = true; SaveContactFeedback.Foreground = System.Windows.Media.Brushes.DarkGreen; SaveContactFeedback.Text = "✅ 名單已儲存"; }
                 if (generation == _manualFormGeneration) await LoadManualFormAsync(result.EntryId);
                 SetStatus(result.Changed ? "名單已儲存。" : "名單沒有變動。"); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync();
+                if (id is null)
+                {
+                    SettingsPane.Visibility = Visibility.Collapsed;
+                    ViewChanged();
+                    SelectEndpoint(ip.Length > 0 ? ip : null);
+                }
             }
-            else StorageStatus.Text = RosterFailure(result.Reason);
+            else
+            {
+                SaveContactFeedback.Foreground = System.Windows.Media.Brushes.Firebrick;
+                SaveContactFeedback.Text = "❌ " + RosterFailure(result.Reason);
+                StorageStatus.Text = RosterFailure(result.Reason);
+            }
         }
         catch (Exception ex) { ShowStorageError(ex); }
     }

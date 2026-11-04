@@ -161,12 +161,16 @@ public partial class ChatWindow : Window
         var name = ContactName.Text.Trim();
         if (ip.Length > 0 && !LanInvitation.PrivateIPv4(ip))
         {
+            SaveContactFeedback.Foreground = System.Windows.Media.Brushes.Firebrick;
+            SaveContactFeedback.Text = "請輸入有效的內網 IP";
             SetStatus("請先輸入有效的內網 IP（例如 192.168.1.25）。");
             RecipientIp.Focus();
             return;
         }
         if (string.IsNullOrWhiteSpace(name))
         {
+            SaveContactFeedback.Foreground = System.Windows.Media.Brushes.Firebrick;
+            SaveContactFeedback.Text = "請輸入備註名稱";
             SetStatus("請輸入備註名稱（例如 隔壁小明）。");
             ContactName.Focus();
             return;
