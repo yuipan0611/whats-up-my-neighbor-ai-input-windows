@@ -49,4 +49,4 @@ Focused 包含：檔案位元組與雜湊、來源變動不影響已分享內容
 
 實際畫面與箭頭說明：本機預覽服務 `/native-classroom-files-flow/index.html`；交付 `Evidence/index.html` 保存相同原圖。
 
-交付核對：879 個內容檔案 SHA-256 通過；班級 sidecar 僅含 IP、老師稱呼及角色，未帶姓名／學號。
+交付核對：交付內容檔案 SHA-256 通過（排除 Finder 自動產生的 .DS_Store）；班級 sidecar 僅含 IP、老師稱呼及角色，未帶姓名／學號。
