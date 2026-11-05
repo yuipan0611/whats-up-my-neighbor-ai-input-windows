@@ -29,6 +29,7 @@ public partial class ChatWindow
             unnormalizedReadVisible = !intersection.IsEmpty && ReadVisibility.IsVisible(bounds.Height, intersection.Height, 18, History.ActualHeight)
         };
     }
+    internal Func<Task>? SmokeBeforeDraftWriteCompletion { get; set; }
     internal void SmokeUsePeerPort(int port) => _peerPort = port;
     internal async Task SmokeOpenEntryAsync(Func<InboxEntry, bool> matches)
     {
