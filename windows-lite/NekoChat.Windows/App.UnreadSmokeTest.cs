@@ -109,19 +109,31 @@ public partial class App
 
             // A long conversation must retain offscreen unread; scrolling, not merely selecting, reads those rows.
             await runtime.Worker.Run(store => {
-                for (int i = 0; i < 30; i++)
+                for (int i = 0; i < 80; i++)
                     store.ReceiveClassroomMessage(second, new(Guid.NewGuid().ToString("D"), $"尚未看過的第 {i} 則訊息"), () => true);
                 return true;
             });
             window.DataChanged();
-            await Until(() => Row(second).Entry.TotalUnread == 31, "new messages in another chat remain unread");
+            await Until(() => Row(second).Entry.TotalUnread == 81, "new messages in another chat remain unread");
             window.InboxList.SelectedItem = Row(second);
-            await Until(() => Row(second).Entry.TotalUnread is > 0 and < 31, "opening long chat reads visible rows and preserves offscreen unread");
-            long remaining = Row(second).Entry.TotalUnread;
+            await Until(() => Row(second).Entry.TotalUnread == 0, "latest visible message clears previous unread across unloaded pages");
             var historyScroll = SmokeVisuals<ScrollViewer>(window.History).First();
-            historyScroll.ScrollToTop();
-            await Until(() => Row(second).Entry.TotalUnread < remaining, "scrolling to older messages updates unread without reopening");
+            historyScroll.ScrollToTop(); await Task.Delay(400);
+            await runtime.Worker.Run(store => {
+                for (int i = 0; i < 5; i++) store.ReceiveClassroomMessage(second, new(Guid.NewGuid().ToString("D"), $"稍後收到但尚未看過 {i}"), () => true);
+                return true;
+            });
+            window.DataChanged();
+            await Until(() => Row(second).Entry.TotalUnread == 5, "incoming messages remain unread while reading older history");
+            await Task.Delay(400);
+            Check(Row(second).Entry.TotalUnread == 5, "older viewport never reads newer offscreen messages");
+            historyScroll.ScrollToBottom();
+            await Until(() => Row(second).Entry.TotalUnread == 0, "scrolling to latest advances read position");
             Capture(window, Path.Combine(output, "partly-read.png"));
+            window.Hide();
+            await runtime.Worker.Run(store => store.ReceiveClassroomMessage(second, new(Guid.NewGuid().ToString("D"), "重啟仍未讀"), () => true));
+            window.DataChanged();
+            await Until(() => Row(second).Entry.TotalUnread == 1, "hidden incoming message stays unread before restart");
 
             await window.PrepareForShutdownAsync(); window.DetachRuntime(); window.Hide();
             await runtime.DisposeAsync(); runtime = null;
@@ -129,8 +141,8 @@ public partial class App
             Check(await runtime.Worker.Run(store => {
                 var snapshot = store.GetClassroomInboxSnapshot();
                 return snapshot.Entries.Single(entry => entry.Principal == principal).TotalUnread == 0 &&
-                    snapshot.Entries.Single(entry => entry.Endpoint == second).TotalUnread is > 0 and < 31;
-            }), "restart preserves read marks and remaining offscreen unread");
+                    snapshot.Entries.Single(entry => entry.Endpoint == second).TotalUnread == 1;
+            }), "restart preserves reading position and later unread");
             window = null;
         }
         catch (Exception ex)

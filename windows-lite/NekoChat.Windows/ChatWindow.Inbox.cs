@@ -427,14 +427,20 @@ public partial class ChatWindow
             var context = VisibleContext(entry.ConversationId); long readGeneration = _runtime.Reads.Update(context);
             bool StillCurrent() => !_stopping && generation == Volatile.Read(ref _viewGeneration);
             int marked = 0;
-            if (entry.ConversationId is { } conv && signed.Length > 0)
+            if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(entry.ConversationId, out var classroom))
             {
-                if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(conv, out var principal))
-                    marked += (await _runtime.Worker.Run(s => StillCurrent() ? s.MarkClassroomVisibleRead(principal, signed, context, StillCurrent) : new VisibleReadResult(0, 0, "stale-view"))).Marked;
-                else
-                    marked += (await _runtime.Worker.Run(_ => StillCurrent() ? _runtime.Reads.Mark(conv, readGeneration, signed) : new(0, 0, "stale-view"))).Marked;
+                var anchor = visible.Where(row => row.AttemptId is null && row.Sequence > 0)
+                    .OrderBy(row => row.Utc, StringComparer.Ordinal).ThenBy(row => row.Legacy).ThenBy(row => row.Sequence).LastOrDefault();
+                if (anchor is not null)
+                    marked = (await _runtime.ReadThroughAsync(classroom, entry.LegacyScope, anchor.Sequence, anchor.Legacy, context, StillCurrent)).Marked;
             }
-            if (entry.LegacyScope is { } scope && legacy.Length > 0) marked += (await _runtime.Worker.Run(s => s.MarkLegacyVisibleRead(scope, legacy, context with { ActiveConversationId = scope.ContextId }, StillCurrent))).Marked;
+            else
+            {
+                if (entry.ConversationId is { } conv && signed.Length > 0)
+                    marked += (await _runtime.Worker.Run(_ => StillCurrent() ? _runtime.Reads.Mark(conv, readGeneration, signed) : new(0, 0, "stale-view"))).Marked;
+                if (entry.LegacyScope is { } scope && legacy.Length > 0)
+                    marked += (await _runtime.Worker.Run(s => s.MarkLegacyVisibleRead(scope, legacy, context with { ActiveConversationId = scope.ContextId }, StillCurrent))).Marked;
+            }
             if (marked > 0) { _runtime.Receipts?.Pulse(); _runtime.ClassroomReceipts?.Pulse(); await RefreshInboxAsync(); }
         }
         catch (Exception ex) { ShowStorageError(ex); }

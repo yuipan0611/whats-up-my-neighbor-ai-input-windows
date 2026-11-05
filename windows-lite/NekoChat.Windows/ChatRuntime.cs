@@ -157,6 +157,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
         ClassroomReceipts.ReceiptsChanged += () => DataChanged?.Invoke();
         _maintenance = Task.Run(MaintainBackups);
     }
+    internal Task<VisibleReadResult> ReadThroughAsync(ClassroomPrincipalKey principal, LegacyHistoryScope? legacy, long sequence, bool isLegacy, VisibleReadContext context, Func<bool> current) =>
+        Worker.Run(_ => _store.MarkClassroomReadThrough(principal, legacy, sequence, isLegacy, context, current));
     internal void RegisterAttachmentDownload(AttachmentRecord row) { _store.EnqueueAttachmentDownload(row); _store.RetryOutbox("download:" + row.LocalSeq); }
     internal bool RetryAttachment(AttachmentRecord row) => _store.RequeueAttachment(row);
     internal Task<DraftState> QueueMessageAsync(ClassroomPrincipalKey principal, DraftWriteSnapshot sent, int port, bool attachment) => Worker.Run(_ => {
