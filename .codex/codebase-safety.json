@@ -57,7 +57,8 @@
       "Migration11 adds Attachment/AttachmentDraft and a clear-only attachmentEpoch. Completed timestamps survive local cache cleanup. Existing text codecs, assets and SchemaV1 remain unchanged.",
       "UI-4 teacher-file index is a read-only, keyset-paged join of incoming Attachment/ClassroomMessage rows to current teacher roster principals and attachmentEpoch; file browsing does not mark chat read.",
       "Migration12 adds immutable signed classroom share/withdraw operations, DPAPI-protected per-share owner credentials and managed blob references. Withdrawal dominates additions, even when received first. Shared catalog is separate from private chat.",
-      "ClassroomFileEndpoint adds classroom-files.v1 on the existing listener. Teacher-preferred roster-only anti-entropy; all nodes accept valid operations during teacher absence. Uses AttachmentService vault, file/serve/download gates and listener quota."
+      "ClassroomFileEndpoint adds classroom-files.v1 on the existing listener. Teacher-preferred roster-only anti-entropy; all nodes accept valid operations during teacher absence. Uses AttachmentService vault, file/serve/download gates and listener quota.",
+      "WPF file drops route by active pane: private chat stages AttachmentDraft; shared pane uses the same single-file upload path as its picker. Both own rejected FileDrop events to prevent filename fallback."
     ],
     "external_integrations": []
   },
@@ -114,8 +115,8 @@
     "notes": ""
   },
   "known_unknowns": [
-    "Two physical Windows devices, IME, clipboard and DPI acceptance require native execution.",
-    "Classroom shared upload/download/withdraw/failover still needs Windows input, multi-device and classroom network acceptance. Native rendering only proves WPF layout."
+    "Two physical Windows devices, IME, clipboard and other DPI acceptance remain unexecuted for candidate 2.",
+    "Classroom replication/failover and withdrawal propagation need multi-device and classroom network acceptance; native single-VM drag/upload/withdraw is verified separately."
   ],
   "evidence": [
     {
@@ -141,6 +142,10 @@
     {
       "fact": "Three real TCP/SQLite nodes preserve byte hashes and signed withdrawals across teacher outage/rejoin; sender owns credentials, replicas do not. WPF binds the approved classroom shared view.",
       "source": "windows-lite/NekoChat.Tests/ClassroomFileChecks.cs; windows-lite/NekoChat.Windows/ChatWindow.ClassroomFiles.cs"
+    },
+    {
+      "fact": "Authorized Parallels native Explorer OLE drag verified chat text/image, classroom file bytes/hash, invalid drops and actual withdrawal with refreshed empty list: R11 36 checks, 6 drops. QA only binds Loopback and uses a fresh synthetic profile. Core 6432 and classroom-all 15 suites pass.",
+      "source": "docs/classroom-ux/DRAG-DROP-VALIDATION.md; windows-lite/NekoChat.Windows/App.DragDropSmokeTest.cs"
     }
   ]
 }
