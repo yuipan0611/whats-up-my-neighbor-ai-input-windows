@@ -66,7 +66,8 @@
       "Migration13 adds durable ClassroomOutbox. Only explicit new Send or manual Retry opts content in; background retries never consult live drafts. Per-recipient claims and existing tombstones guard cancellation/deletion. SchemaGuard validates exact V13 DDL.",
       "Viewport reads use the existing foreground/open-pane/geometry and view-generation guards. A newer viewport request that fires while a SQLite read is in flight stays queued; stale writes remain rejected.",
       "Runtime owns a per-profile diagnostic journal separate from SQLite. Typed optional journal parameters connect sender, receiver, storage and attachments; metadata recording never waits for file I/O. UI uses localized codes and a bounded manual export.",
-      "Classroom visible reads advance a merged classroom/legacy timeline cursor through unloaded pages; local marks and opt-in receipts commit atomically under the existing view generation guard."
+      "Classroom visible reads advance a merged classroom/legacy timeline cursor through unloaded pages; local marks and opt-in receipts commit atomically under the existing view generation guard.",
+      "Normal classroom viewport reads skip transactions when the current inbox snapshot has no unread messages; incoming updates refresh the snapshot and retain view-generation guards."
     ],
     "external_integrations": []
   },
@@ -139,7 +140,7 @@
   "known_unknowns": [
     "Two physical Windows devices, IME, clipboard and other DPI acceptance remain unexecuted for candidate 2.",
     "Classroom replication/failover and withdrawal propagation need multi-device and classroom network acceptance; native single-VM drag/upload/withdraw is verified separately.",
-    "Integrated on PR #26 09fb95a; final Windows diagnostic acceptance pending."
+    "Integrated on PR #26 1fa485d; final Windows diagnostic acceptance pending."
   ],
   "evidence": [
     {

@@ -44,3 +44,5 @@ PR #26 啟動檢查曾在新 enqueue 語意下過早對接收資料做 Single，
 取消關閉交錯整合：跟進 #26 `09fb95a`（含 #24 `5bd81a7`），CancelQueuedAsync 以不隨視窗關閉取消的 worker 工作先持久停用，再呼叫 CancelIo。診斷在同一 worker callback 使用既有 CancelOutbox 布林結果，準確區分 Cancelled／Stale；不新增 SQL 或改回同步 UI 寫入。
 
 整合原生首輪 42052519728 在真 SQLite busy 案例逾時：前 18 個斷線／草稿／續送與 refresh 斷言已過，StorageBusy 已顯示但 Send 尚未 idle。新閱讀位置會與 Send flush／autosave 依序各等待原 5 秒 SQL deadline；fixture 保持前景，將整個排隊流程設 35 秒上限，另每 25ms 驗 Dispatcher 可恢復、單次回應不超過 2 秒，故障時附 Send task／busy 狀態及 metadata recent 事件。未改產品 SQL timeout、未隱藏畫面避開爭用。
+
+已同步 #26 `1fa485d`：正常 classroom 沒有未讀時不排 read-through 寫交易，避免純 outgoing 畫面在外部鎖下無效等待。有未讀仍維持前景、世代、COMMIT 守門條件；原生未讀套件另行驗證。
