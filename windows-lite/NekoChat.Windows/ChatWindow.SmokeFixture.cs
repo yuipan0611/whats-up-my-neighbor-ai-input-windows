@@ -35,6 +35,10 @@ public partial class ChatWindow
     internal async Task SmokeOpenEntryAsync(Func<InboxEntry, bool> matches)
     {
         await RefreshInboxAsync();
+        // Refresh may coalesce this request into an already running refresh. Await its actual snapshot.
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(18));
+        try { while (_refreshing) await Task.Delay(25, deadline.Token); }
+        catch (OperationCanceledException) { throw new TimeoutException("Fixture inbox refresh did not finish"); }
         var entry = _snapshot?.Entries.SingleOrDefault(matches) ?? throw new InvalidOperationException("Fixture conversation missing.");
         await SelectEntryAsync(entry, userOpened: true);
     }
