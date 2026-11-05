@@ -5,7 +5,7 @@
     "name": "nekochat-lite-attachments-20261104",
     "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",
     "repo_root": ".",
-    "last_reviewed": "2026-11-05"
+    "last_reviewed": "2026-11-06"
   },
   "instructions": {
     "files": [
@@ -132,7 +132,8 @@
       "consumer regression checks for shared changes",
       "final diff and git status review",
       "For visible-read or inbox changes: Windows native --unread-smoke-test with isolated SQLite, including busy-worker viewport invalidation, hidden/reopen, receipt-off, offscreen unread and restart checks.",
-      "Diagnostic changes: --diagnostics, --attachments and Windows --diagnostics-smoke-test, including memory-only log, real SQLite contention, UI refresh queue recovery and diagnostic-only export."
+      "Diagnostic changes: --diagnostics, --attachments and Windows --diagnostics-smoke-test, including memory-only log, real SQLite contention, UI refresh queue recovery and diagnostic-only export.",
+      "Draft handoff: focused Windows gate must prove the isolated unprotected candidate fails at the exact autosave/Send assertion, then the original product passes the native handoff and synchronous-exit cases."
     ],
     "manual_checks": [],
     "notes": ""

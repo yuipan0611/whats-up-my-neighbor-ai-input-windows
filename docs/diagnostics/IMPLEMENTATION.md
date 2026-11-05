@@ -1,6 +1,6 @@
 # 統一錯誤分類與本機診斷
 
-使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `24d4618`（含草稿保存／Send互斥、交錯回歸與訊息ID去重）；診斷保持 draft，未安裝或發布。
+使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `6cc7679`（含草稿保存／Send互斥、同步離開與訊息ID去重）；診斷保持 draft，未安裝或發布。
 
 ## 範圍與守門條件
 
@@ -36,3 +36,7 @@ SQLite contention 保持聊天前景：可視讀、Send flush、autosave可能�
 入列前診斷補強：SendAdmission以固定UiNotReady／OperationBusy／DraftNotSaved／StaleView記錄disabled click、傳送中、editor未ready或保存後拒送；StorageWrite也記非exception的Saved=false，不保存原始reason字串。Core新增分類／匯出檢查後為63項。Native診斷新增空輸入disabled Send的真事件斷言（28→30）。
 
 peer gate修正473116a：autosave、Send與exit保存共用async gate，涵蓋真正SQLite返回後的CompleteWrite，保持嚴格epoch／revision CAS。native recovery用isolated completion hook把第一筆真autosave停在SQLite已存、UI未CompleteWrite的位置；再按一次Send，要求兩者仍等待，放行後真peer／正常row／Count2。不是重複點擊或放寬deadline，恢復套件18→19項。
+
+同步exit consumer已對齊：正常關閉await async gate；App.OnExit同步fallback改走worker-only FlushForDispatcherExitAsync，不等待UI CompleteWrite。交錯fixture在gate持有時同步呼叫該fallback，確認不阻塞且DB保存完整文字，恢復套件19→20。保持原嚴格CAS拒絕與例外契約。
+
+負對照腳本只在build私有候選移除Inbox autosave／Send gate；tracked產品及full/package輸出不變。只有候選成功建置、前4項前置斷言通過，且JSON精確在autosave／Send交錯斷言失敗，才算有效紅燈；逾時、編譯錯誤或其他crash不算。之後必須未改原產品的20項通過。PS腳本與候選建置已本機檢視／交叉建置；真正Windows負對照與30+20項正向結果以focused CI為準。
