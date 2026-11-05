@@ -83,6 +83,17 @@ jobs:
             Get-Content "$proof/diagnostics-result.json"
             if ($probe.ExitCode -ne 0) { throw "Diagnostics smoke failed: $kind" }
           }
+      - name: Verify visible chat clears unread badges in native WPF
+        shell: pwsh
+        run: |
+          foreach ($app in @('build/windows-lite-package/NekoChat.Windows.exe', 'build/windows-lite-portable/NekoChat-Lite.exe')) {
+            $kind = if ($app -like '*portable*') { 'portable' } else { 'package' }
+            $proof = Join-Path $env:GITHUB_WORKSPACE "build/windows-lite-smoke/unread-$kind"
+            $probe = Start-Process -FilePath (Resolve-Path $app).Path -ArgumentList @('--unread-smoke-test', "`"$proof`"") -PassThru
+            if (-not $probe.WaitForExit(90000)) { $probe.Kill(); throw "Unread smoke timed out: $kind" }
+            Get-Content "$proof/unread-result.json"
+            if ($probe.ExitCode -ne 0) { throw "Unread smoke failed: $kind" }
+          }
       - name: Verify installed App without external runtimes
         shell: pwsh
         run: |

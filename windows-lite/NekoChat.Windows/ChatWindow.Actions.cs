@@ -80,7 +80,8 @@ public partial class ChatWindow
             if (!attachment && string.IsNullOrWhiteSpace(sent.Text)) return;
             ticket = buffer.BeginClear(); UpdateComposer();
             var fresh = await runtime.QueueMessageAsync(principal, sent, _peerPort, attachment);
-            buffer.CompleteClear(ticket, fresh); ticket = null;
+            buffer.CompleteClear(ticket, fresh.Draft); ticket = null;
+            ClearRecoveredDiagnostic(DiagnosticStage.SendPrepare, writeConfirmed: true);
             if (_selected?.Id == entry.Id) SetDraftText(buffer.Text);
             SetStatus("訊息已保存在本機待送；暫時斷線會自動續送。");
         }

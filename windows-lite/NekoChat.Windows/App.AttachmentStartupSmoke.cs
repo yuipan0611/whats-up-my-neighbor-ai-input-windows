@@ -69,6 +69,7 @@ public partial class App
                 Check(probe.SendButton.IsEnabled, fault + ": text send available after explicit attachment removal");
                 probe.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await UntilAsync(() => probe.SmokeSendIdle && probe.Draft.Text.Length == 0, deadline.Token);
+                while (!await peer.Worker.Run(store => store.ListClassroomMessages(principal).Items.Any(row => row.RawText == sent))) await Task.Delay(25, deadline.Token);
                 Check(await peer.Worker.Run(store => store.ListClassroomMessages(principal).Items.Single().RawText == sent), fault + ": real TCP text stored");
                 var other = new ChatWindow(peerSettings);
                 await other.AttachRuntimeAsync(peer, runtime.Listener.Port); other.SetReceiverState(true, peer.Listener.Port, null);
@@ -78,6 +79,7 @@ public partial class App
                 await UntilAsync(() => other.SendButton.IsEnabled, deadline.Token);
                 other.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await UntilAsync(() => other.SmokeSendIdle && other.Draft.Text.Length == 0, deadline.Token);
+                while (!await runtime.Worker.Run(store => store.ListClassroomMessages(principal).Items.Any(row => row.RawText == reply))) await Task.Delay(25, deadline.Token);
                 Check(await runtime.Worker.Run(store => store.ListClassroomMessages(principal).Items.Any(row => row.RawText == reply)), fault + ": real TCP reply stored");
                 string source = Path.Combine(peerRoot, "attachment.txt"); File.WriteAllText(source, "bytes");
                 await peer.Attachments!.AddDraftAsync(principal, source);

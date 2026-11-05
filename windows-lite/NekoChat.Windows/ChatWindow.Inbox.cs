@@ -372,7 +372,7 @@ public partial class ChatWindow
             if (selection != _selectionRequest || entry.Id != _selected?.Id) return;
             var crRows = page.Classroom?.Items.Select(m => new MessageView("cr:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
                 m.Direction == "outgoing" ? (m.DeliveryLabel ?? (m.RemoteReadAt is not null ? "已讀" : m.RemoteStoredAt is not null ? "對方已儲存" : "")) : (m.LocalReadAt is not null ? "本機已讀" : ""), peerAvatar)) ?? [];
-            crRows = crRows.Select(row => { row.Attachment = attachmentRows.FirstOrDefault(a => a.LocalSeq == row.Sequence); if (row.Attachment is { } info) row.Delivery = info.StateText; row.AttachmentAction = AttachmentActionAsync; row.AttachmentPath = row.Attachment is { } a && _runtime.Attachments is { } service && service.Vault.Exists(a.File) ? service.Vault.PathFor(a.File.BlobId) : null; return row; });
+            crRows = crRows.Select(row => { row.Attachment = attachmentRows.FirstOrDefault(a => a.LocalSeq == row.Sequence); if (row.Attachment is { } storedAttachment) row.Attachment = _runtime.AttachmentView(storedAttachment); if (row.Attachment is { } info) row.Delivery = info.StateText; row.AttachmentAction = AttachmentActionAsync; row.AttachmentPath = row.Attachment is { } a && _runtime.Attachments is { } service && service.Vault.Exists(a.File) ? service.Vault.PathFor(a.File.BlobId) : null; return row; });
             var rows = page.Message?.Items.Select(m => new MessageView("v2:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
                 m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "", peerAvatar)) ?? [];
             var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""), peerAvatar)) ?? [];
@@ -434,14 +434,20 @@ public partial class ChatWindow
             var context = VisibleContext(entry.ConversationId); long readGeneration = _runtime.Reads.Update(context);
             bool StillCurrent() => !_stopping && generation == Volatile.Read(ref _viewGeneration);
             int marked = 0;
-            if (entry.ConversationId is { } conv && signed.Length > 0)
+            if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(entry.ConversationId, out var classroom))
             {
-                if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(conv, out var principal))
-                    marked += (await _runtime.Worker.Run(s => StillCurrent() ? s.MarkClassroomVisibleRead(principal, signed, context, StillCurrent) : new VisibleReadResult(0, 0, "stale-view"))).Marked;
-                else
-                    marked += (await _runtime.Worker.Run(_ => StillCurrent() ? _runtime.Reads.Mark(conv, readGeneration, signed) : new(0, 0, "stale-view"))).Marked;
+                var anchor = visible.Where(row => row.AttemptId is null && row.Sequence > 0)
+                    .OrderBy(row => row.Utc, StringComparer.Ordinal).ThenBy(row => row.Legacy).ThenBy(row => row.Sequence).LastOrDefault();
+                if (anchor is not null)
+                    marked = (await _runtime.ReadThroughAsync(classroom, entry.LegacyScope, anchor.Sequence, anchor.Legacy, context, StillCurrent)).Marked;
             }
-            if (entry.LegacyScope is { } scope && legacy.Length > 0) marked += (await _runtime.Worker.Run(s => s.MarkLegacyVisibleRead(scope, legacy, context with { ActiveConversationId = scope.ContextId }, StillCurrent))).Marked;
+            else
+            {
+                if (entry.ConversationId is { } conv && signed.Length > 0)
+                    marked += (await _runtime.Worker.Run(_ => StillCurrent() ? _runtime.Reads.Mark(conv, readGeneration, signed) : new(0, 0, "stale-view"))).Marked;
+                if (entry.LegacyScope is { } scope && legacy.Length > 0)
+                    marked += (await _runtime.Worker.Run(s => s.MarkLegacyVisibleRead(scope, legacy, context with { ActiveConversationId = scope.ContextId }, StillCurrent))).Marked;
+            }
             if (StillCurrent()) ClearRecoveredDiagnostic(DiagnosticStage.UiRead);
             _runtime.Diagnostics.Record(DiagnosticStage.UiRead, StillCurrent() ? DiagnosticOutcome.Succeeded : DiagnosticOutcome.Stale, StillCurrent() ? DiagnosticCode.None : DiagnosticCode.StaleView, count: marked);
             if (marked > 0) { _runtime.Receipts?.Pulse(); _runtime.ClassroomReceipts?.Pulse(); await RefreshInboxAsync(); }
@@ -660,7 +666,7 @@ public partial class ChatWindow
     private void ShowStorageError(Exception exception, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
         if (_closingRequested && exception is OperationCanceledException) return;
-        var stage = caller == nameof(MarkViewportAsync) ? DiagnosticStage.UiRead : caller is nameof(RefreshInboxAsync) or nameof(LoadHistoryAsync) ? DiagnosticStage.UiRefresh : caller is nameof(SendCoreAsync) or nameof(SendBoundaryAsync) or nameof(SendClassroomCoreAsync) ? DiagnosticStage.SendPrepare : caller == nameof(FlushDraftsAsync) ? DiagnosticStage.StorageWrite : DiagnosticStage.UiAction;
+        var stage = caller == nameof(MarkViewportAsync) ? DiagnosticStage.UiRead : caller is nameof(RefreshInboxAsync) or nameof(LoadHistoryAsync) ? DiagnosticStage.UiRefresh : caller is nameof(SendCoreAsync) or nameof(SendBoundaryAsync) or nameof(SendClassroomCoreAsync) or nameof(QueueCurrentMessageAsync) ? DiagnosticStage.SendPrepare : caller == nameof(FlushDraftsAsync) ? DiagnosticStage.StorageWrite : DiagnosticStage.UiAction;
         var fault = DiagnosticFault.FromException(exception, exception is OperationCanceledException && _closingRequested);
         _runtime?.Diagnostics.Record(stage, DiagnosticOutcome.Failed, error: exception);
         _visibleDiagnosticFailure = (stage, fault);
@@ -672,7 +678,7 @@ public partial class ChatWindow
         DiagnosticCode.DiskFull => "磁碟空間不足，請釋放空間後重試；請保留目前草稿。",
         DiagnosticCode.ReadOnly => "本機資料無法寫入，請檢查資料夾權限後重試。",
         DiagnosticCode.CorruptData or DiagnosticCode.UnsupportedData => "本機資料需要檢查，請保留原檔並匯出診斷；不要刪除資料庫。",
-        DiagnosticCode.NetworkUnavailable or DiagnosticCode.Timeout => "連線未完成，請確認對方已開啟程式；草稿保留供手動重試。",
+        DiagnosticCode.NetworkUnavailable or DiagnosticCode.Timeout => "連線未完成，請確認對方已開啟程式；已入列訊息會依待送狀態續送。",
         DiagnosticCode.InvalidPayload => "資料格式不正確，請檢查輸入後重試。",
         _ => "這次操作未完成，請重試；若持續發生，請從設定匯出診斷。"
     }) + "（" + fault.DisplayCode + "）";

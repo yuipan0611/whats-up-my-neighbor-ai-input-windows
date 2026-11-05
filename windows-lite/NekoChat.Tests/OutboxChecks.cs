@@ -39,6 +39,14 @@ internal static class OutboxChecks
             return result;
         }
     }
+    private sealed class PostEnqueueReadFault : IStoreFaults
+    {
+        internal bool Armed;
+        public void AfterBegin(string op) { }
+        public void BeforeCommit(string op) { }
+        public void AfterCommit(string op) { if (op == "outbox-enqueue") Armed = true; }
+        public void AfterRead(string op) { if (Armed) throw new IOException("synthetic read failure after enqueue commit"); }
+    }
     private sealed class FinishFault : IStoreFaults
     {
         internal volatile bool Block;
@@ -66,6 +74,15 @@ internal static class OutboxChecks
         }
         try
         {
+            var readFault = new PostEnqueueReadFault();
+            using (var store = ChatStore.Open(new(Path.Combine(root, "enqueue-receipt")) { Faults = readFault }))
+            {
+                store.SaveClassroomDraft(p, "durable receipt", 0, 1);
+                var receipt = store.EnqueueClassroomMessageWithDraft(p, "durable receipt", 0, 1, 8768);
+                Check(readFault.Armed && receipt.Draft is { RawText: null, Epoch: 1, Revision: 1 }, "enqueue returns committed handoff even when all post-commit reads would fail");
+                readFault.Armed = false;
+                Check(store.ListOutbox().Single().MessageId == receipt.MessageId, "receipt names the sole durable queued message");
+            }
             // New migration never adopts historic failed/cancelled content for automatic sending.
             string upgrade = Path.Combine(root, "upgrade");
             using (var old = ChatStore.Open(new(upgrade) { Migrations = Migration.Default.Take(12).ToArray() }))
@@ -120,12 +137,19 @@ internal static class OutboxChecks
                 Check(receiver.Store.ListClassroomMessages(p).Items.Count == 1, "real TCP reconnect sends once after restart");
                 Check(sender.Store.ListOutbox().Single(x => x.MessageId == firstId).Failures > 0, "lost real stored ACK causes retry without duplicate delivery");
                 Check(sender.Store.ListClassroomPendingMessages(p).Count == 0, "success removes failure card source");
+                var manualDraft = sender.Store.GetClassroomDraftState(p);
+                sender.Store.SaveClassroomDraft(p, "manual historic failure", manualDraft.Epoch, manualDraft.Revision + 1);
+                var historic = (AttemptStarted)sender.Store.BeginClassroomSend(p, "manual historic failure", manualDraft.Epoch, manualDraft.Revision + 1);
+                sender.Store.CompleteClassroomAttempt(historic.MessageId, new FailedOutcome("offline"), null, historic.TryCount);
+                Check(sender.Store.RequeueClassroomAttempt(p, historic.MessageId, port), "explicit retry adopts only the chosen historical item");
+                await Wait(() => sender.Store.ListOutbox().Single(x => x.MessageId == historic.MessageId).State == "complete");
+                Check(sender.Store.GetClassroomDraftState(p).RawText == "manual historic failure", "adopted retry never clears or advances the live draft behind the editor");
                 string same = Queue(sender.Store, "斷線後自動續送", port);
                 await Wait(() => sender.Store.ListOutbox().Single(x => x.MessageId == same).State == "complete");
-                Check(firstId != same && receiver.Store.ListClassroomMessages(p).Items.Count == 2, "another Send with identical text is a new message");
+                Check(firstId != same && receiver.Store.ListClassroomMessages(p).Items.Count == 3, "another Send with identical text is a new message");
                 var incoming = receiver.Store.ListClassroomMessages(p).Items.First();
                 var duplicate = receiver.Store.ReceiveClassroomMessage("127.0.0.1", new(firstId, "斷線後自動續送"), () => true);
-                Check(receiver.Store.ListClassroomMessages(p).Items.Count == 2 && duplicate is ClassroomDuplicate, "same wire ID is deduplicated after lost confirmation");
+                Check(receiver.Store.ListClassroomMessages(p).Items.Count == 3 && duplicate is ClassroomDuplicate, "same wire ID is deduplicated after lost confirmation");
 
                 foreach (string name in new[] { "測試.txt", "測試.png" })
                 {

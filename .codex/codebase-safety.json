@@ -65,7 +65,8 @@
       "Known attachment filesystem initialization errors degrade to text/receipt-only runtime with persistent warning and no attachment capability. SQLite/schema failures remain fatal; pending attachment metadata and loading gates prevent silent plaintext sends.",
       "Migration13 adds durable ClassroomOutbox. Only explicit new Send or manual Retry opts content in; background retries never consult live drafts. Per-recipient claims and existing tombstones guard cancellation/deletion. SchemaGuard validates exact V13 DDL.",
       "Viewport reads use the existing foreground/open-pane/geometry and view-generation guards. A newer viewport request that fires while a SQLite read is in flight stays queued; stale writes remain rejected.",
-      "Runtime owns a per-profile diagnostic journal separate from SQLite. Typed optional journal parameters connect sender, receiver, storage and attachments; metadata recording never waits for file I/O. UI uses localized codes and a bounded manual export."
+      "Runtime owns a per-profile diagnostic journal separate from SQLite. Typed optional journal parameters connect sender, receiver, storage and attachments; metadata recording never waits for file I/O. UI uses localized codes and a bounded manual export.",
+      "Classroom visible reads advance a merged classroom/legacy timeline cursor through unloaded pages; local marks and opt-in receipts commit atomically under the existing view generation guard."
     ],
     "external_integrations": []
   },
@@ -138,7 +139,7 @@
   "known_unknowns": [
     "Two physical Windows devices, IME, clipboard and other DPI acceptance remain unexecuted for candidate 2.",
     "Classroom replication/failover and withdrawal propagation need multi-device and classroom network acceptance; native single-VM drag/upload/withdraw is verified separately.",
-    "Temporary integration on #24 c5abeb5; #26 reading-position baseline and final native acceptance pending."
+    "Integrated on PR #26 30c75bc; final Windows diagnostic acceptance pending."
   ],
   "evidence": [
     {
@@ -200,6 +201,10 @@
     {
       "fact": "Unified typed failures preserve root-cause frames without exception messages; bounded writer/file rotation and memory fallback are exercised with privacy and ownership tests. UI errors and real TCP/SQLite failures share the same journal.",
       "source": "windows-lite/NekoChat.Core/Diagnostics; windows-lite/NekoChat.Tests/DiagnosticChecks.cs; windows-lite/NekoChat.Windows/App.DiagnosticSmokeTest.cs"
+    },
+    {
+      "fact": "Read-through tests cover more than 200 rows, merged streams, receipt-off, timestamp ties, pre-COMMIT stale rollback, scopes and restart.",
+      "source": "windows-lite/NekoChat.Core/Storage/ChatStore.ReadThrough.cs; windows-lite/NekoChat.Tests/ReadThroughChecks.cs"
     }
   ]
 }

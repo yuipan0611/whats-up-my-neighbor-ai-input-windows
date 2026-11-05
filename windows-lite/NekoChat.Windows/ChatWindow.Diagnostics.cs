@@ -17,7 +17,7 @@ public partial class ChatWindow
         bool recoveredWrite = writeConfirmed && failure.Stage == DiagnosticStage.StorageWrite &&
             failure.Fault.Code is DiagnosticCode.StorageBusy or DiagnosticCode.QueueFull or DiagnosticCode.DiskFull or DiagnosticCode.ReadOnly or DiagnosticCode.StorageIo;
         if (!sameFlow && !recoveredWrite) return;
-        _visibleDiagnosticFailure = null; StorageStatus.Text = _runtime?.StartupWarning ?? "";
+        _visibleDiagnosticFailure = null; StorageStatus.Text = _runtime?.OutboxFailure ?? _runtime?.StartupWarning ?? "";
         ReloadData.Visibility = Visibility.Collapsed;
         _runtime?.Diagnostics.Record(stage, DiagnosticOutcome.Recovered);
     }

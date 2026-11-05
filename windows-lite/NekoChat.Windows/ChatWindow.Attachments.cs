@@ -135,7 +135,7 @@ public partial class ChatWindow
         if (_runtime?.Attachments is not { } service) return;
         try
         {
-            if (action == "cancel") { _runtime.Outbox?.Cancel(row.MessageId); _runtime.Outbox?.Cancel("download:" + row.LocalSeq); await service.CancelAsync(row.LocalSeq); SetStatus("正在取消附件傳輸…"); return; }
+            if (action == "cancel") { var outbox = _runtime.Outbox; await Task.Run(() => { outbox?.Cancel(row.MessageId); outbox?.Cancel("download:" + row.LocalSeq); }); await service.CancelAsync(row.LocalSeq); SetStatus("正在取消附件傳輸…"); return; }
             if (action == "download") { await _runtime.Worker.Run(_ => { _runtime.RegisterAttachmentDownload(row); return true; }); }
             else if (action == "retry") await _runtime.Worker.Run(_ => _runtime.RetryAttachment(row));
             else if (action == "save")
