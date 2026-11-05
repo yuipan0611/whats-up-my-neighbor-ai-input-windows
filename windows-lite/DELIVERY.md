@@ -13,3 +13,7 @@ CI 必須先通過 Core、教室附件、三節點課堂分享、WPF、雙程序
 本版新增啟動故障隔離：附件路徑衝突／未完成檔鎖定時，停用附件但保留文字收發與待傳草稿；修復後重啟恢復。資料庫損壞或無法升級仍停止收發，避免錯誤寫入。重要附件須另外另存，資料庫備份不含附件內容，舊版無法直接讀取新版資料庫。
 
 原始本機驗證與失敗紀錄見專案 `docs/attachments/`、`docs/classroom-ux/`。未完成的現場項目：兩台實體 Windows、實際教室網路與多人負載、其他 DPI／多螢幕、實裝 IME。Windows CI 與 Parallels 同機證據不代替以上驗收；beta.10 維持未簽署的預發布測試版。
+
+## 先前發布紀錄
+
+上一個公開測試版為 [beta.9](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.9)，來源 `ecbed3dd9b679b8569b44fda80243d8f352d8b1e`，對應 [CI 41834511796](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/runs/41834511796)。該版產物與紀錄保留，不冒充 beta.10；beta.10 的實際來源以同版 provenance 為準。
