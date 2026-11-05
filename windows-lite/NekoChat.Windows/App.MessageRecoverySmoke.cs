@@ -53,7 +53,9 @@ public partial class App
             await runtime.Worker.Run(s => s.SaveClassroomDraft(principal, "第一則：離線失敗", 0, 1));
             var portReservation = new TcpListener(IPAddress.Loopback, 0); portReservation.Start();
             int closedPort = ((IPEndPoint)portReservation.LocalEndpoint).Port; portReservation.Stop();
-            window = new(settings); await window.AttachRuntimeAsync(runtime, closedPort);
+            window = new(settings);
+            runtime.DataChanged += () => Dispatcher.BeginInvoke(new Action(() => window?.DataChanged()));
+            await window.AttachRuntimeAsync(runtime, closedPort);
             window.SetReceiverState(true, runtime.Listener.Port, null); window.Show(); window.Activate();
             await window.SmokeOpenEntryAsync(e => e.ConversationId == principal.Value);
             await Wait(() => window.SendButton.IsEnabled); Click(window.SendButton);
@@ -90,6 +92,25 @@ public partial class App
             await DeleteViaMenu(third);
             Check(window.Draft.Text.Length == 0 && await runtime.Worker.Run(s => s.ListClassroomPendingMessages(principal).Count == 0), "delete queued message removes durable retry ownership");
 
+            var historic = await runtime.Worker.Run(s => {
+                var draft = s.GetClassroomDraftState(principal);
+                s.SaveClassroomDraft(principal, "舊失敗手動重送", draft.Epoch, draft.Revision + 1);
+                var begun = (AttemptStarted)s.BeginClassroomSend(principal, "舊失敗手動重送", draft.Epoch, draft.Revision + 1);
+                s.CompleteClassroomAttempt(begun.MessageId, new FailedOutcome("offline"), null, begun.TryCount);
+                return begun;
+            });
+            window.DataChanged();
+            await Wait(() => window.History.Rows.Any(row => row.AttemptId == historic.MessageId));
+            window.SmokeUsePeerPort(peer.Listener.Port);
+            window.Draft.Text = "重送時也不能覆蓋的新草稿";
+            var oldFailure = window.History.Rows.Single(row => row.AttemptId == historic.MessageId);
+            window.History.ScrollIntoView(oldFailure); window.UpdateLayout();
+            var failedCard = FindDndVisuals<MessageCard>(window.History).Single(card => ReferenceEquals(card.Message, oldFailure));
+            Click(FindDndVisuals<Button>(failedCard).Single(button => Equals(button.Content, "重試傳送")));
+            await Wait(() => window.History.Rows.All(row => row.AttemptId != historic.MessageId));
+            Check(window.Draft.Text == "重送時也不能覆蓋的新草稿", "native retry button preserves another edit without clearing composer");
+            Check(await peer.Worker.Run(s => s.ListClassroomMessages(principal).Items.Count == 3 && s.ListClassroomMessages(principal).Items.Any(m => m.MessageId == historic.MessageId)), "native manual retry reuses original ID and stores once");
+
             await runtime.Worker.Run(s => s.SaveManualRosterEntry(null, new RosterEdit("原名", "01", false, "10.0.0.21"), RosterImportPreview.ComputeSnapshotToken(s.GetRosterSnapshot())));
             await window.SmokeOpenEntryAsync(e => e.Endpoint == "10.0.0.21");
             window.UpdateLayout();
@@ -115,11 +136,11 @@ public partial class App
             Check(window.ConversationTitle.Text == "本機暱稱測試" && window.SmokeSelectedEntry?.Endpoint == "10.0.0.21", "nickname updates list/header while keeping target IP");
             Capture(window, Path.Combine(output, "nickname.png"));
             await window.SmokeOpenEntryAsync(e => e.ConversationId == principal.Value);
-            Check(window.History.Rows.All(r => r.RawText != delivered.RawText) && window.History.Rows.Count == 1, "switching conversations preserves deletion and remaining retry-delivered message");
+            Check(window.History.Rows.All(r => r.RawText != delivered.RawText) && window.History.Rows.Count == 2, "switching conversations preserves deletion and remaining retry-delivered message");
             Capture(window, Path.Combine(output, "recovered-history.png"));
             await window.PrepareForShutdownAsync(); window.DetachRuntime(); window.Close(); window = null;
             await runtime.DisposeAsync(); runtime = await ChatRuntime.OpenAsync(new(settings, SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true);
-            Check(await runtime.Worker.Run(s => s.GetRosterSnapshot().Single().Entry.DisplayName == "本機暱稱測試" && s.ListClassroomMessages(principal).Items.Count == 1 && s.ListClassroomPendingMessages(principal).Count == 0), "real runtime restart retains nickname and deletions");
+            Check(await runtime.Worker.Run(s => s.GetRosterSnapshot().Single().Entry.DisplayName == "本機暱稱測試" && s.ListClassroomMessages(principal).Items.Count == 2 && s.ListClassroomPendingMessages(principal).Count == 0), "real runtime restart retains nickname and deletions");
         }
         catch (Exception ex) { failure = ex.ToString(); }
         finally

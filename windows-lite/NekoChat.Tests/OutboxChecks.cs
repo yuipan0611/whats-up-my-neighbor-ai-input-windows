@@ -120,12 +120,19 @@ internal static class OutboxChecks
                 Check(receiver.Store.ListClassroomMessages(p).Items.Count == 1, "real TCP reconnect sends once after restart");
                 Check(sender.Store.ListOutbox().Single(x => x.MessageId == firstId).Failures > 0, "lost real stored ACK causes retry without duplicate delivery");
                 Check(sender.Store.ListClassroomPendingMessages(p).Count == 0, "success removes failure card source");
+                var manualDraft = sender.Store.GetClassroomDraftState(p);
+                sender.Store.SaveClassroomDraft(p, "manual historic failure", manualDraft.Epoch, manualDraft.Revision + 1);
+                var historic = (AttemptStarted)sender.Store.BeginClassroomSend(p, "manual historic failure", manualDraft.Epoch, manualDraft.Revision + 1);
+                sender.Store.CompleteClassroomAttempt(historic.MessageId, new FailedOutcome("offline"), null, historic.TryCount);
+                Check(sender.Store.RequeueClassroomAttempt(p, historic.MessageId, port), "explicit retry adopts only the chosen historical item");
+                await Wait(() => sender.Store.ListOutbox().Single(x => x.MessageId == historic.MessageId).State == "complete");
+                Check(sender.Store.GetClassroomDraftState(p).RawText == "manual historic failure", "adopted retry never clears or advances the live draft behind the editor");
                 string same = Queue(sender.Store, "斷線後自動續送", port);
                 await Wait(() => sender.Store.ListOutbox().Single(x => x.MessageId == same).State == "complete");
-                Check(firstId != same && receiver.Store.ListClassroomMessages(p).Items.Count == 2, "another Send with identical text is a new message");
+                Check(firstId != same && receiver.Store.ListClassroomMessages(p).Items.Count == 3, "another Send with identical text is a new message");
                 var incoming = receiver.Store.ListClassroomMessages(p).Items.First();
                 var duplicate = receiver.Store.ReceiveClassroomMessage("127.0.0.1", new(firstId, "斷線後自動續送"), () => true);
-                Check(receiver.Store.ListClassroomMessages(p).Items.Count == 2 && duplicate is ClassroomDuplicate, "same wire ID is deduplicated after lost confirmation");
+                Check(receiver.Store.ListClassroomMessages(p).Items.Count == 3 && duplicate is ClassroomDuplicate, "same wire ID is deduplicated after lost confirmation");
 
                 foreach (string name in new[] { "測試.txt", "測試.png" })
                 {
