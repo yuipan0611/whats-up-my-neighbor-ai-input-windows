@@ -224,7 +224,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
                 if (outcome.Completion is Confirmed { DraftCleared: true } && _store.GetClassroomDraftState(prepared.Principal) is { } fresh)
                 {
                     var update = buffer.ApplyOwnAckClear(sent, fresh);
-                    if (update.PreserveEdit is { } edited) buffer.CompleteWrite(edited, edited.Persist(_store, conversation));
+                    if (update.PreserveEdit is { } edited) buffer.CompleteWrite(edited, edited.PersistClassroom(_store, prepared.Principal));
                 }
                 return outcome;
             }, _lifetime.Token);

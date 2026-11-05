@@ -167,7 +167,7 @@ public partial class ChatWindow
         row.AttemptTryCount = attempt.TryCount;
         row.AttemptFailed = attempt.State is "failed" or "unconfirmed";
         bool retry = !_closingRequested && !_sending && !_attachmentDraftLoading && _attachmentDraft is null &&
-            entry.CanSend && _runtime?.CanSend == true && attempt.State != "sending" &&
+            (_runtime?.ArchivedIdentityFixture == true ? entry.Pairing == PairingState.Paired : entry.CanSend) && _runtime?.CanSend == true && attempt.State != "sending" &&
             (Draft.Text.Length == 0 || Draft.Text == attempt.RawSnapshot);
         row.RetrySend = retry ? async () => {
             if (_runtime?.ArchivedIdentityFixture == false && ClassroomPrincipalKey.TryParse(entry.ConversationId, out var principal))

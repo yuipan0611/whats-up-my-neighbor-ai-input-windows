@@ -19,6 +19,13 @@ public sealed class DraftWriteSnapshot
             return new(true, "already-current", Epoch, Revision);
         return store.SaveDraft(conversationId, Text, Epoch, Revision);
     }
+    public DraftSaveResult PersistClassroom(IChatStore store, ClassroomPrincipalKey principal)
+    {
+        ArgumentNullException.ThrowIfNull(store); var current = store.GetClassroomDraftState(principal);
+        if (current.Epoch == Epoch && current.Revision == Revision && (current.RawText ?? "") == Text)
+            return new(true, "already-current", Epoch, Revision);
+        return store.SaveClassroomDraft(principal, Text, Epoch, Revision);
+    }
 }
 public sealed class DraftClearTicket
 {

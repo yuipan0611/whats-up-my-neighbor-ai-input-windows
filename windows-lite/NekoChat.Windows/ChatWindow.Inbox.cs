@@ -368,7 +368,7 @@ public partial class ChatWindow
                 m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "", peerAvatar)) ?? [];
             var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""), peerAvatar)) ?? [];
             var existing = History.Rows.Where(x => x.AttemptId is null).ToDictionary(m => m.Key, StringComparer.Ordinal); int oldCount = existing.Count;
-            foreach (var row in crRows.Concat(rows).Concat(legacy)) { if (!row.Key.StartsWith("v2:", StringComparison.Ordinal)) row.DeleteLocal = () => ConfirmDeleteLocalMessageAsync(entry, row); if (existing.TryGetValue(row.Key, out var old)) { old.Delivery = row.Delivery; old.AttachmentPath = row.AttachmentPath; old.Attachment = row.Attachment; } else existing.Add(row.Key, row); }
+            foreach (var row in crRows.Concat(rows).Concat(legacy)) { if (!_runtime.ArchivedIdentityFixture && !row.Key.StartsWith("v2:", StringComparison.Ordinal)) row.DeleteLocal = () => ConfirmDeleteLocalMessageAsync(entry, row); if (existing.TryGetValue(row.Key, out var old)) { old.Delivery = row.Delivery; old.AttachmentPath = row.AttachmentPath; old.Attachment = row.Attachment; } else existing.Add(row.Key, row); }
             var sorted = existing.Values.OrderBy(m => m.Utc, StringComparer.Ordinal).ThenBy(m => m.Legacy).ThenBy(m => m.Sequence).ToArray();
             for (int i = 0; i < sorted.Length; i++)
             {

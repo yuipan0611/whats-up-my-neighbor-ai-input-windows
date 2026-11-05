@@ -87,6 +87,19 @@ internal static class MessageRecoveryChecks
                 Check(recent.Count == 200 && older.Count == 5 && recent.Concat(older).Select(p => p.Attempt.MessageId).Distinct().Count() == 205, "pending keyset pages retain more than 200 failures without overlap");
                 Check(older[0].Attempt.RawSnapshot == "failed 1", "oldest failure remains available for manual retry or deletion");
             }
+            using (var edits = ChatStore.Open(new(Path.Combine(root, "post-ack-edit"))))
+            {
+                var buffer = new NekoChat.Core.Presentation.DraftEditBuffer(edits.GetClassroomDraftState(principal));
+                var sent = buffer.Edit("送出中的原文");
+                buffer.CompleteWrite(sent, sent.PersistClassroom(edits, principal));
+                var attempt = (AttemptStarted)edits.BeginClassroomSend(principal, sent.Text, sent.Epoch, sent.Revision);
+                buffer.Edit("等待確認時輸入的下一則");
+                edits.RecordClassroomRoute(attempt.MessageId, 1, ClassroomRoute.Classroom, DateTime.UtcNow);
+                Check(edits.CompleteClassroomAttempt(attempt.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, ChatStore.ClassroomFingerprint(sent.Text, null)), "10.0.0.11", 1) is Confirmed { DraftCleared: true }, "ACK clears exactly the old persisted snapshot");
+                var preserved = buffer.ApplyOwnAckClear(sent, edits.GetClassroomDraftState(principal)).PreserveEdit!;
+                Check(buffer.CompleteWrite(preserved, preserved.PersistClassroom(edits, principal)) && edits.GetClassroomDraftState(principal).RawText == "等待確認時輸入的下一則", "post-ACK edit stays in classroom storage, not signed/v2 storage");
+                Check(edits.BeginClassroomSend(principal, preserved.Text, preserved.Epoch, preserved.Revision) is AttemptStarted, "post-ACK next message remains sendable");
+            }
             using (var store = ChatStore.Open(new(root)))
             {
                 Check(store.ListClassroomMessages(principal).Items.Count == 0 && store.ListClassroomPendingMessages(principal).Count == 0 && store.GetClassroomDraftState(principal).RawText is null, "deletions survive restart");
