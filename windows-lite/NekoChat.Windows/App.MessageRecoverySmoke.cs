@@ -102,6 +102,13 @@ public partial class App
             window.DataChanged();
             await Wait(() => window.History.Rows.Any(row => row.AttemptId == historic.MessageId));
             window.SmokeUsePeerPort(peer.Listener.Port);
+            const string newerDelivered = "前一則仍失敗時，較新的訊息先送達";
+            window.Draft.Text = newerDelivered;
+            await Wait(() => window.SendButton.IsEnabled); Click(window.SendButton);
+            await Wait(() => window.SmokeSendIdle && window.History.Rows.Any(row => row.RawText == newerDelivered && row.AttemptId is null));
+            var retainedFailure = window.History.Rows.Single(row => row.AttemptId == historic.MessageId);
+            var newerRow = window.History.Rows.Single(row => row.RawText == newerDelivered && row.AttemptId is null);
+            Check(window.History.Rows.IndexOf(retainedFailure) < window.History.Rows.IndexOf(newerRow) && ReferenceEquals(window.History.Rows.Last(), newerRow), "older retained failure stays before newer delivered message and latest target");
             window.Draft.Text = "重送時也不能覆蓋的新草稿";
             var oldFailure = window.History.Rows.Single(row => row.AttemptId == historic.MessageId);
             window.History.ScrollIntoView(oldFailure); window.UpdateLayout();
@@ -109,7 +116,8 @@ public partial class App
             Click(FindDndVisuals<Button>(failedCard).Single(button => Equals(button.Content, "重試傳送")));
             await Wait(() => window.History.Rows.All(row => row.AttemptId != historic.MessageId));
             Check(window.Draft.Text == "重送時也不能覆蓋的新草稿", "native retry button preserves another edit without clearing composer");
-            Check(await peer.Worker.Run(s => s.ListClassroomMessages(principal).Items.Count == 3 && s.ListClassroomMessages(principal).Items.Any(m => m.MessageId == historic.MessageId)), "native manual retry reuses original ID and stores once");
+            Check(await peer.Worker.Run(s => s.ListClassroomMessages(principal).Items.Count == 4 && s.ListClassroomMessages(principal).Items.Any(m => m.MessageId == historic.MessageId)), "native manual retry reuses original ID and stores once");
+            Check(window.History.Rows.Last().RawText == newerDelivered && window.History.Rows.Count(row => row.RawText == "舊失敗手動重送") == 1, "retry success replaces original card without changing its chronological position");
 
             await runtime.Worker.Run(s => s.SaveManualRosterEntry(null, new RosterEdit("原名", "01", false, "10.0.0.21"), RosterImportPreview.ComputeSnapshotToken(s.GetRosterSnapshot())));
             await window.SmokeOpenEntryAsync(e => e.Endpoint == "10.0.0.21");
@@ -136,11 +144,11 @@ public partial class App
             Check(window.ConversationTitle.Text == "本機暱稱測試" && window.SmokeSelectedEntry?.Endpoint == "10.0.0.21", "nickname updates list/header while keeping target IP");
             Capture(window, Path.Combine(output, "nickname.png"));
             await window.SmokeOpenEntryAsync(e => e.ConversationId == principal.Value);
-            Check(window.History.Rows.All(r => r.RawText != delivered.RawText) && window.History.Rows.Count == 2, "switching conversations preserves deletion and remaining retry-delivered message");
+            Check(window.History.Rows.All(r => r.RawText != delivered.RawText) && window.History.Rows.Count == 3, "switching conversations preserves deletion and remaining retry-delivered message");
             Capture(window, Path.Combine(output, "recovered-history.png"));
             await window.PrepareForShutdownAsync(); window.DetachRuntime(); window.Close(); window = null;
             await runtime.DisposeAsync(); runtime = await ChatRuntime.OpenAsync(new(settings, SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true);
-            Check(await runtime.Worker.Run(s => s.GetRosterSnapshot().Single().Entry.DisplayName == "本機暱稱測試" && s.ListClassroomMessages(principal).Items.Count == 2 && s.ListClassroomPendingMessages(principal).Count == 0), "real runtime restart retains nickname and deletions");
+            Check(await runtime.Worker.Run(s => s.GetRosterSnapshot().Single().Entry.DisplayName == "本機暱稱測試" && s.ListClassroomMessages(principal).Items.Count == 3 && s.ListClassroomPendingMessages(principal).Count == 0), "real runtime restart retains nickname and deletions");
         }
         catch (Exception ex) { failure = ex.ToString(); }
         finally
