@@ -387,7 +387,9 @@ public partial class ChatWindow
     private void QueueViewportRead() { if (!_stopping && _initializedInbox) { _readTimer.Stop(); _readTimer.Start(); } }
     private async Task MarkViewportAsync()
     {
-        if (_runtime is null || _selected is not { } entry || !_historyLoaded || _readBusy || !VisibleContext(entry.ConversationId).WindowActive || !_userOpened || _showInbox || _showTeacherFiles) return;
+        if (_runtime is null || _selected is not { } entry || !_historyLoaded || !VisibleContext(entry.ConversationId).WindowActive || !_userOpened || _showInbox || _showTeacherFiles) return;
+        // A viewport change can invalidate the in-flight read while SQLite is busy. Keep the latest view queued.
+        if (_readBusy) { QueueViewportRead(); return; }
         _readBusy = true; long generation = Volatile.Read(ref _viewGeneration); var visible = new List<MessageView>();
         try
         {
