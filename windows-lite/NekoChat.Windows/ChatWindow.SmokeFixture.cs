@@ -10,6 +10,7 @@ public partial class ChatWindow
     internal long? SmokeUnreadTotal => _snapshot?.TotalUnread;
     internal bool SmokeReadBusy => _readBusy;
     internal bool SmokeRefreshIdle => !_refreshing;
+    internal object SmokeSendState => new { task = _activeSend.Status.ToString(), _sending, _attachmentDraftLoading, _attachmentBusy, draftLength = Draft.Text.Length, enabled = SendButton.IsEnabled };
     internal object SmokeReadState => new {
         _userOpened, _showInbox, _showTeacherFiles, _historyLoaded, _readBusy, _viewGeneration,
         active = IsActive, visible = IsVisible, minimized = WindowState.ToString(),

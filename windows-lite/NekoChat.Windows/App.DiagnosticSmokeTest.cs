@@ -1,4 +1,5 @@
 using System.IO;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
@@ -25,10 +26,13 @@ public partial class App
         ChatRuntime? runtime = null, peer = null; ChatWindow? window = null;
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         void Check(bool ok, string label) { if (!ok) throw new InvalidOperationException(label); checks.Add(label); }
-        async Task Until(Func<bool> condition, string label, int seconds = 18)
+        async Task Until(Func<bool> condition, string label, int seconds = 18, bool responsive = false)
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(seconds));
-            try { while (!condition()) await Task.Delay(25, timeout.Token); }
+            try { while (!condition()) {
+                long tick = Stopwatch.GetTimestamp(); await Task.Delay(25, timeout.Token);
+                if (responsive && Stopwatch.GetElapsedTime(tick) > TimeSpan.FromSeconds(2)) throw new InvalidOperationException("UI dispatcher did not respond during SQLite contention");
+            } }
             catch (OperationCanceledException) { throw new TimeoutException(label); }
             checks.Add(label);
         }
@@ -94,7 +98,9 @@ public partial class App
 
             Check(!window.StorageStatus.Text.Contains("NCD-QueueFull"), "successful refresh clears its recovered queue error");
 
-            // A second SQLite writer owns the real write lock until the product's bounded timeout expires.
+            // The visible read, Send flush and autosave can each consume the existing 5-second SQL timeout.
+            // Bound their complete queued flow while checking the actual UI Dispatcher every 25ms.
+            // Keep the chat foreground so this exercises the competing viewport write too.
             using (var locked = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(runtime.DataDirectory, "nekochat.db"), Mode = SqliteOpenMode.ReadWrite, Pooling = false }.ToString()))
             {
                 locked.Open(); using var transaction = locked.BeginTransaction(deferred: false);
@@ -102,7 +108,7 @@ public partial class App
                 window.Draft.Text = busyText;
                 await Until(() => window.SendButton.IsEnabled, "storage contention send can start");
                 window.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                await Until(() => window.SmokeSendIdle && window.StorageStatus.Text.Contains("NCD-StorageBusy"), "real SQLite busy timeout is handled without crashing or leaving send busy");
+                await Until(() => window.SmokeSendIdle && window.StorageStatus.Text.Contains("NCD-StorageBusy"), "real SQLite busy timeout is handled without crashing or leaving send busy", seconds: 35, responsive: true);
                 Check(window.Draft.Text == busyText && runtime.Diagnostics.Recent.Any(e => e.Stage == DiagnosticStage.StorageWrite && e.Code == DiagnosticCode.StorageBusy), "SQLite failure preserves edit and identifies storage stage");
                 transaction.Rollback();
             }
@@ -126,7 +132,7 @@ public partial class App
         }
         catch (Exception error)
         {
-            failure = error.ToString(); diagnostic = window?.SmokeReadState;
+            failure = error.ToString(); diagnostic = new { view = window?.SmokeReadState, send = window?.SmokeSendState, recent = runtime?.Diagnostics.Recent };
             if (window?.IsVisible == true) Capture(window, Path.Combine(output, "diagnostics-failure.png"));
         }
         finally
