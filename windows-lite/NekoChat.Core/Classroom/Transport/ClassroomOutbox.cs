@@ -42,6 +42,10 @@ public sealed class ClassroomOutbox : IAsyncDisposable
     public void Cancel(string id)
     {
         _store.CancelOutbox(id);
+        CancelIo(id);
+    }
+    public void CancelIo(string id)
+    {
         lock (_gate) if (_jobs.TryGetValue(id, out var job)) _ = job.Cancellation.CancelAsync();
         Notify();
     }
