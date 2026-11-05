@@ -8,6 +8,7 @@ public partial class ChatWindow
     internal InboxEntry? SmokeSelectedEntry => _selected;
     internal bool SmokeSendIdle => _activeSend.IsCompleted && !_sending;
     internal long? SmokeUnreadTotal => _snapshot?.TotalUnread;
+    internal bool SmokeReadBusy => _readBusy;
     internal object SmokeReadState => new {
         _userOpened, _showInbox, _showTeacherFiles, _historyLoaded, _readBusy, _viewGeneration,
         active = IsActive, visible = IsVisible, minimized = WindowState.ToString(),
