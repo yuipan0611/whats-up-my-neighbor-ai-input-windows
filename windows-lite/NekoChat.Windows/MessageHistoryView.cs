@@ -17,7 +17,7 @@ internal sealed class MessageView(string key, string rawText, bool outgoing, boo
     public bool Outgoing { get; } = outgoing;
     public bool Legacy { get; } = legacy;
     public long Sequence { get; } = sequence;
-    public string Utc { get; } = utc;
+    public string Utc { get; set; } = utc;
     public ImageSource? PeerAvatar { get; } = peerAvatar;
     private string _delivery = delivery;
     public string Delivery { get => _delivery; set { if (_delivery != value) { _delivery = value; PropertyChanged?.Invoke(this, new(nameof(Delivery))); } } }

@@ -114,6 +114,8 @@ public partial class ChatWindow
     {
         if (_runtime is null || _stopping) return;
         if (_refreshing) { _refreshAgain = true; return; }
+        if (_runtime.OutboxFailure is { } failure) StorageStatus.Text = failure;
+        else if (StorageStatus.Text.StartsWith("待送儲存暫停：", StringComparison.Ordinal)) StorageStatus.Text = _runtime.StartupWarning ?? "";
         _refreshing = true;
         try
         {

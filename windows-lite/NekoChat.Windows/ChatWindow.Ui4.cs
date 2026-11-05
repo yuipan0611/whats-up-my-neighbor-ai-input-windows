@@ -133,6 +133,11 @@ public partial class ChatWindow
         Draft.SelectedText = "\n```" + language + "\n" + input.Text + "\n```\n"; Draft.Focus();
     }
 
+    private void SortMessageHistory()
+    {
+        var sorted = History.Rows.OrderBy(row => row.Utc, StringComparer.Ordinal).ThenBy(row => row.Legacy).ThenBy(row => row.Sequence).ThenBy(row => row.Key, StringComparer.Ordinal).ToArray();
+        for (int i = 0; i < sorted.Length; i++) { int index = History.Rows.IndexOf(sorted[i]); if (index != i) History.Rows.Move(index, i); }
+    }
     private void SyncAttemptMessage()
     {
         if (_runtime?.ArchivedIdentityFixture != false)
@@ -166,10 +171,15 @@ public partial class ChatWindow
         row ??= new MessageView("attempt:" + attempt.MessageId, attempt.RawSnapshot, true, false, sequence, utc, "") { AttemptId = attempt.MessageId };
         row.AttemptTryCount = attempt.TryCount;
         row.AttemptFailed = attempt.State is "failed" or "unconfirmed";
+        if (_runtime?.ArchivedIdentityFixture == false) {
+            row.RetrySend = attempt.State != "sending" && !_closingRequested ? async () => {
+                if (_runtime is { } runtime && ClassroomPrincipalKey.TryParse(entry.ConversationId, out var principal)) { await runtime.RetryStoredAsync(principal, attempt.MessageId, _peerPort); await RefreshInboxAsync(true); }
+            } : null;
+        }
         bool retry = !_closingRequested && !_sending && !_attachmentDraftLoading && _attachmentDraft is null &&
             (_runtime?.ArchivedIdentityFixture == true ? entry.Pairing == PairingState.Paired : entry.CanSend) && _runtime?.CanSend == true && attempt.State != "sending" &&
             (Draft.Text.Length == 0 || Draft.Text == attempt.RawSnapshot);
-        row.RetrySend = retry ? async () => {
+        if (_runtime?.ArchivedIdentityFixture != false) row.RetrySend = retry ? async () => {
             if (_runtime?.ArchivedIdentityFixture == false && ClassroomPrincipalKey.TryParse(entry.ConversationId, out var principal))
             {
                 var fresh = await _runtime.Worker.Run(s => s.ListClassroomPendingMessages(principal, 200, sequence > 0 ? checked(sequence + 1) : null).Any(p => p.Attempt.MessageId == attempt.MessageId && p.Attempt.TryCount == attempt.TryCount && p.Attempt.State != "sending"));
@@ -184,9 +194,11 @@ public partial class ChatWindow
             () => { if (_selected is { Attempt: { } current } selected && selected.Id == entry.Id && current.MessageId == attempt.MessageId && current.TryCount == attempt.TryCount) CancelAttemptClick(this, new RoutedEventArgs()); return Task.CompletedTask; } : null;
         row.DeleteLocal = _runtime?.ArchivedIdentityFixture == false && !_sending && attempt.State != "sending" ?
             () => ConfirmDeleteLocalMessageAsync(entry, row) : null;
-        row.Delivery = ClassroomSendUiPolicy.DecideAttemptBanner(attempt.State, cancelling);
+        row.Delivery = _runtime?.QueuedStatus(attempt.MessageId) ?? ClassroomSendUiPolicy.DecideAttemptBanner(attempt.State, cancelling);
         row.RefreshActions();
+        if (utc.Length > 0) row.Utc = utc;
         if (added) History.Rows.Add(row);
+        SortMessageHistory();
         HistoryState.Visibility = Visibility.Collapsed;
     }
 }

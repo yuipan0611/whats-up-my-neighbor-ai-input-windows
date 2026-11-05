@@ -108,7 +108,7 @@ public static class AttachmentChecks
             using (var old = ChatStore.Open(new(oldDir) { Migrations = Migration.Default.Take(10).ToArray() }))
                 old.ReceiveClassroomMessage("127.0.0.1", new(Guid.NewGuid().ToString("D"), "舊紀錄"), () => true);
             using (var upgraded = ChatStore.Open(new(oldDir)))
-            { Check(upgraded.ListClassroomMessages(p).Items.Single().RawText == "舊紀錄", "migration keeps text"); Check(upgraded.LatestVersion == 12 && upgraded.ListBackups().Count != 0, "additive migration and backup"); }
+            { Check(upgraded.ListClassroomMessages(p).Items.Single().RawText == "舊紀錄", "migration keeps text"); Check(upgraded.LatestVersion == 13 && upgraded.ListBackups().Count != 0, "additive migration and backup"); }
             string source = Path.Combine(root, "課堂.py"); await File.WriteAllBytesAsync(source, small);
             await using (var sender = new Node(Path.Combine(root, "a")))
             await using (var receiver = new Node(Path.Combine(root, "b")))

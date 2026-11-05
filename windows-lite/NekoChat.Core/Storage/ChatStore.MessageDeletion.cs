@@ -18,6 +18,7 @@ public sealed partial class ChatStore
                 FROM ClassroomAttempt a WHERE a.principal=@p AND a.attemptState IN ('sending','failed','unconfirmed','cancelled') AND (@before IS NULL OR a.rowid<@before)
                 ORDER BY a.rowid DESC LIMIT @limit
                 """;
+            if (_migrations.Count >= 13) cmd.CommandText = cmd.CommandText.Replace("a.attemptState,a.rawSnapshot", "coalesce((SELECT state FROM ClassroomOutbox o WHERE o.messageId=a.messageId),a.attemptState),a.rawSnapshot");
             cmd.Parameters.AddWithValue("@p", principal.Value); cmd.Parameters.AddWithValue("@limit", limit);
             cmd.Parameters.AddWithValue("@before", (object?)beforeSequence ?? DBNull.Value);
             using var reader = cmd.ExecuteReader(); var rows = new List<ClassroomPendingMessage>();
@@ -37,6 +38,7 @@ public sealed partial class ChatStore
                 r => (Direction: r.GetString(0), Id: r.GetString(1)), ("@p", principal.Value), ("@seq", sequence));
             if (message.Count == 0) return (new LocalDeleteResult(false, "not-found"), false);
             var row = message.Single();
+            if (_migrations.Count >= 13) ctx.Exec("DELETE FROM ClassroomOutbox WHERE messageId=@id AND principal=@p", ("@id", row.Id), ("@p", principal.Value));
             ctx.Exec("INSERT OR IGNORE INTO ClassroomCleared(principal,direction,messageId,clearedUtc) VALUES(@p,@d,@id,@now)",
                 ("@p", principal.Value), ("@d", row.Direction), ("@id", row.Id), ("@now", ctx.NowUtc));
             if (row.Direction == "outgoing") ctx.Exec("DELETE FROM ClassroomAttempt WHERE principal=@p AND messageId=@id", ("@p", principal.Value), ("@id", row.Id));
@@ -54,7 +56,8 @@ public sealed partial class ChatStore
             var old = FindClassroomAttempt(ctx, messageId);
             if (old is null || old.Principal != principal.Value) return (new LocalDeleteResult(false, "not-found"), false);
             if (old.Count != expectedTryCount) return (new LocalDeleteResult(false, "stale-attempt"), false);
-            if (old.State is "sending" or "confirmed" or "superseded") return (new LocalDeleteResult(false, "not-idle"), false);
+            if (old.State is "confirmed" or "superseded" || old.State == "sending" && (_migrations.Count < 13 || ctx.Scalar("SELECT count(*) FROM ClassroomOutbox WHERE messageId=@id", ("@id", messageId)) is not (long and 1))) return (new LocalDeleteResult(false, "not-idle"), false);
+            if (_migrations.Count >= 13) ctx.Exec("DELETE FROM ClassroomOutbox WHERE messageId=@id AND principal=@p", ("@id", messageId), ("@p", principal.Value));
             var draft = ReadClassroomBinding(ctx, principal.Value);
             bool hasAttachment = _migrations.Count >= 11 && ctx.Scalar("SELECT count(*) FROM AttachmentDraft WHERE principal=@p", ("@p", principal.Value)) is long n && n > 0;
             if (!hasAttachment && old.Kind == "text" && draft is not null && draft.Epoch == old.Epoch && draft.Revision == old.Revision && draft.Text == old.Text)

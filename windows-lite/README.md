@@ -1,3 +1,5 @@
+> 2026-11-05 聊天流程候選：按傳送先保存在本機待送，暫時斷線後自動續送；圖片與檔案沿用本機副本。成功不殘留失敗卡，新輸入不受重試影響。舊紀錄仍須明確手動重試。狀態與驗收見 `../docs/bugfixes/20261105-chat-lifecycle.md`。尚未發布。
+
 # NekoChat Windows Lite 0.1.0-beta.11 候選
 
 下一版修復候選，尚未發布。公開版目前為 beta.10。Windows 教室／區網聊天與桌面貓咪，提供未簽署的 x64 預發布測試版。[完整更新說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.10)。

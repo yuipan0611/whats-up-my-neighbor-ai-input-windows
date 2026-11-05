@@ -20,6 +20,8 @@ internal static class SchemaGuard
 
     private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV12 = new(() => CreateExpected(12));
 
+    private static readonly Lazy<IReadOnlyList<Definition>> ExpectedV13 = new(() => CreateExpected(13));
+
     internal static long Inspect(SqliteConnection connection, int latestVersion)
     {
         long version = Scalar(connection, "PRAGMA user_version");
@@ -28,10 +30,10 @@ internal static class SchemaGuard
                 fromVersion: checked((int)version), toVersion: latestVersion);
         var actual = Definitions(connection);
         if (version == 0 && Scalar(connection, "SELECT count(*) FROM sqlite_master") == 0) return 0;
-        var expected = version >= 12 ? ExpectedV12.Value : version == 11 ? ExpectedV11.Value : version == 10 ? ExpectedV10.Value : version == 9 ? ExpectedV9.Value : version == 8 ? ExpectedV8.Value : version == 7 ? ExpectedV7.Value : version == 6 ? ExpectedV6.Value : version == 5 ? ExpectedV5.Value : version == 4 ? ExpectedV4.Value : version == 3 ? ExpectedV3.Value : version == 2 ? ExpectedV2.Value : ExpectedV1.Value;
+        var expected = version >= 13 ? ExpectedV13.Value : version == 12 ? ExpectedV12.Value : version == 11 ? ExpectedV11.Value : version == 10 ? ExpectedV10.Value : version == 9 ? ExpectedV9.Value : version == 8 ? ExpectedV8.Value : version == 7 ? ExpectedV7.Value : version == 6 ? ExpectedV6.Value : version == 5 ? ExpectedV5.Value : version == 4 ? ExpectedV4.Value : version == 3 ? ExpectedV3.Value : version == 2 ? ExpectedV2.Value : ExpectedV1.Value;
         var byName = actual.ToDictionary(d => d.Name, StringComparer.Ordinal);
         if (version < 1 || expected.Any(d => !byName.TryGetValue(d.Name, out var found) || found != d) ||
-            version <= 12 && actual.Count != expected.Count)
+            version <= 13 && actual.Count != expected.Count)
             throw new StoreException(StoreErrorKind.UnrecognizedDatabase, StoreErrors.Describe(StoreErrorKind.UnrecognizedDatabase));
         if (Scalar(connection, "SELECT count(*) FROM SchemaVersion") != version ||
             Scalar(connection, "SELECT coalesce(min(version),0) FROM SchemaVersion") != 1 ||
@@ -101,6 +103,7 @@ internal static class SchemaGuard
         if (version >= 10) { command.CommandText = ClassroomSchema.RouteSql; command.ExecuteNonQuery(); }
         if (version >= 11) { command.CommandText = AttachmentSchema.Sql; command.ExecuteNonQuery(); }
         if (version >= 12) { command.CommandText = ClassroomFilesSchema.Sql; command.ExecuteNonQuery(); }
+        if (version >= 13) { command.CommandText = ClassroomOutboxSchema.Sql; command.ExecuteNonQuery(); }
         return Definitions(memory).AsReadOnly();
     }
 }

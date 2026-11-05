@@ -499,7 +499,7 @@ internal static class ClassroomStoreChecks
                 old.ReceiveLegacyMessage(new("old v1", null), old.GetLegacyReceiveContext("10.0.0.9"), () => true);
             }
             using var current = ChatStore.Open(f.Options);
-            Check(Count(f.Db, "PRAGMA user_version") == 12 && Count(f.Db, "SELECT count(*) FROM Message") == 1 && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0 &&
+            Check(Count(f.Db, "PRAGMA user_version") == 13 && Count(f.Db, "SELECT count(*) FROM Message") == 1 && Count(f.Db, "SELECT count(*) FROM LegacyMessage") == 1 && Count(f.Db, "SELECT count(*) FROM ClassroomMessage") == 0 &&
                 Text(f.Db, "SELECT pairingState FROM Peer WHERE id='A'") == "paired", "additive migration keeps old key-based history exactly where it was; nothing is reassigned");
             string row = Add(current, "甲", X.ToString());
             Rx(current, Z, new("k", "x"));
