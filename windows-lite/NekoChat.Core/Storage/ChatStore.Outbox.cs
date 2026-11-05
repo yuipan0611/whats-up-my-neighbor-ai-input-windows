@@ -23,12 +23,17 @@ internal static class ClassroomOutboxSchema
         """;
 }
 
+public sealed record QueuedMessageReceipt(string MessageId, DraftState Draft);
+
 public sealed record OutboxItem(long Sequence, string MessageId, ClassroomPrincipalKey Principal, string TargetIp,
     int PeerPort, long? AttachmentSequence, string State, int Failures, string? Error);
 
 public sealed partial class ChatStore
 {
-    public string EnqueueClassroomMessage(ClassroomPrincipalKey principal, string text, long epoch, long revision, int port)
+    public string EnqueueClassroomMessage(ClassroomPrincipalKey principal, string text, long epoch, long revision, int port) =>
+        EnqueueClassroomMessageWithDraft(principal, text, epoch, revision, port).MessageId;
+
+    public QueuedMessageReceipt EnqueueClassroomMessageWithDraft(ClassroomPrincipalKey principal, string text, long epoch, long revision, int port)
     {
         RequirePrincipal(principal); ValidateRevision(epoch, revision);
         if (port is < 1 or > 65535 || !ValidSendPayload(text, "text", null)) throw new ArgumentException("Invalid queued message.");
@@ -45,11 +50,14 @@ public sealed partial class ChatStore
                 ("@id", id), ("@p", principal.Value), ("@text", text), ("@fp", ClassroomFingerprint(text, null)), ("@e", epoch), ("@r", revision), ("@now", ctx.NowUtc));
             InsertOutbox(ctx, id, principal, target, port, null);
             ClearEnqueuedDraft(ctx, principal, epoch);
-            return (id, true);
+            return (new QueuedMessageReceipt(id, new DraftState(null, checked(epoch + 1), revision)), true);
         });
     }
 
-    public AttachmentRecord EnqueueAttachment(ClassroomPrincipalKey principal, string caption, long epoch, long revision, int port)
+    public AttachmentRecord EnqueueAttachment(ClassroomPrincipalKey principal, string caption, long epoch, long revision, int port) =>
+        EnqueueAttachmentWithDraft(principal, caption, epoch, revision, port).Attachment;
+
+    public (AttachmentRecord Attachment, QueuedMessageReceipt Receipt) EnqueueAttachmentWithDraft(ClassroomPrincipalKey principal, string caption, long epoch, long revision, int port)
     {
         if (System.Text.Encoding.UTF8.GetByteCount(caption) > 65536 || caption.Any(c => char.IsControl(c) && c is not ('\r' or '\n' or '\t'))) throw new AttachmentException("invalid_caption");
         return Write("outbox-enqueue-attachment", ctx => {
@@ -58,7 +66,7 @@ public sealed partial class ChatStore
             InsertOutbox(ctx, row.MessageId, principal, row.PeerIp, port, row.LocalSeq);
             ctx.Exec("DELETE FROM AttachmentDraft WHERE principal=@p AND blobId=@b", ("@p", principal.Value), ("@b", row.File.BlobId));
             ClearEnqueuedDraft(ctx, principal, epoch);
-            return (row, true);
+            return ((row, new QueuedMessageReceipt(row.MessageId, new DraftState(null, checked(epoch + 1), revision))), true);
         });
     }
 

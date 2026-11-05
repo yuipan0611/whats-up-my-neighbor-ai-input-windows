@@ -75,7 +75,7 @@ public sealed class MessageCard : UserControl
                 button.Click += async (_,_) => { if (message.AttachmentAction is { } invoke) await invoke(attachment, action); };
                 actions.Children.Add(button);
             }
-            if (attachment.State is "sending" or "receiving" || attachment.Direction == "outgoing" && attachment.State == "offered") Button("取消", "cancel");
+            if (attachment.State is "queued" or "sending" or "receiving" || attachment.Direction == "outgoing" && attachment.State == "offered") Button("取消", "cancel");
             else if (attachment.Direction == "incoming" && attachment.State != "complete") Button("下載", "download");
             else if (attachment.Direction == "outgoing" && attachment.State is not ("complete" or "offered" or "unavailable")) Button("重試", "retry");
             if (attachment.State == "complete" && attachment.Problem == "confirmation_pending") Button("重送確認", "download");

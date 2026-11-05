@@ -39,6 +39,14 @@ internal static class OutboxChecks
             return result;
         }
     }
+    private sealed class PostEnqueueReadFault : IStoreFaults
+    {
+        internal bool Armed;
+        public void AfterBegin(string op) { }
+        public void BeforeCommit(string op) { }
+        public void AfterCommit(string op) { if (op == "outbox-enqueue") Armed = true; }
+        public void AfterRead(string op) { if (Armed) throw new IOException("synthetic read failure after enqueue commit"); }
+    }
     private sealed class FinishFault : IStoreFaults
     {
         internal volatile bool Block;
@@ -66,6 +74,15 @@ internal static class OutboxChecks
         }
         try
         {
+            var readFault = new PostEnqueueReadFault();
+            using (var store = ChatStore.Open(new(Path.Combine(root, "enqueue-receipt")) { Faults = readFault }))
+            {
+                store.SaveClassroomDraft(p, "durable receipt", 0, 1);
+                var receipt = store.EnqueueClassroomMessageWithDraft(p, "durable receipt", 0, 1, 8768);
+                Check(readFault.Armed && receipt.Draft is { RawText: null, Epoch: 1, Revision: 1 }, "enqueue returns committed handoff even when all post-commit reads would fail");
+                readFault.Armed = false;
+                Check(store.ListOutbox().Single().MessageId == receipt.MessageId, "receipt names the sole durable queued message");
+            }
             // New migration never adopts historic failed/cancelled content for automatic sending.
             string upgrade = Path.Combine(root, "upgrade");
             using (var old = ChatStore.Open(new(upgrade) { Migrations = Migration.Default.Take(12).ToArray() }))

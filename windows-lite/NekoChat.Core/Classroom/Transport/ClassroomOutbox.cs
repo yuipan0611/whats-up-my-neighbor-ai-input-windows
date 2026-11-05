@@ -20,6 +20,7 @@ public sealed class ClassroomOutbox : IAsyncDisposable
     public event Action<Exception>? Failed;
     public event Action? Recovered;
     private int _failed;
+    private int _wakeRequested;
     private void ReportFailure(Exception error) { Interlocked.Exchange(ref _failed, 1); try { Failed?.Invoke(error); } catch { } }
     private void ReportRecovery() { if (Interlocked.Exchange(ref _failed, 0) != 0) { try { Recovered?.Invoke(); } catch { } } }
     private void Finish(string id, bool success, bool retryable, string? error) { _store.FinishOutbox(id, success, retryable, error); ReportRecovery(); }
@@ -27,7 +28,6 @@ public sealed class ClassroomOutbox : IAsyncDisposable
     public ClassroomOutbox(ChatStore store, ClassroomSender sender, AttachmentService? attachments, Func<string, int, string> ownIp)
     {
         _store = store; _sender = sender; _attachments = attachments; _ownIp = ownIp;
-        _store.RecoverOutbox(); _store.WakeOutbox();
         NetworkChange.NetworkAvailabilityChanged += NetworkAvailable;
         NetworkChange.NetworkAddressChanged += NetworkAddressChanged;
         _loop = Task.Run(RunAsync);
@@ -38,7 +38,7 @@ public sealed class ClassroomOutbox : IAsyncDisposable
         if (_lifetime.IsCancellationRequested) return;
         try { Wake(); } catch (Exception error) { ReportFailure(error); }
     }
-    public void Wake() => _store.WakeOutbox();
+    public void Wake() => Interlocked.Exchange(ref _wakeRequested, 1);
     public void Cancel(string id)
     {
         _store.CancelOutbox(id);
@@ -50,11 +50,14 @@ public sealed class ClassroomOutbox : IAsyncDisposable
     {
         try
         {
+            bool recovering = true;
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
             do
             {
                 try
                 {
+                    if (recovering) { _store.RecoverOutbox(); _store.WakeOutbox(); recovering = false; }
+                    if (Interlocked.Exchange(ref _wakeRequested, 0) != 0) _store.WakeOutbox();
                     foreach (var candidate in _store.ListOutbox().Where(x => x.State is "queued" or "sending"))
                     {
                         lock (_gate)
