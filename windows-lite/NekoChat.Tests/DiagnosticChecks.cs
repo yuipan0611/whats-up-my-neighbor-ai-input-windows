@@ -61,6 +61,9 @@ internal static class DiagnosticChecks
             Check(DiagnosticFault.For(DiagnosticCode.CorruptData).StopDataOperations && !DiagnosticFault.For(DiagnosticCode.StorageBusy).StopDataOperations, "corruption and temporary contention are distinct");
             Check(DiagnosticFault.FromReason("private-token-and-ip").Code == DiagnosticCode.Unexpected, "unknown remote reason maps to a fixed code");
 
+            Check(new[] { DiagnosticCode.OperationBusy, DiagnosticCode.UiNotReady, DiagnosticCode.DraftNotSaved }.All(code => DiagnosticFault.For(code).Category == DiagnosticCategory.State), "send admission guards are fixed state categories rather than network failures");
+            Check(DiagnosticFault.FromReason("stale-revision").Code == DiagnosticCode.StaleView && DiagnosticFault.FromReason("stale-epoch").Code == DiagnosticCode.StaleView, "strict draft rejection maps to bounded state metadata");
+            Check(DiagnosticFault.FromReason("draft-too-large").Code == DiagnosticCode.InvalidPayload && DiagnosticFault.FromReason("not-found").Code == DiagnosticCode.StaleView, "non-exception draft rejections retain fixed actionable categories");
             string folder = Path.Combine(root, "normal");
             await using (var journal = new DiagnosticJournal(folder, "0.1.0-beta.10"))
             {
@@ -70,6 +73,7 @@ internal static class DiagnosticChecks
                 string id = Guid.NewGuid().ToString("D");
                 journal.Record(DiagnosticStage.UiAction, DiagnosticOutcome.Failed, error: sensitive, messageId: "SENSITIVE-user-input");
                 journal.Record(DiagnosticStage.SendConfirm, DiagnosticOutcome.Unconfirmed, DiagnosticCode.Unconfirmed, messageId: id, attempt: 2);
+                journal.Record(DiagnosticStage.SendAdmission, DiagnosticOutcome.Deferred, DiagnosticCode.UiNotReady);
                 for (int i = 0; i < 20; i++) journal.Record(DiagnosticStage.UiRead, DiagnosticOutcome.Deferred);
                 var export = await journal.ExportAsync(Path.Combine(root, "normal.zip"));
                 Check(export.Success && journal.PersistentAvailable, "local journal writes and exports actual ZIP");
@@ -78,6 +82,7 @@ internal static class DiagnosticChecks
                 foreach (string secret in new[] { "SENSITIVE", "10.20.30.40", "Bearer ", "SELECT ", "alice.txt", root })
                     Check(!content.Contains(secret, StringComparison.Ordinal), "diagnostic export excludes sensitive text " + secret.Length);
                 Check(content.Contains(id) && content.Contains("Unconfirmed") && content.Contains("SendConfirm"), "UUID, attempt and typed stage survive export");
+                Check(content.Contains("SendAdmission") && content.Contains("UiNotReady"), "pre-enqueue guard classification survives export without input or recipient data");
                 Check(content.Contains(nameof(ThrowSensitive)), "safe method frames identify unexpected bug without message or source paths");
                 using var zip = ZipFile.OpenRead(Path.Combine(root, "normal.zip"));
                 Check(zip.Entries.All(entry => entry.Name == "recent.jsonl" || entry.Name == "summary.json" || entry.Name.StartsWith("diagnostics-", StringComparison.Ordinal)), "export includes no database, settings, identity or attachment files");

@@ -52,6 +52,10 @@ public partial class App
             window.Show(); window.Activate(); await window.SmokeOpenEntryAsync(entry => entry.ConversationId == principal.Value);
             await Until(() => window.IsActive && window.Draft.IsEnabled, "native window remains usable with blocked diagnostic disk");
             Check(runtime.Diagnostics.WriteFailures > 0 && !runtime.Diagnostics.PersistentAvailable, "logger degrades to memory without blocking runtime startup");
+            window.Draft.Text = "";
+            Check(!window.SendButton.IsEnabled, "empty composer keeps actual Send disabled");
+            window.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(runtime.Diagnostics.Recent.Any(e => e.Stage == DiagnosticStage.SendAdmission && e.Outcome == DiagnosticOutcome.Deferred && e.Code == DiagnosticCode.UiNotReady), "pre-enqueue disabled Send leaves a fixed state diagnostic");
             var unused = new TcpListener(IPAddress.Loopback, 0); unused.Start(); int unavailablePort = ((IPEndPoint)unused.LocalEndpoint).Port; unused.Stop();
             window.SmokeUsePeerPort(unavailablePort);
             const string first = "PRIVATE-DIAG-CHAT first offline message";

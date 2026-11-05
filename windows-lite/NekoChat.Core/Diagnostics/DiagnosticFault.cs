@@ -5,11 +5,11 @@ using NekoChat.Core.Storage;
 
 namespace NekoChat.Core.Diagnostics;
 
-public enum DiagnosticStage { Startup, OutboxEnqueue, OutboxClaim, OutboxAttempt, OutboxFinish, OutboxRecovery, OutboxCancel, OutboxRetry, SendPrepare, SendHello, SendTransmit, SendConfirm, ReceiveValidate, ReceiveRespond, ReceiveCommit, ReceiveNotify, ReceiveReceipt, StorageRead, StorageWrite, StorageQueue, Attachment, UiRefresh, UiRead, UiAction, Shutdown, Journal }
+public enum DiagnosticStage { Startup, OutboxEnqueue, OutboxClaim, OutboxAttempt, OutboxFinish, OutboxRecovery, OutboxCancel, OutboxRetry, SendPrepare, SendHello, SendTransmit, SendConfirm, ReceiveValidate, ReceiveRespond, ReceiveCommit, ReceiveNotify, ReceiveReceipt, StorageRead, StorageWrite, StorageQueue, Attachment, UiRefresh, UiRead, UiAction, Shutdown, Journal, SendAdmission }
 public enum DiagnosticOrigin { Local, RemoteResponse }
 public enum DiagnosticOutcome { Started, Succeeded, Failed, Unconfirmed, Cancelled, Rejected, Stale, Deferred, Recovered, Completed }
 public enum DiagnosticCategory { None, Network, Timeout, Cancellation, Validation, Remote, DeliveryUnconfirmed, StorageBusy, StorageFull, Permission, StorageIo, DataIntegrity, Capacity, State, Unexpected }
-public enum DiagnosticCode { None, AttachmentUnavailable, RecipientChanged, Interrupted, TemporaryUnavailable, NetworkUnavailable, Timeout, Cancelled, InvalidPayload, RemoteRejected, Unconfirmed, StorageBusy, DiskFull, ReadOnly, StorageIo, CorruptData, UnsupportedData, IntegrityMismatch, CapacityExceeded, QueueFull, StaleView, Duplicate, NotificationFailed, Unexpected, LoggerUnavailable }
+public enum DiagnosticCode { None, AttachmentUnavailable, RecipientChanged, Interrupted, TemporaryUnavailable, NetworkUnavailable, Timeout, Cancelled, InvalidPayload, RemoteRejected, Unconfirmed, StorageBusy, DiskFull, ReadOnly, StorageIo, CorruptData, UnsupportedData, IntegrityMismatch, CapacityExceeded, QueueFull, StaleView, Duplicate, NotificationFailed, Unexpected, LoggerUnavailable, OperationBusy, UiNotReady, DraftNotSaved }
 public enum DiagnosticSeverity { Information, Warning, Error, Critical }
 
 public sealed record DiagnosticFault(DiagnosticCode Code, DiagnosticCategory Category, DiagnosticSeverity Severity, bool StopDataOperations = false)
@@ -60,10 +60,10 @@ public sealed record DiagnosticFault(DiagnosticCode Code, DiagnosticCategory Cat
         "storage_busy" => DiagnosticCode.StorageBusy,
         "storage_unavailable" or "receipt_storage_unavailable" => DiagnosticCode.StorageIo,
         "unavailable" or "not_owner" or "receiver_not_ready" or "wrong_recipient" or "source_not_allowed" or "unsupported_version" or "missing_endpoint" => DiagnosticCode.RemoteRejected,
-        "payload_too_large" or "invalid_payload" or "too_large" or "unsafe_path" or "invalid_text" or "invalid_response" or "invalid_name" or "invalid_endpoint" or "directory_not_supported" => DiagnosticCode.InvalidPayload,
+        "draft-too-large" or "payload_too_large" or "invalid_payload" or "too_large" or "unsafe_path" or "invalid_text" or "invalid_response" or "invalid_name" or "invalid_endpoint" or "directory_not_supported" => DiagnosticCode.InvalidPayload,
         "hash_mismatch" or "source_changed" or "conflict" => DiagnosticCode.IntegrityMismatch,
         "quota" or "storage_full" or "catalog_full" or "capacity_exceeded" or "rate_limited" or "offroster-limit" => DiagnosticCode.CapacityExceeded,
-        "stale-view" or "stale_view" or "stale" or "stale_attempt" or "cleared" or "withdrawn" or "stale-session" or "stale_session" => DiagnosticCode.StaleView,
+        "not-found" or "stale-epoch" or "stale-revision" or "stale-view" or "stale_view" or "stale" or "stale_attempt" or "cleared" or "withdrawn" or "stale-session" or "stale_session" => DiagnosticCode.StaleView,
         "request_failed" or "receipt_service_unavailable" => DiagnosticCode.Unexpected,
         "notification_failed" => DiagnosticCode.NotificationFailed,
         _ => DiagnosticCode.Unexpected
@@ -82,11 +82,11 @@ public sealed record DiagnosticFault(DiagnosticCode Code, DiagnosticCategory Cat
         DiagnosticCode.StorageIo or DiagnosticCode.LoggerUnavailable => DiagnosticCategory.StorageIo,
         DiagnosticCode.CorruptData or DiagnosticCode.UnsupportedData or DiagnosticCode.IntegrityMismatch => DiagnosticCategory.DataIntegrity,
         DiagnosticCode.CapacityExceeded or DiagnosticCode.QueueFull => DiagnosticCategory.Capacity,
-        DiagnosticCode.StaleView or DiagnosticCode.AttachmentUnavailable or DiagnosticCode.RecipientChanged or DiagnosticCode.Interrupted => DiagnosticCategory.State,
+        DiagnosticCode.OperationBusy or DiagnosticCode.UiNotReady or DiagnosticCode.DraftNotSaved or DiagnosticCode.StaleView or DiagnosticCode.AttachmentUnavailable or DiagnosticCode.RecipientChanged or DiagnosticCode.Interrupted => DiagnosticCategory.State,
         DiagnosticCode.TemporaryUnavailable => DiagnosticCategory.Remote,
         _ => DiagnosticCategory.Unexpected
     }, code switch {
-        DiagnosticCode.None or DiagnosticCode.Duplicate or DiagnosticCode.Cancelled or DiagnosticCode.StaleView or DiagnosticCode.Interrupted => DiagnosticSeverity.Information,
+        DiagnosticCode.OperationBusy or DiagnosticCode.UiNotReady or DiagnosticCode.None or DiagnosticCode.Duplicate or DiagnosticCode.Cancelled or DiagnosticCode.StaleView or DiagnosticCode.Interrupted => DiagnosticSeverity.Information,
         DiagnosticCode.CorruptData or DiagnosticCode.UnsupportedData => DiagnosticSeverity.Critical,
         DiagnosticCode.Unexpected or DiagnosticCode.StorageIo or DiagnosticCode.NotificationFailed or DiagnosticCode.IntegrityMismatch => DiagnosticSeverity.Error,
         _ => DiagnosticSeverity.Warning

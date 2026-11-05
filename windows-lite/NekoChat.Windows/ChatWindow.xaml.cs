@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using NekoChat.Core;
+using NekoChat.Core.Diagnostics;
 
 namespace NekoChat.Windows;
 
@@ -178,7 +179,8 @@ public partial class ChatWindow : Window
 
     private void SendClick(object sender, RoutedEventArgs e)
     {
-        if (!SendButton.IsEnabled) return;
+        if (!SendButton.IsEnabled) { _runtime?.Diagnostics.Record(DiagnosticStage.SendAdmission, DiagnosticOutcome.Deferred, DiagnosticCode.UiNotReady); return; }
+        _runtime?.Diagnostics.Record(DiagnosticStage.SendAdmission, DiagnosticOutcome.Started);
         if (_runtime is not null) { _ = SendCurrentAsync(false); return; }
         var targetIp = RecipientIp.Text.Trim();
         var text = Draft.Text;
