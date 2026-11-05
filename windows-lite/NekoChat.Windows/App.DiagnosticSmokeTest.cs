@@ -32,11 +32,17 @@ public partial class App
             catch (OperationCanceledException) { throw new TimeoutException(label); }
             checks.Add(label);
         }
+        async Task UntilStored(Func<Task<bool>> condition, string label, int seconds = 20)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(seconds));
+            try { while (!await condition()) await Task.Delay(25, timeout.Token); }
+            catch (OperationCanceledException) { throw new TimeoutException(label); }
+            checks.Add(label);
+        }
         try
         {
             runtime = await ChatRuntime.OpenAsync(new(settings, SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true);
-            peer = await ChatRuntime.OpenAsync(new(peerSettings, SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true);
-            runtime.Start(); peer.Start();
+            runtime.Start();
             await runtime.Worker.Run(store => store.SaveClassroomDraft(principal, "PRIVATE-DIAG-CHAT fixture draft", 0, 1));
             window = new(settings); await window.AttachRuntimeAsync(runtime, 0); window.SetReceiverState(true, runtime.Listener.Port, null);
             window.Show(); window.Activate(); await window.SmokeOpenEntryAsync(entry => entry.ConversationId == principal.Value);
@@ -44,20 +50,26 @@ public partial class App
             Check(runtime.Diagnostics.WriteFailures > 0 && !runtime.Diagnostics.PersistentAvailable, "logger degrades to memory without blocking runtime startup");
             var unused = new TcpListener(IPAddress.Loopback, 0); unused.Start(); int unavailablePort = ((IPEndPoint)unused.LocalEndpoint).Port; unused.Stop();
             window.SmokeUsePeerPort(unavailablePort);
-            const string first = "PRIVATE-DIAG-CHAT first failed message";
+            const string first = "PRIVATE-DIAG-CHAT first offline message";
             window.Draft.Text = first;
             await Until(() => window.SendButton.IsEnabled, "first send is enabled");
             window.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Until(() => window.SmokeSendIdle && window.SmokeSelectedEntry?.Attempt?.State is "failed" or "unconfirmed", "connection failure finishes and releases send controls");
-            Check(window.Draft.Text == first && window.SendButton.IsEnabled, "failed send preserves draft and re-enables send");
+            await Until(() => window.SmokeSendIdle && window.Draft.Text.Length == 0, "durable enqueue clears composer and releases controls while offline");
+            await UntilStored(() => runtime.Worker.Run(store => ((ChatStore)store).ListOutbox().SingleOrDefault()?.Failures > 0), "offline connection failure remains durably queued");
+            string firstId = await runtime.Worker.Run(store => ((ChatStore)store).ListOutbox().Single().MessageId);
             Check(runtime.Diagnostics.Recent.Any(e => e.Stage == DiagnosticStage.SendHello && e.Category == DiagnosticCategory.Network), "network exception has classified local trace");
-            window.SmokeUsePeerPort(peer.Listener.Port);
+            Check(runtime.Diagnostics.Recent.Any(e => e.Stage == DiagnosticStage.OutboxEnqueue && e.MessageId == firstId), "enqueue diagnostic names committed receipt without a post-commit database read");
             const string next = "PRIVATE-DIAG-CHAT next message succeeds";
             window.Draft.Text = next;
-            await Until(() => window.SendButton.IsEnabled, "next distinct message can be sent after failure");
+            await Until(() => window.SendButton.IsEnabled, "next draft remains editable while first message is pending");
+            peer = await ChatRuntime.OpenAsync(new(peerSettings, SettingsSourceStatus.Loaded), true, unavailablePort, loopbackOnly: true);
+            peer.Start(); runtime.Outbox?.Wake();
+            await UntilStored(() => peer.Worker.Run(store => store.ListClassroomMessages(principal).Items.Any(row => row.MessageId == firstId && row.RawText == first)), "reconnect delivers original queued UUID to receiver SQLite");
+            await UntilStored(() => runtime.Worker.Run(store => ((ChatStore)store).ListOutbox().Single().State == "complete"), "background retry completes original durable item");
+            Check(window.Draft.Text == next && window.SendButton.IsEnabled, "background completion preserves next draft and send controls");
             window.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Until(() => window.SmokeSendIdle && window.Draft.Text.Length == 0, "second real Send succeeds without restart or confirmation blockage");
-            Check(await peer.Worker.Run(store => store.ListClassroomMessages(principal).Items.Single().RawText == next), "receiver SQLite contains second message exactly once");
+            await Until(() => window.SmokeSendIdle && window.Draft.Text.Length == 0, "second Send enqueues without restart or confirmation blockage");
+            await UntilStored(() => peer.Worker.Run(store => store.ListClassroomMessages(principal).Items.Count == 2 && store.ListClassroomMessages(principal).Items.Any(row => row.RawText == next)), "receiver SQLite stores both messages exactly once");
 
             // Saturate the actual bounded worker, then invoke the actual refresh entrypoint.
             using (var release = new ManualResetEventSlim())
@@ -96,8 +108,8 @@ public partial class App
             }
             window.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Until(() => window.SmokeSendIdle && window.Draft.Text.Length == 0, "send succeeds after SQLite lock is released");
-            Check(await peer.Worker.Run(store => store.ListClassroomMessages(principal).Items.Count == 2), "recovery does not duplicate earlier deliveries");
-            Check(!window.StorageStatus.Text.Contains("NCD-StorageBusy"), "confirmed send clears recovered SQLite busy warning");
+            await UntilStored(() => peer.Worker.Run(store => store.ListClassroomMessages(principal).Items.Count == 3), "storage recovery delivers third message without duplicating earlier deliveries");
+            await Until(() => !window.StorageStatus.Text.Contains("NCD-StorageBusy"), "successful enqueue clears recovered SQLite busy warning");
             string directoryTarget = Path.Combine(output, "not-a-zip"); Directory.CreateDirectory(directoryTarget);
             Check(!(await window.ExportDiagnosticsAsync(directoryTarget)).Success && window.ExportDiagnosticsButton.IsEnabled, "failed export restores its button");
             string archive = Path.Combine(output, "diagnostics.zip");

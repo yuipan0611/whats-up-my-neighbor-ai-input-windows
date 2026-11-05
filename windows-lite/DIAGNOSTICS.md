@@ -24,17 +24,18 @@
 
 ## 傳送與接收語意
 
-草稿與傳送嘗試仍由原 SQLite 交易管理。傳輸失敗、取消或確認遺失不會因記錄成功就變成傳送成功。人工重試保留原訊息 ID；不新增自動重送。
+按傳送先以既有 SQLite 交易保存獨立待送項目，再清空該次輸入；後續草稿不受背景傳送影響。暫時斷線依待送流程自動續送，舊紀錄仍需明確手動重試。診斷只觀察既有入列、領取、傳輸、收尾、取消與恢復，不新增排程器。入列記錄使用交易回傳的訊息 ID，不在提交後另讀資料庫。傳輸失敗、取消或確認遺失不會因記錄成功就變成傳送成功；重試保留原訊息 ID。OutboxFinish／Completed 只代表收尾操作完成，送達需核對傳輸確認及持久狀態。
 
-接收端交易提交後才回 ACK；畫面通知失敗不撤銷已提交的訊息。這類通知例外另記 ReceiveNotify／NotificationFailed。未讀仍以目前前景可視範圍及世代判斷，記錄不能繞過舊畫面檢查。
+接收端交易提交後才回 ACK；畫面通知失敗不撤銷已提交的訊息。這類通知例外另記 ReceiveNotify／NotificationFailed。未讀仍以前景實際可視的最後一則推進閱讀位置，涵蓋此前未載入訊息；畫面後方的新訊息維持未讀。診斷不能繞過世代檢查。
 
-UI 操作的 finally／外層傳送邊界恢復 busy 狀態；同一流程成功後清除暫時錯誤，確認本機寫入恢復後清除草稿儲存的暫時錯誤，保留 runtime 的持續性開機警告並記 Recovered 事件。分類提示與匯出按鈕可繼續操作。一般網路、儲存與介面操作失敗可以隔離；不對作業系統終止、原生程序損壞或記憶體耗盡宣稱能繼續運作。
+UI 操作的 finally／外層傳送邊界恢復 busy 狀態；同一流程成功後清除暫時錯誤，確認本機寫入恢復後清除草稿儲存的暫時錯誤，保留 runtime 的持續性開機及待送儲存警告並記 Recovered 事件。分類提示與匯出按鈕可繼續操作。一般網路、儲存與介面操作失敗可以隔離；不對作業系統終止、原生程序損壞或記憶體耗盡宣稱能繼續運作。
 
 ## 故障回歸
 
 ```sh
 dotnet run --project windows-lite/NekoChat.Tests -c Release -- --diagnostics
 dotnet run --project windows-lite/NekoChat.Tests -c Release -- --attachments
+dotnet run --project windows-lite/NekoChat.Tests -c Release -- --outbox
 ```
 
 Windows 原生：
@@ -45,4 +46,4 @@ dotnet run --project windows-lite/NekoChat.Windows -c Release -- --diagnostics-s
 
 Core 檢查分類、隱私、上限、輪替、writer 競爭、記憶體降級、真 SQLite 回滾與飽和恢復、真 TCP 接收寫入失敗、通知例外，以及 ACK 遺失／損壞、逾時與取消。附件回歸實際破壞 TCP 傳送的 bytes，確認不產生完成事實且留有 UUID 關聯的完整性診斷。
 
-原生 WPF 檢查真 Send 按鈕、故障後下一則、真 SQLite 寫入鎖逾時、滿載 refresh 及恢復、匯出失敗後重試、日誌不可寫仍能傳訊與匯出記憶體事件。只用合成資料與 loopback，不存取日常 profile。教室／雙實機／實體 DPI 另行驗收。
+原生 WPF 檢查真 Send 按鈕、斷線入列／保留下一則草稿／同 ID 自動續送、真 SQLite 寫入鎖逾時、滿載 refresh 及恢復、匯出失敗後重試、日誌不可寫仍能傳訊與匯出記憶體事件。只用合成資料與 loopback，不存取日常 profile。教室／雙實機／實體 DPI 另行驗收。

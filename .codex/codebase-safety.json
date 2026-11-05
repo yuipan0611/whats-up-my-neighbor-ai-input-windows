@@ -1,6 +1,6 @@
 {
   "$schema": "safely-modify-codebase/v1",
-  "status": "draft",
+  "status": "ready",
   "project": {
     "name": "nekochat-lite-attachments-20261104",
     "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",

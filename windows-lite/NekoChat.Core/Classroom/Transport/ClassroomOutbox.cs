@@ -30,10 +30,10 @@ public sealed class ClassroomOutbox : IAsyncDisposable
         try { Failed?.Invoke(error); }
         catch (Exception observer) when (DiagnosticFault.Catchable(observer)) { _diagnostics?.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, observer); }
     }
-    private void ReportRecovery()
+    private void ReportRecovery(string? messageId = null)
     {
         if (Interlocked.Exchange(ref _failed, 0) == 0) return;
-        _diagnostics?.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Recovered);
+        _diagnostics?.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Recovered, messageId: messageId);
         try { Recovered?.Invoke(); }
         catch (Exception observer) when (DiagnosticFault.Catchable(observer)) { _diagnostics?.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, observer); }
     }
@@ -43,7 +43,7 @@ public sealed class ClassroomOutbox : IAsyncDisposable
         _diagnostics?.Record(DiagnosticStage.OutboxFinish, DiagnosticOutcome.Started, code, messageId: id);
         _store.FinishOutbox(id, success, retryable, error);
         _diagnostics?.Record(DiagnosticStage.OutboxFinish, DiagnosticOutcome.Completed, code, messageId: id);
-        ReportRecovery();
+        ReportRecovery(id);
     }
 
     public ClassroomOutbox(ChatStore store, ClassroomSender sender, AttachmentService? attachments, Func<string, int, string> ownIp, DiagnosticJournal? diagnostics = null)
@@ -82,8 +82,8 @@ public sealed class ClassroomOutbox : IAsyncDisposable
             {
                 try
                 {
-                    if (recovering) { _store.RecoverOutbox(); _store.WakeOutbox(); recovering = false; }
-                    if (Interlocked.Exchange(ref _wakeRequested, 0) != 0) _store.WakeOutbox();
+                    if (recovering) { _store.RecoverOutbox(); _store.WakeOutbox(); recovering = false; _diagnostics?.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Completed); }
+                    if (Interlocked.Exchange(ref _wakeRequested, 0) != 0) { _store.WakeOutbox(); _diagnostics?.Record(DiagnosticStage.OutboxRetry, DiagnosticOutcome.Completed); }
                     foreach (var candidate in _store.ListOutbox().Where(x => x.State is "queued" or "sending"))
                     {
                         lock (_gate)
@@ -97,7 +97,7 @@ public sealed class ClassroomOutbox : IAsyncDisposable
                                 continue;
                             }
                             var claimed = _store.ClaimOutbox(candidate.MessageId);
-                            if (claimed is null) { if (_store.ListOutbox().SingleOrDefault(x => x.MessageId == candidate.MessageId)?.State == "complete") ReportRecovery(); continue; }
+                            if (claimed is null) { if (_store.ListOutbox().SingleOrDefault(x => x.MessageId == candidate.MessageId)?.State == "complete") ReportRecovery(candidate.MessageId); continue; }
                             _diagnostics?.Record(DiagnosticStage.OutboxClaim, DiagnosticOutcome.Completed, messageId: claimed.MessageId, count: claimed.Failures);
                             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
                             var task = Task.Run(() => SendAsync(claimed, cancellation.Token));

@@ -22,7 +22,10 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Verify bounded diagnostics, privacy, SQLite and TCP faults
-        run: dotnet run --project windows-lite/NekoChat.Tests -c Release -- --diagnostics
+        run: |
+          dotnet run --project windows-lite/NekoChat.Tests -c Release -- --diagnostics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet run --project windows-lite/NekoChat.Tests -c Release -- --outbox
       - name: Native WPF send, storage, refresh and export failure recovery
         shell: pwsh
         run: |

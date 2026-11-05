@@ -30,3 +30,13 @@
 Windows 首輪原生 run `42036124701`：測試使用空白草稿，依既有 inbox 規則不會建立可選對話，因此在操作前失敗。已改為有效合成草稿再測；沒有修改產品的空白草稿規則或刪除驗收斷言。Core 的逐行 JSON 驗證改為統一一項 assertion，仍逐行解析，避免容量差異影響檢查總數。另補 I/O 所屬階段分類及匯出失敗事件，診斷版本保留 build commit。
 
 同 head `c2cdf1f` Windows 原生 22 項全部通過（run 42036698113）；截圖另發現恢復後舊 StorageBusy 提示仍留在畫面。新增同流程恢復狀態：成功 refresh／可視已讀或確認送達後清除對應暫時錯誤，保留 runtime startup warning，記 Recovered 事件；原生回歸補兩個清除提示斷言。啟動資料失敗亦使用統一分類提示。
+
+## 背景待送整合（2026-11-05）
+
+依使用者授權與另一個 Codex 協作，整合 PR #26 `30c75bc`（含 #24 `1049168`）。前述人工重試基準結果保留作歷史證據；目前產品使用持久 outbox 自動續送，診斷不新增重試器。atomic QueuedMessageReceipt 直接提供訊息 ID 與新草稿，避免提交後讀失敗造成重複入列。閱讀位置採 read-through API，保留前景、世代及 busy requeue 守門條件。
+
+新增 OutboxEnqueue／Claim／Attempt／Finish／Recovery／Cancel 階段；收尾 Completed 不等於傳送成功。工作 fault 被既有 outbox 觀察後記 root cause，修復與取消沿用產品狀態。暫時 UI 錯誤恢復時保留 OutboxFailure 與 StartupWarning。原生診斷 fixture 改驗斷線入列、下一則草稿保留、同 ID 續送及接收端 SQLite 真實資料，不再把 composer 清空當作已送達。
+
+PR #26 啟動檢查曾在新 enqueue 語意下過早對接收資料做 Single，原生未讀當時通過；由流程負責 Codex 修正為有限等待實際接收 SQLite，保留內容斷言，未跳過 gate。
+
+整合後本機：Core diagnostics 59、Outbox 63 項通過；WPF win-x64 交叉建置 0 警告／0 錯誤。原生診斷與封裝回歸由更新後 #27 CI 執行。
