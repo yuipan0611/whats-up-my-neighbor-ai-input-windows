@@ -2,7 +2,7 @@
   "$schema": "safely-modify-codebase/v1",
   "status": "ready",
   "project": {
-    "name": "nekochat-lite-attachments-20261104",
+    "name": "NekoChat Windows Lite",
     "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",
     "repo_root": ".",
     "last_reviewed": "2026-11-05"
@@ -163,6 +163,10 @@
     {
       "fact": "Windows startup smoke exercises real runtime/TCP for blocked vault directory, exclusive .part lock, retained/removable pending attachment, text roundtrip, restart recovery and corrupt DB fail-closed.",
       "source": "windows-lite/NekoChat.Windows/App.AttachmentStartupSmoke.cs; docs/classroom-ux/STARTUP-ISOLATION.md"
+    },
+    {
+      "fact": "Local per-message deletion uses scoped transactions and existing ClassroomCleared tombstones; exact pending draft deletion also checks epoch/revision/text and staged attachment absence.",
+      "source": "windows-lite/NekoChat.Core/Storage/ChatStore.MessageDeletion.cs; windows-lite/NekoChat.Tests/MessageRecoveryChecks.cs"
     }
   ]
 }

@@ -85,6 +85,18 @@ jobs:
           $textOnly = Start-Process -FilePath $app -ArgumentList @('--startup-smoke-test', "`"$textOnlyProof`"") -Wait -PassThru
           Get-Content "$textOnlyProof/startup-result.txt"
           if ($textOnly.ExitCode -ne 0) { exit 1 }
+      - name: Verify failure recovery, local deletion and existing nickname menu
+        shell: pwsh
+        run: |
+          $index = 0
+          foreach ($app in @('build/windows-lite-package/NekoChat.Windows.exe', 'build/windows-lite-portable/NekoChat-Lite.exe')) {
+            $proof = Join-Path $env:GITHUB_WORKSPACE "build/windows-lite-smoke/message-recovery-$index"
+            $probe = Start-Process -FilePath (Resolve-Path $app).Path -ArgumentList @('--message-recovery-smoke-test', "`"$proof`"") -PassThru
+            if (!$probe.WaitForExit(65000)) { $probe.Kill(); throw 'Message recovery fixture timed out' }
+            Get-Content "$proof/message-recovery-result.json"
+            if ($probe.ExitCode -ne 0) { throw 'Message recovery fixture failed' }
+            $index++
+          }
       - name: Verify native update download progress and cancellation
         shell: pwsh
         run: |

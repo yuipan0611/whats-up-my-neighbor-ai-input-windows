@@ -8,16 +8,15 @@ namespace NekoChat.Windows;
 public partial class ChatWindow
 {
     private Task _activeSend = Task.CompletedTask;
-    private Task SendCurrentAsync(bool retry)
-    { if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask; return _activeSend = SendCoreAsync(retry); }
-    private async Task SendCoreAsync(bool retry)
+    private Task SendCurrentAsync(bool retry, PendingSendSummary? retryAttempt = null)
+    { if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask; return _activeSend = SendCoreAsync(retry, retryAttempt); }
+    private async Task SendCoreAsync(bool retry, PendingSendSummary? retryAttempt)
     {
         if (_attachmentDraftLoading || _runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) return;
         var runtime = _runtime; var sent = buffer.Capture();
         if (_attachmentDraft is not null) { await SendAttachmentCoreAsync(runtime, entry, buffer, sent); return; }
         if (string.IsNullOrWhiteSpace(sent.Text)) return;
-        if (entry.Attempt is { State: not "sending" } previous && previous.RawSnapshot != sent.Text &&
-            MessageBox.Show(this, "前一次訊息可能已送達。這次內容不同，會建立新的訊息；是否仍要傳送？", "傳送新內容", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        if (retryAttempt is not null) entry = entry with { Attempt = retryAttempt };
         SetSending(true);
         try
         {

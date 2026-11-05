@@ -73,6 +73,10 @@ public interface IChatStore : IDisposable
     ClassroomMessagePage ListClassroomMessages(ClassroomPrincipalKey principal, long? beforeLocalSeq = null, int pageSize = 50);
     IReadOnlyList<ClassroomConversationSummary> ListClassroomConversations(int limit = 200);
     ClassroomClearResult ClearClassroomConversation(ClassroomPrincipalKey principal);
+    IReadOnlyList<ClassroomPendingMessage> ListClassroomPendingMessages(ClassroomPrincipalKey principal, int limit = 200, long? beforeSequence = null);
+    LocalDeleteResult DeleteClassroomMessage(ClassroomPrincipalKey principal, long sequence);
+    LocalDeleteResult DeleteClassroomPendingMessage(ClassroomPrincipalKey principal, string messageId, int expectedTryCount);
+    LocalDeleteResult DeleteLegacyMessage(LegacyHistoryScope scope, long sequence);
     ClassroomInboxSnapshot GetClassroomInboxSnapshot();
     RosterMutationResult DeleteRosterEntry(string entryId, string expectedSnapshotToken);
     RosterMutationResult BindPairedRosterPeer(string entryId, string? peerId, string expectedSnapshotToken);

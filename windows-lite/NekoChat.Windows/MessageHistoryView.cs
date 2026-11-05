@@ -28,9 +28,11 @@ internal sealed class MessageView(string key, string rawText, bool outgoing, boo
     public string? AttachmentPath { get; set; }
     public Func<AttachmentRecord, string, Task>? AttachmentAction { get; set; }
     public string? AttemptId { get; init; }
+    public int AttemptTryCount { get; set; }
     public bool AttemptFailed { get; set; }
     public Func<Task>? RetrySend { get; set; }
     public Func<Task>? CancelSend { get; set; }
+    public Func<Task>? DeleteLocal { get; set; }
     internal void RefreshActions() => PropertyChanged?.Invoke(this, new(nameof(RetrySend)));
     public event PropertyChangedEventHandler? PropertyChanged;
 }
@@ -219,7 +221,7 @@ public sealed class MessageCard : UserControl
         {
             var actions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0,4,0,0) };
             var retry = new Button { Content = "重試傳送", IsEnabled = message.RetrySend is not null, FontSize = 12, Margin = new(0,0,8,0),
-                ToolTip = message.RetrySend is null ? "等待目前傳送完成；若已修改草稿，請先還原原文再重試。" : "重試這則訊息，不會重複建立新的訊息" };
+                ToolTip = message.RetrySend is null ? "請先傳送或清空正在編輯的其他內容，再重試這則訊息。" : "重試這則訊息，不會重複建立新的訊息" };
             retry.Click += async (_,_) => { if (message.RetrySend is { } invoke) await invoke(); }; actions.Children.Add(retry);
             if (message.CancelSend is { } cancel)
             { var button = new Button { Content = "取消當次", FontSize = 12 }; button.Click += async (_,_) => await cancel(); actions.Children.Add(button); }
@@ -239,6 +241,12 @@ public sealed class MessageCard : UserControl
         var rawCopy = new MenuItem { Header = "複製整則原文" };
         rawCopy.Click += (_, _) => ShowCopyFeedback(message.RawText);
         rawMenu.Items.Add(rawCopy);
+        if (message.DeleteLocal is not null)
+        {
+            var delete = new MenuItem { Header = "從本機刪除…" };
+            delete.Click += async (_, _) => { if (message.DeleteLocal is { } remove) await remove(); };
+            rawMenu.Items.Add(delete);
+        }
         card.ContextMenu = rawMenu;
 
         var avatarImage = new Image

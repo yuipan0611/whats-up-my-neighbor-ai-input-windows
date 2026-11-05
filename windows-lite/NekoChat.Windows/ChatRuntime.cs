@@ -278,6 +278,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
             }
         }
 
+        if (!ArchivedIdentityFixture) return await Worker.Run(s => s.CancelClassroomAttempt(messageId, tryCount), CancellationToken.None).ConfigureAwait(false);
+
         Task<bool>? cancel;
         lock (_gate)
         {
