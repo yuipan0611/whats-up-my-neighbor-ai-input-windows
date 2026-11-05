@@ -116,7 +116,10 @@ public partial class App
                 Check(window.Draft.Text == busyText && runtime.Diagnostics.Recent.Any(e => e.Stage == DiagnosticStage.StorageWrite && e.Code == DiagnosticCode.StorageBusy), "SQLite failure preserves edit and identifies storage stage");
                 transaction.Rollback();
             }
-            window.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => {
+                if (!window.SendButton.IsEnabled) return false;
+                window.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); return true;
+            }, "recovered composer accepts the next Send on the same Dispatcher turn");
             await Until(() => window.SmokeSendIdle && window.Draft.Text.Length == 0, "send succeeds after SQLite lock is released");
             await UntilStored(() => peer.Worker.Run(store => store.ListClassroomMessages(principal).Items.Count == 3), "storage recovery delivers third message without duplicating earlier deliveries");
             await Until(() => !window.StorageStatus.Text.Contains("NCD-StorageBusy"), "successful enqueue clears recovered SQLite busy warning");

@@ -1,6 +1,6 @@
 # 統一錯誤分類與本機診斷
 
-使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `3f28940`（含草稿保存／Send互斥、同步離開、按鈕readiness與訊息ID去重）；診斷保持 draft，未安裝或發布。
+使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `48dcf6a`（產品碼b6c97fb，另含舊草稿fixture最新快照同步）；診斷保持 draft，未安裝或發布。
 
 ## 範圍與守門條件
 
@@ -44,3 +44,7 @@ peer gate修正473116a：autosave、Send與exit保存共用async gate，涵蓋�
 Windows 5f05186 focused gate已核對JSON：diagnostics30=true、recovery20=true；scratch無gate候選先通過4項，精確在autosave／Send交錯斷言InvalidOperationException失敗，negative-control.expectedFailureVerified=true。不是編譯失敗或逾時紅燈，原產品未修改。
 
 最後readiness consumer整合b6c97fb：按鈕與Send入口都以_activeSend完成判斷可接受下一次輸入，完成後回Dispatcher重算composer。診斷保留SendBoundary與Deferred記錄，也記錄排程／重畫例外；沒有繞過admission或負對照保護。WPF重建0警告0錯誤；此最終整合完整CI結果在PR checks核對。
+
+f217ee1的package recovery在第12項後遭strict draft rejection；journal精確記StorageWrite/Rejected/StaleView與SendAdmission/Deferred/DraftNotSaved，DB確認不是TCP丟失。原因是fixture直接seed live draft後，只等較新的history row便在舊editor revision繼續編輯。941b288改為seed後請求並等待真正SmokeOpenEntryAsync最新snapshot／EnsureDraft，不改store CAS或gate，保留20項斷言。
+
+診斷fixture也對齊readiness：解鎖SQLite後在同一次Dispatcher predicate確認SendButton實際啟用再點一次（30→31）。不以_activeSend完成推定按鈕已重畫；沒有增加重按或產品重試。完整最終驗證見PR checks與本機驗證報告。
