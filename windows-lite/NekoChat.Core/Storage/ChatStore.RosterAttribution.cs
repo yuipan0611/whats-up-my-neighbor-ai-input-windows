@@ -134,6 +134,8 @@ public sealed partial class ChatStore
     private static string? MergeConflictReason(Func<string, string, string, long> scalar, string ip, string rowId)
     {
         string from = "ip:" + ip, to = "roster:" + rowId;
+        if (scalar("SELECT count(*) FROM sqlite_master WHERE name='AttachmentDraft'", from, to) != 0 &&
+            scalar("SELECT count(*) FROM AttachmentDraft f JOIN AttachmentDraft t ON t.principal=@to WHERE f.principal=@from AND (f.name<>t.name OR f.size<>t.size OR f.sha256<>t.sha256)", from, to) != 0) return MergeConflicts.Draft;
         if (scalar(DraftConflictSql, from, to) != 0) return MergeConflicts.Draft;
         if (scalar(MessageConflictSql, from, to) != 0) return MergeConflicts.Message;
         return null;
@@ -165,6 +167,13 @@ public sealed partial class ChatStore
         {
             ctx.Exec("INSERT OR IGNORE INTO ClassroomDraft(principal,rawText,updatedUtc) VALUES(@to,@text,@now)", ("@to", to.Value), ("@text", draft), ("@now", ctx.NowUtc));
             ctx.Exec("DELETE FROM ClassroomDraft WHERE principal=@from", ("@from", from.Value));
+        }
+        if (ctx.Scalar("SELECT count(*) FROM sqlite_master WHERE name='AttachmentDraft'") is long tables && tables != 0)
+        {
+            ctx.Exec("INSERT OR IGNORE INTO AttachmentDraft(principal,blobId,name,size,sha256,epoch) SELECT @to,blobId,name,size,sha256,0 FROM AttachmentDraft WHERE principal=@from", ("@from", from.Value), ("@to", to.Value));
+            ctx.Exec("DELETE FROM AttachmentDraft WHERE principal=@from", ("@from", from.Value));
+            ctx.Exec("UPDATE AttachmentDraft SET epoch=(SELECT draftEpoch+1 FROM ClassroomConversation WHERE principal=@to) WHERE principal=@to", ("@to", to.Value));
+            ctx.Exec("UPDATE Attachment SET epoch=(SELECT attachmentEpoch FROM ClassroomConversation WHERE principal=@to) WHERE localSeq IN (SELECT localSeq FROM ClassroomMessage WHERE principal=@to)", ("@to", to.Value));
         }
         ctx.Exec("UPDATE ClassroomConversation SET draftEpoch=draftEpoch+1 WHERE principal IN (@from,@to)", ("@from", from.Value), ("@to", to.Value));
         return total;

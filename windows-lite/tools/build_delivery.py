@@ -12,7 +12,7 @@ import subprocess
 import zipfile
 from verify_bundle import Bundle, verify_portable, required_content
 
-DOCS = ['README.md', 'DELIVERY.md', 'BACKUP-RESTORE.md', 'SEND-CANCELLATION.md', 'THIRD-PARTY.md']
+DOCS = ['README.md', 'DELIVERY.md', 'BACKUP-RESTORE.md', 'SEND-CANCELLATION.md', 'THIRD-PARTY.md', 'ATTACHMENTS.md']
 
 
 def digest(path):
@@ -69,6 +69,7 @@ def build(repo, output, dotnet):
     core, animation = 'windows-lite/NekoChat.Tests', 'windows-lite/NekoChat.Animation.Tests'
     sdk('core-restore', 'restore', core, '--locked-mode')
     sdk('core', 'run', '--project', core, '-c', 'Release', '--no-restore')
+    sdk('classroom-all', 'run', '--project', core, '-c', 'Release', '--no-build', '--', '--classroom-all')
     sdk('animation-restore', 'restore', animation, '--locked-mode')
     sdk('animation', 'run', '--project', animation, '-c', 'Release', '--no-restore', '--', 'windows-lite/NekoChat.Animation/Assets/manifest.json')
     app = 'windows-lite/NekoChat.Windows/NekoChat.Windows.csproj'

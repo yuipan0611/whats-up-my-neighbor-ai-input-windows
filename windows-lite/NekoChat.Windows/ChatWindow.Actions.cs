@@ -9,11 +9,13 @@ public partial class ChatWindow
 {
     private Task _activeSend = Task.CompletedTask;
     private Task SendCurrentAsync(bool retry)
-    { if (_closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask; return _activeSend = SendCoreAsync(retry); }
+    { if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask; return _activeSend = SendCoreAsync(retry); }
     private async Task SendCoreAsync(bool retry)
     {
-        if (_runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) return;
-        var runtime = _runtime; var sent = buffer.Capture(); if (string.IsNullOrWhiteSpace(sent.Text)) return;
+        if (_attachmentDraftLoading || _runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) return;
+        var runtime = _runtime; var sent = buffer.Capture();
+        if (_attachmentDraft is not null) { await SendAttachmentCoreAsync(runtime, entry, buffer, sent); return; }
+        if (string.IsNullOrWhiteSpace(sent.Text)) return;
         if (entry.Attempt is { State: not "sending" } previous && previous.RawSnapshot != sent.Text &&
             MessageBox.Show(this, "前一次訊息可能已送達。這次內容不同，會建立新的訊息；是否仍要傳送？", "傳送新內容", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
         SetSending(true);
@@ -45,7 +47,7 @@ public partial class ChatWindow
                 await runtime.Worker.Run(s => s.CompleteAttempt(started.MessageId, new FailedOutcome("missing_endpoint"), started.TryCount));
                 SetStatus("缺少對方位址，未傳送；草稿仍在本機。"); return;
             }
-            SetStatus(started.ReusedId ? "手動重送中，沿用原訊息 id…" : "手動傳送中，等待對方儲存確認…");
+            SetStatus(started.ReusedId ? "正在重試傳送…" : "手動傳送中，等待對方儲存確認…");
             await RefreshInboxAsync(); var transmission = runtime.SendAsync(prepared, endpoint, _peerPort, conversation, buffer, sent);
             UpdateComposer(); var outcome = await transmission;
             if (outcome.Completion is Confirmed { DraftCleared: true } && _selected?.ConversationId == conversation) SetDraftText(buffer.Text);
@@ -154,7 +156,7 @@ public partial class ChatWindow
             await runtime.Worker.Run(s => s.CompleteClassroomAttempt(started.MessageId, new FailedOutcome("missing_endpoint"), null, started.TryCount));
             SetStatus("缺少對方位址，未傳送；草稿仍在本機。"); return;
         }
-        SetStatus(started.ReusedId ? "手動重送中，沿用原訊息 id…" : "教室傳送中，等待對方儲存確認…");
+        SetStatus(started.ReusedId ? "正在重試傳送…" : "教室傳送中，等待對方儲存確認…");
         await RefreshInboxAsync();
         ClassroomSendResult outcome;
         try

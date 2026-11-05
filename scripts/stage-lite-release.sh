@@ -36,7 +36,7 @@ cp "$notes" release-artifacts/QUICKSTART.zh-TW.md
   printf '# NekoChat Lite %s：整合修正版\n\n' "$version"
   printf '**[⬇ 下載 Windows 安裝檔（建議）](https://github.com/%s/releases/download/%s/NekoChat-Setup-win-x64.exe)**\n\n' "$GITHUB_REPOSITORY" "$tag"
   cat "$notes"
-  printf '\n## 本版本驗證來源\n\n來源 commit：%s。\n\n[通過的 Windows Lite 建置與驗證](https://github.com/%s/actions/runs/%s)。\n\n附件含兩種執行檔、SHA-256、來源紀錄與 validation-evidence.zip；完整包、portable、Setup 安裝後 App 的鍵盤、收發及散步測試，和真實防火牆規則驗證均須先通過。\n\n標準版 Neighbor 的三項既有測試失敗與 Lite 分開記錄；本次未修改標準版語音功能。\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+  printf '\n## 本版本驗證來源\n\n來源 commit：%s。\n\n[通過的 Windows Lite 建置與驗證](https://github.com/%s/actions/runs/%s)。\n\n附件含兩種執行檔、SHA-256、來源紀錄與 validation-evidence.zip；完整包、portable、Setup 安裝後 App 的鍵盤、收發及散步測試，和真實防火牆規則驗證均須先通過。\n\n本次僅發布 NekoChat Lite 預發布測試版；教室雙 Windows、實裝輸入法與不同 DPI 的現場驗收仍需另外完成。\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
 } > release-artifacts/RELEASE_NOTES.zh-TW.md
 (cd release-artifacts/evidence && zip -qr ../validation-evidence.zip .)
 

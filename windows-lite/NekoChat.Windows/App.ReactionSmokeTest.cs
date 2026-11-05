@@ -6,13 +6,50 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using NekoChat.Core;
+using NekoChat.Core.Storage;
+using NekoChat.Core.Roster;
+using Microsoft.Data.Sqlite;
 
 namespace NekoChat.Windows;
 
 public partial class App
 {
+    private string? _reactionFixtureRowId;
+
+    private async Task ConfigureReactionFixtureAsync(bool teacher, string endpoint = "127.0.0.2")
+    {
+        var runtime = chatRuntime ?? throw new InvalidOperationException("Missing fixture runtime");
+        Require(runtime.IsolatedData && runtime.ArchivedIdentityFixture && messagingPeerId is not null,
+            "Reaction roster setup is restricted to the archived isolated fixture");
+        Require(endpoint is "127.0.0.1" or "127.0.0.2", "Fixture routes must remain loopback");
+        await runtime.Worker.Run(store => {
+            if (_reactionFixtureRowId is null)
+            {
+                var added = store.SaveManualRosterEntry(null, new("合成課堂對象", null, teacher, "192.168.255.250"),
+                    RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot()));
+                Require(added.Changed, "Synthetic reaction roster creation failed");
+                _reactionFixtureRowId = added.EntryId!;
+                Require(store.BindPairedRosterPeer(_reactionFixtureRowId, messagingPeerId,
+                    RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot())).Changed, "Synthetic reaction peer binding failed");
+            }
+            // Synthetic loopback is deliberately not accepted by the product roster editor.
+            // .2 is the destination, while incoming legacy traffic remains a separate .1 source.
+            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(runtime.DataDirectory, "nekochat.db"), Pooling = false }.ToString());
+            connection.Open(); using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE RosterEntry SET endpoint=@endpoint,isTeacher=@teacher WHERE id=@id";
+            command.Parameters.AddWithValue("@endpoint", endpoint); command.Parameters.AddWithValue("@teacher", teacher ? 1 : 0);
+            command.Parameters.AddWithValue("@id", _reactionFixtureRowId);
+            Require(command.ExecuteNonQuery() == 1, "Synthetic reaction roster missing");
+            return true;
+        });
+        await chat.SmokeOpenEntryAsync(entry => entry.PeerId == messagingPeerId);
+        Require(chat.SmokeSelectedEntry is { } selected && selected.IsTeacher == teacher && selected.Endpoint == endpoint,
+            "Reaction fixture did not select the actual roster snapshot");
+    }
+
     private async Task RunReactionMessagingChecksAsync(MessagingSmokeOptions options, CancellationToken cancellation)
     {
+        await ConfigureReactionFixtureAsync(false);
         pet.ReactionDisplayDevice = "disconnected-test-screen";
         string Ready(string value) => Path.Combine(options.Directory, value + ".ready");
         // First prove the unmodified privacy default on a real legacy classroom reaction.
@@ -73,7 +110,7 @@ public partial class App
             await UntilAsync(() => File.Exists(Ready("restored-reverse")), cancellation);
         }
         File.WriteAllText(Path.Combine(options.Directory, options.Role + "-reactions-result.txt"),
-            "PASS: actual five WPF reaction buttons; teacher shortcuts ignore selected classmate; fifth sticker works both ways; " +
+            "PASS: actual teacher WPF buttons reject a selected classmate and send only from the selected teacher chat; peer sticker popup works both ways; " +
             "default notification hides reaction content/IP; explicit preview opt-in; draft preserved for shortcuts; old-client exact-text compatibility fixture; real legacy TCP courtesy ACK/separate unverified history; transparent 312x288 central display; " +
             "two-second deadline; duplicate count; no source IP in popup; original HWND/position/size/art restored; click replies to source.");
 
@@ -134,15 +171,47 @@ public partial class App
 
     private async Task SendReactionAsync(ClassroomReaction reaction, CancellationToken cancellation)
     {
-        await chat.SmokeOpenEntryAsync(e => e.PeerId == messagingPeerId);
+        if (reaction.TeacherOnly)
+        {
+            await ConfigureReactionFixtureAsync(false);
+            chat.Draft.Text = "這份草稿要保留";
+            int unintendedSends = 0;
+            void Observe(string _, ClassroomReaction __) => unintendedSends++;
+            chat.ReactionRequested += Observe;
+            try
+            {
+                var blocked = chat.TeacherReactions.Children.OfType<Button>().Single(b => (string)b.Tag == reaction.Id);
+                blocked.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Require(unintendedSends == 0 && chat.Status.Text.Contains("對應的聊天室") && chat.Draft.Text == "這份草稿要保留",
+                    "Teacher reaction escaped the selected classmate guard");
+            }
+            finally { chat.ReactionRequested -= Observe; }
+        }
+        await ConfigureReactionFixtureAsync(reaction.TeacherOnly);
         chat.Draft.Text = "這份草稿要保留";
-        chat.RecipientIp.Text = reaction.TeacherOnly ? "192.168.1.254" : "127.0.0.1";
-        var button = reaction.TeacherOnly
-            ? chat.TeacherReactions.Children.OfType<Button>().Single(b => (string)b.Tag == reaction.Id)
-            : chat.ScrollReaction;
-        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        chat.RecipientIp.Text = "192.168.1.254"; // Editing the legacy hidden field cannot retarget the selected chat.
+        if (reaction.TeacherOnly)
+        {
+            var button = chat.TeacherReactions.Children.OfType<Button>().Single(b => (string)b.Tag == reaction.Id);
+            Require(button.IsVisible && button.IsEnabled, "Selected teacher reaction must be visible and enabled");
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        }
+        else
+        {
+            Require(chat.StickerButton.IsVisible && chat.StickerButton.IsEnabled, "Selected classmate sticker action is unavailable");
+            chat.StickerButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ContextMenu? menu = null;
+            await UntilAsync(() => {
+                menu = PresentationSource.CurrentSources.OfType<HwndSource>().Where(source => source.RootVisual is not null)
+                    .SelectMany(source => SmokeVisuals<ContextMenu>(source.RootVisual!)).SingleOrDefault(value => value.PlacementTarget == chat.StickerButton && value.IsOpen);
+                return menu is not null && menu.Items.OfType<MenuItem>().Any(item => item.IsVisible);
+            }, cancellation);
+            var sticker = menu!.Items.OfType<MenuItem>().Single(item => Equals(item.Tag, reaction.Id));
+            Require(sticker.IsEnabled, "Peer sticker menu item is disabled");
+            sticker.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)); menu.IsOpen = false;
+        }
         await UntilAsync(() => chat.SmokeSendIdle, cancellation);
-        Require(chat.CanSendReaction && chat.Status.Text.Contains("舊版・已送出") && !chat.History.Rows.Any(r => r.Outgoing && r.RawText == reaction.Text), "Reaction courtesy ACK failed or invented an outgoing signed message");
+        Require(chat.CanSendReaction && chat.Status.Text.Contains("舊版・已送出") && !chat.History.Rows.Any(r => r.Outgoing && r.RawText == reaction.Text), "Reaction courtesy ACK failed or invented an outgoing signed message: " + chat.Status.Text);
         Require(chat.Draft.Text == "這份草稿要保留", "Reaction shortcut changed the draft");
     }
 }

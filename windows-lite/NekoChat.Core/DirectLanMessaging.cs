@@ -85,7 +85,7 @@ public sealed class DirectLanListener : IAsyncDisposable
     public DirectLanListener(int port = DirectLanMessaging.DefaultPort) : this(null, new V2.V2ListenerOptions { Port = port }) { }
     public DirectLanListener(V2.V2Receiver receiver, int port = DirectLanMessaging.DefaultPort) : this(receiver, new V2.V2ListenerOptions { Port = port }) { }
     public DirectLanListener(V2.V2Receiver? receiver, V2.V2ListenerOptions options, Storage.IChatStore? legacyStore = null) : this(receiver, options, legacyStore, null) { }
-    public DirectLanListener(Classroom.Transport.ClassroomTcpListener classroomListener, Classroom.Transport.ClassroomStoreSink sink)
+    public DirectLanListener(Classroom.Transport.ClassroomTcpListener classroomListener, Classroom.Transport.ClassroomStoreSink sink, Attachments.AttachmentService? attachments = null)
     {
         _classroomTransport = classroomListener ?? throw new ArgumentNullException(nameof(classroomListener));
         if (sink is not null)
@@ -97,6 +97,9 @@ public sealed class DirectLanListener : IAsyncDisposable
             };
             sink.LegacyMessageStored += notice => LegacyMessageStored?.Invoke(notice);
         }
+        if (attachments is not null) attachments.MessageStored += (source, text) => {
+            try { ClassroomMessageStored?.Invoke(new ClassroomDeliveryNotice(source, text, null)); } catch { }
+        };
         _classroomTransport.Diagnostic += code => {
             if (code == "receiver_not_ready") Error = "接收服務已停止，請重新啟動。";
             if (code == "listener_failed") Error = "接收服務已永久失效，無法接收訊息。";

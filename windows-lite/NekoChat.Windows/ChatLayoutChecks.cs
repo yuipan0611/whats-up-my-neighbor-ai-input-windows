@@ -44,18 +44,21 @@ internal static class ChatLayoutChecks
 
         var visual = (FrameworkElement)chat.Content;
         // Native WPF geometry only: this runs on Windows, not during a Mac cross-build.
-        foreach (var size in new[] { new Size(424, 320), new Size(440, 550), new Size(800, 500), new Size(1100, 700), new Size(900, 1000), new Size(424, 320) })
+        foreach (var size in new[] { new Size(424, 320), new Size(440, 550), new Size(640, 550), new Size(641, 550), new Size(800, 500), new Size(1100, 700), new Size(900, 1000), new Size(424, 320) })
         {
             chat.SetReceiverState(false, 8768, new string('測', 200)); chat.SetStatus(new string('試', 200));
             chat.ShowConversationForLayoutCheck(); visual.Measure(size); visual.Arrange(new Rect(new Point(), size)); visual.UpdateLayout();
             chat.ShowConversationForLayoutCheck(); visual.UpdateLayout(); var available = new Rect(new Point(), visual.RenderSize);
+            var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using (var file = File.Create(Path.Combine(directory, $"chat-layout-{size.Width}x{size.Height}.png"))) encoder.Save(file);
             foreach (var control in new FrameworkElement[] { chat.Draft, chat.SendButton, chat.History })
             {
                 var bounds = control.TransformToAncestor(visual).TransformBounds(new Rect(control.RenderSize));
                 Require(control.ActualHeight > 0 && available.Contains(bounds), control.Name + " must stay visible in the client area");
             }
-            Require(chat.Draft.ActualHeight >= 55 && chat.SendButton.ActualHeight >= 40, "Input and send action cannot be squeezed away");
-            if (size.Width <= 700)
+            Require(chat.Draft.ActualHeight >= 55 && chat.SendButton.ActualHeight >= 40, $"Input and send action cannot be squeezed away at {size}: draft={chat.Draft.ActualHeight}, send={chat.SendButton.ActualHeight}");
+            if (size.Width <= 640)
             {
                 Require(chat.InboxPane.Visibility == Visibility.Collapsed && chat.BackToInbox.Visibility == Visibility.Visible, "Narrow conversation must expose Inbox navigation");
                 chat.ShowInboxForLayoutCheck(); visual.UpdateLayout();
@@ -63,15 +66,13 @@ internal static class ChatLayoutChecks
                 chat.ShowConversationForLayoutCheck(); visual.UpdateLayout();
             }
             else Require(chat.InboxPane.Visibility == Visibility.Visible && chat.ConversationPane.Visibility == Visibility.Visible, "Wide view must show both panes");
-            var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
-            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
-            using (var file = File.Create(Path.Combine(directory, $"chat-layout-{size.Width}x{size.Height}.png"))) encoder.Save(file);
             chat.ShowSettingsForLayoutCheck(true); visual.UpdateLayout();
             Require(chat.SettingsScroll.ActualHeight > 0, "Settings must have a reachable scrolling viewport");
-            var target = chat.ReactionDisplay.TransformToAncestor(chat.SettingsScroll).TransformBounds(new Rect(chat.ReactionDisplay.RenderSize));
+            Require(chat.ClearAttachmentCacheButton.Visibility == Visibility.Visible && chat.ClearAttachmentCacheButton.ActualHeight > 0, "Attachment cleanup must remain available in current settings");
+            var target = chat.ClearAttachmentCacheButton.TransformToAncestor(chat.SettingsScroll).TransformBounds(new Rect(chat.ClearAttachmentCacheButton.RenderSize));
             chat.SettingsScroll.ScrollToVerticalOffset(chat.SettingsScroll.VerticalOffset + target.Top); visual.UpdateLayout();
-            target = chat.ReactionDisplay.TransformToAncestor(chat.SettingsScroll).TransformBounds(new Rect(chat.ReactionDisplay.RenderSize));
-            Require(target.Top >= -1 && target.Bottom <= chat.SettingsScroll.ActualHeight + 1, "Screen chooser must remain reachable at every window size");
+            target = chat.ClearAttachmentCacheButton.TransformToAncestor(chat.SettingsScroll).TransformBounds(new Rect(chat.ClearAttachmentCacheButton.RenderSize));
+            Require(target.Top >= -1 && target.Bottom <= chat.SettingsScroll.ActualHeight + 1, "Attachment cleanup must remain reachable at every window size");
             chat.ShowSettingsForLayoutCheck(false);
         }
         chat.SetReceiverState(true, 8768, null); chat.SetStatus("Windows WPF 版面檢查完成");

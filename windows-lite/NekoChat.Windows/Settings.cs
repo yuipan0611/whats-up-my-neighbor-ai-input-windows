@@ -20,6 +20,7 @@ internal sealed record SettingsLoadResult(Settings Value, SettingsSourceStatus S
 
 internal record Settings
 {
+    public bool ClassRosterInitialized { get; init; }
     public string Coat { get; init; } = "original";
     public bool AutoStartOnLogin { get; init; } = true;
     public bool WanderEnabled { get; init; } = true;

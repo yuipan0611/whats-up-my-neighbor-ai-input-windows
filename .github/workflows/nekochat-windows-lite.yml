@@ -25,6 +25,7 @@ jobs:
           dotnet-version: '10.0.x'
       - run: python -m pip install -r nekochat/relay/requirements-dev.txt
       - run: dotnet run --project windows-lite/NekoChat.Tests -c Release
+      - run: dotnet run --project windows-lite/NekoChat.Tests -c Release --no-build -- --classroom-all
       - run: dotnet run --project windows-lite/NekoChat.Animation.Tests -c Release -- windows-lite/NekoChat.Animation/Assets/manifest.json
       - name: Protocol, auth, real WebSocket and C# integration tests
         run: NEKOCHAT_DOTNET="$(command -v dotnet)" python -m pytest nekochat/relay/tests -q
@@ -44,6 +45,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet run --project windows-lite/NekoChat.Tests -c Release
+      - run: dotnet run --project windows-lite/NekoChat.Tests -c Release --no-build -- --classroom-all
       - run: dotnet run --project windows-lite/NekoChat.Animation.Tests -c Release -- windows-lite/NekoChat.Animation/Assets/manifest.json
       - run: dotnet build windows-lite/NekoChat.Windows -c Release
       - name: Publish single-file portable EXE (Zero-Setup Classroom App)
@@ -62,6 +64,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Copy-Item windows-lite/README.md build/windows-lite-package/README.md
           Copy-Item windows-lite/DELIVERY.md build/windows-lite-package/DELIVERY.md
+          Copy-Item windows-lite/ATTACHMENTS.md build/windows-lite-package/ATTACHMENTS.md
           Copy-Item windows-lite/SEND-CANCELLATION.md build/windows-lite-package/SEND-CANCELLATION.md
           Copy-Item windows-lite/BACKUP-RESTORE.md build/windows-lite-package/BACKUP-RESTORE.md
           Copy-Item LICENSE build/windows-lite-package/LICENSE
