@@ -1,6 +1,8 @@
-# NekoChat Windows Lite 0.1.0-beta.10
+> 2026-11-05 聊天流程候選：按傳送先保存在本機待送，暫時斷線後自動續送；圖片與檔案沿用本機副本。成功不殘留失敗卡，新輸入不受重試影響。舊紀錄仍須明確手動重試。狀態與驗收見 `../docs/bugfixes/20261105-chat-lifecycle.md`。尚未發布。
 
-Windows 教室／區網聊天與桌面貓咪，提供未簽署的 x64 預發布測試版。[完整更新說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.10)。
+# NekoChat Windows Lite 0.1.0-beta.11 候選
+
+下一版修復候選，尚未發布。公開版目前為 beta.10。Windows 教室／區網聊天與桌面貓咪，提供未簽署的 x64 預發布測試版。[完整更新說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.10)。
 
 ## 開始使用
 
@@ -36,3 +38,10 @@ Core 真 TCP／SQLite 與 Windows CI 涵蓋收發、草稿、SHA-256、三節點
 兩台 Windows、真實教室 AP／VLAN／多人負載、其他實際 DPI／多螢幕與實裝中文輸入法仍需現場驗收。舊版文字聊天保持相容；附件與課堂分享需雙方版本支援。
 
 Lite 不包含標準版 Neighbor 的語音、Groq 或 API Key 功能。保留原核准貓咪素材與動畫；授權見 [第三方說明](THIRD-PARTY.md) 及專案 MIT LICENSE。
+
+## 本批修復候選（尚未發布）
+
+- 第一則傳送失敗後可繼續送下一則，舊失敗訊息保留，可手動重試；有其他文字正在編輯時，先傳送或清空再重試舊訊息。沒有背景自動重送。
+- 右鍵訊息可選「從本機刪除…」；只影響本機，對方的訊息不會被收回。失敗卡也可刪除；新草稿與新附件保留。較早的失敗訊息可透過載入較早訊息分頁查看。
+- 暱稱沿用名單右鍵「編輯綽號…」，僅保存在這台電腦，不改對方 IP 或訊息歸屬。
+- [問題原因、防回歸規則與驗證狀態](../docs/bugfixes/20261105-issues-21-23.md)。

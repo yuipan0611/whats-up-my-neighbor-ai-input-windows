@@ -40,6 +40,7 @@ public sealed partial class ChatStore
               LEFT JOIN ClassroomAttempt a ON a.messageId=(SELECT x.messageId FROM ClassroomAttempt x WHERE x.principal=s.principal AND x.attemptState IN ('sending','unconfirmed','failed','cancelled') ORDER BY x.updatedUtc DESC,x.rowid DESC LIMIT 1)
             WHERE s.kind='roster' OR m.localSeq IS NOT NULL OR l.legacySeq IS NOT NULL OR d.principal IS NOT NULL OR a.messageId IS NOT NULL
             """;
+        if (_migrations.Count >= 13) cmd.CommandText = cmd.CommandText.Replace("a.attemptState,a.rawSnapshot", "coalesce((SELECT state FROM ClassroomOutbox o WHERE o.messageId=a.messageId),a.attemptState),a.rawSnapshot");
         using var r = cmd.ExecuteReader(); var rows = new List<(ClassroomInboxEntry Entry, string Kind)>();
         while (r.Read())
         {

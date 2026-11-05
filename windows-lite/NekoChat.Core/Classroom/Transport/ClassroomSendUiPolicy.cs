@@ -167,6 +167,7 @@ public static class ClassroomSendUiPolicy
         if (cancelling) return "已要求取消，等待結果…";
         return state switch
         {
+            "queued" => "等待傳送；連線恢復後會自動續送。",
             "sending" => "手動傳送中，等待對方儲存確認。",
             "cancelled" => "當次嘗試已取消，訊息未送出；草稿仍在本機。",
             "failed" => "上一次嘗試未送出；草稿仍在本機，可以重新手動傳送。",

@@ -40,6 +40,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
     private long _wireGeneration;
     internal ChatStoreWorker Worker { get; }
     internal VisibleReadSession Reads { get; }
+    internal ClassroomOutbox? Outbox { get; private set; }
+    internal string? OutboxFailure { get; private set; }
     internal DirectLanListener Listener { get; }
     internal PresenceService? Presence { get; }
     internal ReadReceiptService? Receipts { get; }
@@ -155,6 +157,25 @@ internal sealed class ChatRuntime : IAsyncDisposable
         ClassroomReceipts.ReceiptsChanged += () => DataChanged?.Invoke();
         _maintenance = Task.Run(MaintainBackups);
     }
+    internal void RegisterAttachmentDownload(AttachmentRecord row) { _store.EnqueueAttachmentDownload(row); _store.RetryOutbox("download:" + row.LocalSeq); }
+    internal bool RetryAttachment(AttachmentRecord row) => _store.RequeueAttachment(row);
+    internal Task<DraftState> QueueMessageAsync(ClassroomPrincipalKey principal, DraftWriteSnapshot sent, int port, bool attachment) => Worker.Run(_ => {
+        if (attachment) _store.EnqueueAttachment(principal, sent.Text, sent.Epoch, sent.Revision, port);
+        else _store.EnqueueClassroomMessage(principal, sent.Text, sent.Epoch, sent.Revision, port);
+        return _store.GetClassroomDraftState(principal);
+    });
+    internal Task<bool> RetryStoredAsync(ClassroomPrincipalKey principal, string id, int port) => Worker.Run(_ => _store.RequeueClassroomAttempt(principal, id, port));
+    internal string? QueuedStatus(string id) {
+        var item = _store.ListOutbox().SingleOrDefault(x => x.MessageId == id);
+        return item?.State switch {
+            "queued" => "等待傳送；連線恢復後會自動續送。",
+            "sending" => "傳送中，等待對方儲存確認。",
+            "cancelled" => "已取消自動續送；可重試或從本機刪除。",
+            "failed" => item.Error switch { "missing_file" => "附件副本已遺失，請重新選檔。", "recipient_changed" => "對方名單或 IP 已改變，請確認對象。", "unsupported_version" => "對方版本不支援，請更新後重試。", "payload_too_large" or "legacy_payload_too_large" => "訊息超過對方上限，請修改後另送。", _ => "傳送失敗（" + item.Error + "）；可重試或從本機刪除。" },
+            _ => null
+        };
+    }
+    internal bool IsQueuedMessage(string id) => _store.ListOutbox().Any(x => x.MessageId == id);
     internal static string ResolveLocalEndpointIp(string targetIp, int port) =>
         LocalEndpointResolver.Resolve(targetIp, port);
     internal static string RootDirectory(Settings source, bool isolated) => UiTestOptions.ResolveRootDirectory(source, isolated);
@@ -176,7 +197,13 @@ internal sealed class ChatRuntime : IAsyncDisposable
         }
         finally { store?.Dispose(); }
     });
-    internal void Start(bool sharedNetwork = false) { Listener.Start(); if (Attachments is not null) Attachments.Port = Listener.Port; if (!IsolatedData || sharedNetwork) ClassroomFiles?.Start(); Presence?.Start(); Receipts?.Start(); ClassroomReceipts?.Start(); }
+    internal void Start(bool sharedNetwork = false) { Listener.Start(); if (Attachments is not null) Attachments.Port = Listener.Port;
+        if (!ArchivedIdentityFixture && Outbox is null) {
+            Outbox = new(_store, ClassroomSender, Attachments, ResolveLocalEndpointIp);
+            Outbox.Changed += () => DataChanged?.Invoke();
+            Outbox.Failed += error => { OutboxFailure = "待送儲存暫停：" + error.Message; DataChanged?.Invoke(); };
+            Outbox.Recovered += () => { OutboxFailure = null; DataChanged?.Invoke(); };
+        } if (!IsolatedData || sharedNetwork) ClassroomFiles?.Start(); Presence?.Start(); Receipts?.Start(); ClassroomReceipts?.Start(); }
     internal Task<V2SendResult> SendAsync(PreparedSend send, string endpoint, int port, string conversation, DraftEditBuffer buffer, DraftWriteSnapshot sent)
     {
         lock (_gate)
@@ -224,7 +251,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
                 if (outcome.Completion is Confirmed { DraftCleared: true } && _store.GetClassroomDraftState(prepared.Principal) is { } fresh)
                 {
                     var update = buffer.ApplyOwnAckClear(sent, fresh);
-                    if (update.PreserveEdit is { } edited) buffer.CompleteWrite(edited, edited.Persist(_store, conversation));
+                    if (update.PreserveEdit is { } edited) buffer.CompleteWrite(edited, edited.PersistClassroom(_store, prepared.Principal));
                 }
                 return outcome;
             }, _lifetime.Token);
@@ -237,6 +264,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     {
         lock (_gate)
         {
+            if (!ArchivedIdentityFixture && _store.ListOutbox().Any(x => x.MessageId == messageId && x.State is "queued" or "sending" or "failed")) return true;
             if (_classroomSends.CanCancel(messageId, tryCount)) return true;
             return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.CanCancel;
         }
@@ -278,6 +306,9 @@ internal sealed class ChatRuntime : IAsyncDisposable
             }
         }
 
+        if (!ArchivedIdentityFixture && IsQueuedMessage(messageId)) { Outbox?.Cancel(messageId); return new CancelResult(true, "cancelled"); }
+        if (!ArchivedIdentityFixture) return await Worker.Run(s => s.CancelClassroomAttempt(messageId, tryCount), CancellationToken.None).ConfigureAwait(false);
+
         Task<bool>? cancel;
         lock (_gate)
         {
@@ -299,9 +330,9 @@ internal sealed class ChatRuntime : IAsyncDisposable
         Interlocked.Increment(ref _wireGeneration);
         lock (_gate) return _pairingDrain = Pairing?.InvalidateAsync(reason) ?? Task.CompletedTask;
     }
-    internal void ResetAfterResume() { _ = InvalidatePairingAsync("resume"); Presence?.ResetAfterResume(); Receipts?.ResetAfterResume(); ClassroomReceipts?.ResetAfterResume(); }
+    internal void ResetAfterResume() { Outbox?.Wake(); _ = InvalidatePairingAsync("resume"); Presence?.ResetAfterResume(); Receipts?.ResetAfterResume(); ClassroomReceipts?.ResetAfterResume(); }
     internal async Task StopReceivingAsync()
-    { var pairingDrain = InvalidatePairingAsync("receiver_stopped"); await _lifetime.CancelAsync().ConfigureAwait(false); await pairingDrain.ConfigureAwait(false); await Listener.DisposeAsync().ConfigureAwait(false); if (ClassroomFiles is not null) await ClassroomFiles.DisposeAsync().ConfigureAwait(false); if (Attachments is not null) await Attachments.DisposeAsync().ConfigureAwait(false); if (Presence is not null) await Presence.DisposeAsync().ConfigureAwait(false); if (Receipts is not null) await Receipts.DisposeAsync().ConfigureAwait(false); if (ClassroomReceipts is not null) await ClassroomReceipts.DisposeAsync().ConfigureAwait(false); await _maintenance.ConfigureAwait(false); }
+    { if (Outbox is { } outbox) { Outbox = null; await outbox.DisposeAsync().ConfigureAwait(false); } var pairingDrain = InvalidatePairingAsync("receiver_stopped"); await _lifetime.CancelAsync().ConfigureAwait(false); await pairingDrain.ConfigureAwait(false); await Listener.DisposeAsync().ConfigureAwait(false); if (ClassroomFiles is not null) await ClassroomFiles.DisposeAsync().ConfigureAwait(false); if (Attachments is not null) await Attachments.DisposeAsync().ConfigureAwait(false); if (Presence is not null) await Presence.DisposeAsync().ConfigureAwait(false); if (Receipts is not null) await Receipts.DisposeAsync().ConfigureAwait(false); if (ClassroomReceipts is not null) await ClassroomReceipts.DisposeAsync().ConfigureAwait(false); await _maintenance.ConfigureAwait(false); }
     internal async Task DrainNetworkAsync()
     { Task[] network; lock (_gate) network = _network.ToArray(); await Task.WhenAll(network).ConfigureAwait(false); }
     public ValueTask DisposeAsync()

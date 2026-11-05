@@ -8,16 +8,16 @@ namespace NekoChat.Windows;
 public partial class ChatWindow
 {
     private Task _activeSend = Task.CompletedTask;
-    private Task SendCurrentAsync(bool retry)
-    { if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask; return _activeSend = SendCoreAsync(retry); }
-    private async Task SendCoreAsync(bool retry)
+    private Task SendCurrentAsync(bool retry, PendingSendSummary? retryAttempt = null)
+    { if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask; return _activeSend = SendCoreAsync(retry, retryAttempt); }
+    private async Task SendCoreAsync(bool retry, PendingSendSummary? retryAttempt)
     {
         if (_attachmentDraftLoading || _runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) return;
         var runtime = _runtime; var sent = buffer.Capture();
+        if (!runtime.ArchivedIdentityFixture) { await QueueCurrentMessageAsync(runtime, entry, buffer); return; }
         if (_attachmentDraft is not null) { await SendAttachmentCoreAsync(runtime, entry, buffer, sent); return; }
         if (string.IsNullOrWhiteSpace(sent.Text)) return;
-        if (entry.Attempt is { State: not "sending" } previous && previous.RawSnapshot != sent.Text &&
-            MessageBox.Show(this, "前一次訊息可能已送達。這次內容不同，會建立新的訊息；是否仍要傳送？", "傳送新內容", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        if (retryAttempt is not null) entry = entry with { Attempt = retryAttempt };
         SetSending(true);
         try
         {
@@ -60,6 +60,27 @@ public partial class ChatWindow
         }
         catch (Exception ex) { ShowStorageError(ex); }
         finally { SetSending(false); await RefreshInboxAsync(refreshHistory: true); }
+    }
+    private async Task QueueCurrentMessageAsync(ChatRuntime runtime, InboxEntry entry, DraftEditBuffer buffer)
+    {
+        if (!ClassroomPrincipalKey.TryParse(entry.ConversationId, out var principal) || _attachmentDraft is not null && runtime.Attachments is null) return;
+        SetSending(true); DraftClearTicket? ticket = null;
+        try {
+            await FlushDraftsAsync();
+            if (buffer.Dirty || buffer.Clearing || _selected?.Id != entry.Id || !ReferenceEquals(runtime, _runtime)) return;
+            var sent = buffer.Capture(); bool attachment = _attachmentDraft is not null;
+            if (!attachment && string.IsNullOrWhiteSpace(sent.Text)) return;
+            ticket = buffer.BeginClear(); UpdateComposer();
+            var fresh = await runtime.QueueMessageAsync(principal, sent, _peerPort, attachment);
+            buffer.CompleteClear(ticket, fresh); ticket = null;
+            if (_selected?.Id == entry.Id) SetDraftText(buffer.Text);
+            SetStatus("訊息已保存在本機待送；暫時斷線會自動續送。");
+        }
+        catch (Exception error) { ShowStorageError(error); }
+        finally {
+            if (ticket is not null) buffer.CompleteClear(ticket, null);
+            SetSending(false); await RefreshAttachmentDraftAsync(); await RefreshInboxAsync(true);
+        }
     }
     private async void RetryAttemptClick(object sender, RoutedEventArgs e) => await SendCurrentAsync(true);
     private async void CancelAttemptClick(object sender, RoutedEventArgs e)

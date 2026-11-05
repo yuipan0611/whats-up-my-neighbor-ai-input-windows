@@ -48,7 +48,9 @@ public partial class ChatWindow
     private string? _editingRosterId, _manualFormSnapshot;
     private long _selectionRequest;
     private bool _replyLookupPending;
-    private long? _beforeMessage, _beforeLegacy;
+    private long? _beforeMessage, _beforeLegacy, _beforePending;
+    private IReadOnlyList<ClassroomPendingMessage> _pendingMessages = [];
+    private string? _pendingConversation;
     private bool _historyLoaded, _historyAnchored;
     private int _peerPort = DirectLanMessaging.DefaultPort;
     internal event Action? DataRetryRequested;
@@ -112,6 +114,8 @@ public partial class ChatWindow
     {
         if (_runtime is null || _stopping) return;
         if (_refreshing) { _refreshAgain = true; return; }
+        if (_runtime.OutboxFailure is { } failure) StorageStatus.Text = failure;
+        else if (StorageStatus.Text.StartsWith("待送儲存暫停：", StringComparison.Ordinal)) StorageStatus.Text = _runtime.StartupWarning ?? "";
         _refreshing = true;
         try
         {
@@ -201,7 +205,7 @@ public partial class ChatWindow
     private async Task SelectEntryAsync(InboxEntry entry, bool userOpened, long? focusSequence = null)
     {
         ++_selectionRequest; ++_teacherFilesRequest; _showTeacherFiles = false; History.Visibility = Visibility.Visible; _replyLookupPending = false;
-        _selected = entry; _userOpened = userOpened; _showInbox = false; _historyLoaded = false; _beforeMessage = _beforeLegacy = null;
+        _selected = entry; _userOpened = userOpened; _showInbox = false; _historyLoaded = false; _beforeMessage = _beforeLegacy = _beforePending = null;
         ApplyInboxFilter(); ViewChanged(); History.Rows.Clear(); EnsureDraft(entry); SetDraftText(CurrentDraft()?.Text ?? "");
         RecipientIp.Text = entry.Endpoint ?? ""; UpdateHeader(); UpdateShellLayout(); UpdateComposer(); await LoadHistoryAsync(false, true, focusSequence);
         ViewChanged();
@@ -329,19 +333,33 @@ public partial class ChatWindow
         try
         {
             long? before = focusSequence is { } target ? checked(target + 1) : older ? _beforeMessage : null, legacyBefore = older ? _beforeLegacy : null;
+            long? pendingBefore = older ? _beforePending : null;
+            long? pendingThrough = !older && !reset && _pendingConversation == entry.ConversationId && _pendingMessages.Count > 0 ? _pendingMessages.Min(p => p.Sequence) : null;
             var page = await _runtime.Worker.Run(s => {
                 if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(entry.ConversationId, out var principal))
                 {
                     var crPage = (!older || before is not null) ? s.ListClassroomMessages(principal, before) : null;
                     var legPage = entry.LegacyScope is { } scope && (!older || legacyBefore is not null) ? s.ListLegacyMessages(scope, legacyBefore) : null;
-                    return (Classroom: crPage, Message: (MessagePage?)null, Legacy: legPage);
+                    var pending = new List<ClassroomPendingMessage>(); long? cursor = pendingBefore, next = null;
+                    if (!older || pendingBefore is not null)
+                    {
+                        do
+                        {
+                            var batch = s.ListClassroomPendingMessages(principal, 200, cursor);
+                            pending.AddRange(batch); next = batch.Count == 200 ? batch[0].Sequence : null;
+                            cursor = next;
+                        } while (!older && pendingThrough is not null && next > pendingThrough);
+                    }
+                    return (Classroom: crPage, Message: (MessagePage?)null, Legacy: legPage, Pending: (IReadOnlyList<ClassroomPendingMessage>)pending, PendingBefore: next);
                 }
                 return (Classroom: (ClassroomMessagePage?)null,
                     Message: entry.ConversationId is { } conv && (!older || before is not null) ? s.ListMessages(conv, before) : null,
-                    Legacy: entry.LegacyScope is { } legScope && (!older || legacyBefore is not null) ? s.ListLegacyMessages(legScope, legacyBefore) : null);
+                    Legacy: entry.LegacyScope is { } legScope && (!older || legacyBefore is not null) ? s.ListLegacyMessages(legScope, legacyBefore) : null, Pending: (IReadOnlyList<ClassroomPendingMessage>)[], PendingBefore: (long?)null);
             });
             if (_stopping || selection != _selectionRequest || entry.Id != _selected?.Id) return;
             if (reset) { History.Rows.Clear(); _historyAnchored = focusSequence is not null; }
+            _pendingMessages = older && _pendingConversation == entry.ConversationId ? _pendingMessages.Concat(page.Pending).DistinctBy(p => p.Attempt.MessageId).ToArray() : page.Pending;
+            _pendingConversation = entry.ConversationId;
             var peerAvatar = CatArtwork.ResolvePeerAvatar(entry.PeerId ?? entry.RosterId, entry.StudentNumber ?? entry.DisplayName);
             var attachmentRows = _runtime.Attachments is { } attachments ? await attachments.HistoryAsync(entry.ConversationId ?? "") : [];
             if (selection != _selectionRequest || entry.Id != _selected?.Id) return;
@@ -352,7 +370,7 @@ public partial class ChatWindow
                 m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "", peerAvatar)) ?? [];
             var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""), peerAvatar)) ?? [];
             var existing = History.Rows.Where(x => x.AttemptId is null).ToDictionary(m => m.Key, StringComparer.Ordinal); int oldCount = existing.Count;
-            foreach (var row in crRows.Concat(rows).Concat(legacy)) { if (existing.TryGetValue(row.Key, out var old)) { old.Delivery = row.Delivery; old.AttachmentPath = row.AttachmentPath; old.Attachment = row.Attachment; } else existing.Add(row.Key, row); }
+            foreach (var row in crRows.Concat(rows).Concat(legacy)) { if (!_runtime.ArchivedIdentityFixture && !row.Key.StartsWith("v2:", StringComparison.Ordinal)) row.DeleteLocal = () => ConfirmDeleteLocalMessageAsync(entry, row); if (existing.TryGetValue(row.Key, out var old)) { old.Delivery = row.Delivery; old.AttachmentPath = row.AttachmentPath; old.Attachment = row.Attachment; } else existing.Add(row.Key, row); }
             var sorted = existing.Values.OrderBy(m => m.Utc, StringComparer.Ordinal).ThenBy(m => m.Legacy).ThenBy(m => m.Sequence).ToArray();
             for (int i = 0; i < sorted.Length; i++)
             {
@@ -360,7 +378,8 @@ public partial class ChatWindow
                 int index = History.Rows.IndexOf(sorted[i]); if (index >= 0) History.Rows.Move(index, i); else History.Rows.Insert(i, sorted[i]);
             }
             if (older || reset) { _beforeMessage = page.Classroom?.NextBeforeLocalSeq ?? page.Message?.NextBeforeLocalSeq; _beforeLegacy = page.Legacy?.NextBeforeLegacySeq; }
-            OlderMessages.Visibility = _beforeMessage is not null || _beforeLegacy is not null ? Visibility.Visible : Visibility.Collapsed;
+            _beforePending = page.PendingBefore;
+            OlderMessages.Visibility = _beforeMessage is not null || _beforeLegacy is not null || _beforePending is not null ? Visibility.Visible : Visibility.Collapsed;
             _historyLoaded = true; HistoryState.Text = History.Rows.Count == 0 ? "還沒有訊息" : ""; HistoryState.Visibility = History.Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             SyncAttemptMessage();
             if (!older && (reset || wasAtEnd)) ScrollLatest(); else if (!older && History.Rows.Count > oldCount) NewMessages.Visibility = Visibility.Visible;

@@ -12,7 +12,7 @@ Teachers and students exchanging classroom LAN messages, code and five existing 
 
 ## Product Purpose
 
-Keep separate local conversations, drafts and unread state across ordinary restarts. Attribute classroom conversations using accepted socket source IPv4 and roster/IP principals; confirm stored messages only after guarded SQLite commits. Offline messages remain drafts and require manual send/retry.
+Keep separate local conversations, drafts and unread state across ordinary restarts. Attribute classroom conversations using accepted socket source IPv4 and roster/IP principals; confirm stored messages only after guarded SQLite commits. Explicit Send persists an independent outbox item and releases the composer. Temporary disconnection retries automatically; permanent errors require user action. Pre-upgrade failures remain manual until explicitly retried. See docs/bugfixes/20261105-chat-lifecycle.md.
 
 ## Capabilities and Constraints
 

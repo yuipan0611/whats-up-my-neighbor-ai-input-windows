@@ -283,8 +283,8 @@ public sealed partial class ChatStore
             var binding = ReadClassroomBinding(ctx, old.Principal);
             bool clear = old.Kind != "reaction" && binding is not null && binding.Epoch == old.Epoch && binding.Revision == old.Revision && binding.Text == old.Text;
             if (clear && binding!.Epoch == long.MaxValue) throw new InvalidOperationException("Draft epoch exhausted.");
-            ctx.Exec("INSERT INTO ClassroomMessage(principal,direction,messageId,rawText,kind,reaction,contentFingerprint,createdUtc,remoteStoredAt) VALUES(@p,'outgoing',@id,@text,@kind,@reaction,@fp,@now,@now)",
-                ("@p", old.Principal), ("@id", old.Id), ("@text", old.Text), ("@kind", old.Kind), ("@reaction", old.Reaction), ("@fp", old.Fingerprint), ("@now", ctx.NowUtc));
+            ctx.Exec("INSERT INTO ClassroomMessage(principal,direction,messageId,rawText,kind,reaction,contentFingerprint,createdUtc,remoteStoredAt) VALUES(@p,'outgoing',@id,@text,@kind,@reaction,@fp,@created,@now)",
+                ("@p", old.Principal), ("@id", old.Id), ("@text", old.Text), ("@kind", old.Kind), ("@reaction", old.Reaction), ("@fp", old.Fingerprint), ("@now", ctx.NowUtc), ("@created", _migrations.Count >= 13 && ctx.Scalar("SELECT createdUtc FROM ClassroomOutbox WHERE messageId=@id", ("@id", messageId)) is string original ? original : ctx.NowUtc));
             long seq = Convert.ToInt64(ctx.Scalar("SELECT last_insert_rowid()"), CultureInfo.InvariantCulture);
             ctx.Exec("UPDATE ClassroomAttempt SET attemptState='confirmed',updatedUtc=@now WHERE messageId=@id", ("@now", ctx.NowUtc), ("@id", messageId));
             if (clear)
@@ -359,8 +359,8 @@ public sealed partial class ChatStore
             var binding = ReadClassroomBinding(ctx, old.Principal);
             bool clear = old.Kind != "reaction" && binding is not null && binding.Epoch == old.Epoch && binding.Revision == old.Revision && binding.Text == old.Text;
             if (clear && binding!.Epoch == long.MaxValue) throw new InvalidOperationException("Draft epoch exhausted.");
-            ctx.Exec("INSERT INTO ClassroomMessage(principal,direction,messageId,rawText,kind,reaction,contentFingerprint,createdUtc,legacyDeliveredAt) VALUES(@p,'outgoing',@id,@text,@kind,@reaction,@fp,@now,@now)",
-                ("@p", old.Principal), ("@id", old.Id), ("@text", old.Text), ("@kind", old.Kind), ("@reaction", old.Reaction), ("@fp", old.Fingerprint), ("@now", ctx.NowUtc));
+            ctx.Exec("INSERT INTO ClassroomMessage(principal,direction,messageId,rawText,kind,reaction,contentFingerprint,createdUtc,legacyDeliveredAt) VALUES(@p,'outgoing',@id,@text,@kind,@reaction,@fp,@created,@now)",
+                ("@p", old.Principal), ("@id", old.Id), ("@text", old.Text), ("@kind", old.Kind), ("@reaction", old.Reaction), ("@fp", old.Fingerprint), ("@now", ctx.NowUtc), ("@created", _migrations.Count >= 13 && ctx.Scalar("SELECT createdUtc FROM ClassroomOutbox WHERE messageId=@id", ("@id", messageId)) is string original ? original : ctx.NowUtc));
             long seq = Convert.ToInt64(ctx.Scalar("SELECT last_insert_rowid()"), CultureInfo.InvariantCulture);
             ctx.Exec("UPDATE ClassroomAttempt SET attemptState='confirmed',updatedUtc=@now WHERE messageId=@id", ("@now", ctx.NowUtc), ("@id", messageId));
             if (clear)
@@ -511,6 +511,7 @@ public sealed partial class ChatStore
                 ctx.Exec("INSERT OR IGNORE INTO ClassroomCleared(principal,direction,messageId,clearedUtc) SELECT principal,direction,messageId,@now FROM ClassroomMessage WHERE principal=@p", ("@now", ctx.NowUtc), ("@p", principal.Value));
                 ctx.Exec("INSERT OR IGNORE INTO ClassroomCleared(principal,direction,messageId,clearedUtc) SELECT principal,'outgoing',messageId,@now FROM ClassroomAttempt WHERE principal=@p", ("@now", ctx.NowUtc), ("@p", principal.Value));
                 int receipts = ctx.Exec("DELETE FROM ClassroomReceiptOutbox WHERE principal=@p", ("@p", principal.Value));
+                if (_migrations.Count >= 13) ctx.Exec("DELETE FROM ClassroomOutbox WHERE principal=@p", ("@p", principal.Value));
                 int attempts = ctx.Exec("DELETE FROM ClassroomAttempt WHERE principal=@p", ("@p", principal.Value));
                 if (_migrations.Count >= 11) ctx.Exec("DELETE FROM AttachmentDraft WHERE principal=@p", ("@p", principal.Value));
                 int drafts = ctx.Exec("DELETE FROM ClassroomDraft WHERE principal=@p", ("@p", principal.Value));
