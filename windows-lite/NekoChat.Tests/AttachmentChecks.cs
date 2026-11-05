@@ -52,7 +52,8 @@ public static class AttachmentChecks
             // Explicit synthetic fixture: UI correctly disallows configuring loopback as a classroom seat.
             var result = Store.SaveManualRosterEntry(null, new("測試同學", "1", false, "192.168.1.42"), RosterImportPreview.ComputeSnapshotToken(Store.GetRosterSnapshot()));
             if (!result.Changed) throw new Exception("roster fixture failed");
-            using var c = new SqliteConnection("Data Source=" + Store.DatabasePath); c.Open();
+            // Pooled fixture handles survive Dispose and prevent deleting the database on Windows.
+            using var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Store.DatabasePath, Pooling = false }.ToString()); c.Open();
             using var cmd = c.CreateCommand(); cmd.CommandText = "UPDATE RosterEntry SET endpoint='127.0.0.1' WHERE id=@id"; cmd.Parameters.AddWithValue("@id", result.EntryId); cmd.ExecuteNonQuery();
         }
     }
@@ -233,8 +234,8 @@ public static class AttachmentChecks
                 Check(row.State==(phase=="committed"?"complete":"failed"),"forced termination "+phase+" restores honest state");
                 Check(!File.Exists(files.Vault.PathFor(row.File.BlobId)+".part") && files.Vault.Exists(row.File)==(phase!="part"),"forced termination "+phase+" preserves only atomically renamed bytes");
             }
-            Console.WriteLine($"Attachments: {checks} checks passed (real TCP, SQLite, staged bytes and SHA-256). Native clipboard, WPF and two Windows devices: NOT RUN."); return checks;
         }
         finally { Directory.Delete(root, recursive: true); }
+        Console.WriteLine($"Attachments: {checks} checks passed (real TCP, SQLite, staged bytes and SHA-256); fixture cleanup completed. Native clipboard, WPF and two Windows devices: NOT RUN."); return checks;
     }
 }

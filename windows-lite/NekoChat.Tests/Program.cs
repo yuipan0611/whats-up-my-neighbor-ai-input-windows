@@ -87,7 +87,7 @@ if (args.SequenceEqual(new[] { "--classroom-all" }))
     }
     catch (Exception e)
     {
-        Console.Error.WriteLine("Classroom test failed: " + e.Message);
+        Console.Error.WriteLine("Classroom test failed: " + e);
         Environment.Exit(1);
     }
     return;
