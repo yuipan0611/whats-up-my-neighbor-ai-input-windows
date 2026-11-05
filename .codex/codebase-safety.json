@@ -60,7 +60,9 @@
       "ClassroomFileEndpoint adds classroom-files.v1 on the existing listener. Teacher-preferred roster-only anti-entropy; all nodes accept valid operations during teacher absence. Uses AttachmentService vault, file/serve/download gates and listener quota.",
       "WPF file drops route by active pane: private chat stages AttachmentDraft; shared pane uses the same single-file upload path as its picker. Both own rejected FileDrop events to prevent filename fallback.",
       "Known attachment filesystem initialization errors degrade to text/receipt-only runtime with persistent warning and no attachment capability. SQLite/schema failures remain fatal; pending attachment metadata and loading gates prevent silent plaintext sends.",
-      "Migration13 adds durable ClassroomOutbox. Only explicit new Send or manual Retry opts content in; background retries never consult live drafts. Per-recipient claims and existing tombstones guard cancellation/deletion. SchemaGuard validates exact V13 DDL."
+      "Viewport reads use the existing foreground/open-pane/geometry and view-generation guards. A newer viewport request that fires while a SQLite read is in flight stays queued; stale writes remain rejected.",
+      "Migration13 adds durable ClassroomOutbox. Only explicit new Send or manual Retry opts content in; background retries never consult live drafts. Per-recipient claims and existing tombstones guard cancellation/deletion. SchemaGuard validates exact V13 DDL.",
+      "Classroom visible reads advance a merged classroom/legacy timeline cursor through unloaded pages; local marks and opt-in receipts commit atomically under the existing view generation guard."
     ],
     "external_integrations": []
   },
@@ -111,7 +113,8 @@
     "minimum_after_change": [
       "focused tests for changed behavior",
       "consumer regression checks for shared changes",
-      "final diff and git status review"
+      "final diff and git status review",
+      "For visible-read or inbox changes: Windows native --unread-smoke-test with isolated SQLite, including busy-worker viewport invalidation, hidden/reopen, receipt-off, offscreen unread and restart checks."
     ],
     "manual_checks": [],
     "notes": ""
@@ -166,12 +169,20 @@
       "source": "windows-lite/NekoChat.Windows/App.AttachmentStartupSmoke.cs; docs/classroom-ux/STARTUP-ISOLATION.md"
     },
     {
+      "fact": "Native WPF unread regression exercises actual list selection and pet reopen paths; a blocked real worker plus resize reproduces a dropped viewport read. Busy reads requeue the latest visible view without bypassing storage guards.",
+      "source": "windows-lite/NekoChat.Windows/ChatWindow.Inbox.cs#MarkViewportAsync; windows-lite/NekoChat.Windows/App.UnreadSmokeTest.cs; .github/workflows/lite-unread-regression.yml"
+    },
+    {
       "fact": "Local per-message deletion uses scoped transactions and existing ClassroomCleared tombstones; exact pending draft deletion also checks epoch/revision/text and staged attachment absence.",
       "source": "windows-lite/NekoChat.Core/Storage/ChatStore.MessageDeletion.cs; windows-lite/NekoChat.Tests/MessageRecoveryChecks.cs"
     },
     {
       "fact": "Durable queue, reconnect/restart, ACK loss, independent drafts and attachment byte checks use real SQLite/TCP.",
       "source": "windows-lite/NekoChat.Tests/OutboxChecks.cs; docs/bugfixes/20261105-chat-lifecycle.md"
+    },
+    {
+      "fact": "Read-through tests cover more than 200 rows, merged streams, receipt-off, timestamp ties, pre-COMMIT stale rollback, scopes and restart.",
+      "source": "windows-lite/NekoChat.Core/Storage/ChatStore.ReadThrough.cs; windows-lite/NekoChat.Tests/ReadThroughChecks.cs"
     }
   ]
 }

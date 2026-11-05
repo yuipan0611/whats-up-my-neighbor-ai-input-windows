@@ -413,7 +413,11 @@ public partial class ChatWindow
     private void QueueViewportRead() { if (!_stopping && _initializedInbox) { _readTimer.Stop(); _readTimer.Start(); } }
     private async Task MarkViewportAsync()
     {
-        if (_runtime is null || _selected is not { } entry || !_historyLoaded || _readBusy || !VisibleContext(entry.ConversationId).WindowActive || !_userOpened || _showInbox || _showTeacherFiles) return;
+        if (_runtime is null || _selected is not { } entry || !_historyLoaded || !VisibleContext(entry.ConversationId).WindowActive || !_userOpened || _showInbox || _showTeacherFiles) return;
+        // No unread messages means there is no read position or receipt work to commit.
+        if (!_runtime.ArchivedIdentityFixture && entry.TotalUnread == 0) return;
+        // A viewport change can invalidate the in-flight read while SQLite is busy. Keep the latest view queued.
+        if (_readBusy) { QueueViewportRead(); return; }
         _readBusy = true; long generation = Volatile.Read(ref _viewGeneration); var visible = new List<MessageView>();
         try
         {
@@ -422,21 +426,30 @@ public partial class ChatWindow
             {
                 if (History.ItemContainerGenerator.ContainerFromItem(row) is not FrameworkElement container || container.ActualHeight <= 0) continue;
                 var bounds = container.TransformToAncestor(History).TransformBounds(new Rect(container.RenderSize)); var intersection = Rect.Intersect(viewport, bounds);
-                if (!intersection.IsEmpty && ReadVisibility.IsVisible(bounds.Height, intersection.Height, 18, viewport.Height)) visible.Add(row);
+                if (intersection.IsEmpty) continue;
+                // Rect.Intersect subtracts translated coordinates; roundoff can exceed a fully visible row's height.
+                double visibleHeight = Math.Min(intersection.Height, Math.Min(bounds.Height, viewport.Height));
+                if (ReadVisibility.IsVisible(bounds.Height, visibleHeight, 18, viewport.Height)) visible.Add(row);
             }
             var signed = visible.Where(r => !r.Legacy && !r.Outgoing && r.Sequence > 0).Select(r => r.Sequence).Take(200).ToArray();
             var legacy = visible.Where(r => r.Legacy && r.Sequence > 0).Select(r => r.Sequence).Take(200).ToArray();
             var context = VisibleContext(entry.ConversationId); long readGeneration = _runtime.Reads.Update(context);
             bool StillCurrent() => !_stopping && generation == Volatile.Read(ref _viewGeneration);
             int marked = 0;
-            if (entry.ConversationId is { } conv && signed.Length > 0)
+            if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(entry.ConversationId, out var classroom))
             {
-                if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(conv, out var principal))
-                    marked += (await _runtime.Worker.Run(s => StillCurrent() ? s.MarkClassroomVisibleRead(principal, signed, context, StillCurrent) : new VisibleReadResult(0, 0, "stale-view"))).Marked;
-                else
-                    marked += (await _runtime.Worker.Run(_ => StillCurrent() ? _runtime.Reads.Mark(conv, readGeneration, signed) : new(0, 0, "stale-view"))).Marked;
+                var anchor = visible.Where(row => row.AttemptId is null && row.Sequence > 0)
+                    .OrderBy(row => row.Utc, StringComparer.Ordinal).ThenBy(row => row.Legacy).ThenBy(row => row.Sequence).LastOrDefault();
+                if (anchor is not null)
+                    marked = (await _runtime.ReadThroughAsync(classroom, entry.LegacyScope, anchor.Sequence, anchor.Legacy, context, StillCurrent)).Marked;
             }
-            if (entry.LegacyScope is { } scope && legacy.Length > 0) marked += (await _runtime.Worker.Run(s => s.MarkLegacyVisibleRead(scope, legacy, context with { ActiveConversationId = scope.ContextId }, StillCurrent))).Marked;
+            else
+            {
+                if (entry.ConversationId is { } conv && signed.Length > 0)
+                    marked += (await _runtime.Worker.Run(_ => StillCurrent() ? _runtime.Reads.Mark(conv, readGeneration, signed) : new(0, 0, "stale-view"))).Marked;
+                if (entry.LegacyScope is { } scope && legacy.Length > 0)
+                    marked += (await _runtime.Worker.Run(s => s.MarkLegacyVisibleRead(scope, legacy, context with { ActiveConversationId = scope.ContextId }, StillCurrent))).Marked;
+            }
             if (marked > 0) { _runtime.Receipts?.Pulse(); _runtime.ClassroomReceipts?.Pulse(); await RefreshInboxAsync(); }
         }
         catch (Exception ex) { ShowStorageError(ex); }

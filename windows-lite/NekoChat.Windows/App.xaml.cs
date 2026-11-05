@@ -46,6 +46,12 @@ public partial class App : Application
             return;
         }
 
+        if (startupArgs.Length == 2 && startupArgs[0] == "--unread-smoke-test")
+        {
+            Environment.Exit(await RunUnreadSmokeAsync(startupArgs[1]));
+            return;
+        }
+
         if (startupArgs.Length == 2 && startupArgs[0] == "--message-recovery-smoke-test")
         {
             Environment.Exit(await RunMessageRecoverySmokeAsync(startupArgs[1]));
