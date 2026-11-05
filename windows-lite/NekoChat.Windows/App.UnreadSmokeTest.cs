@@ -17,6 +17,7 @@ public partial class App
         string fixture = Path.Combine(output, "unread-fixture-" + Guid.NewGuid().ToString("N"));
         var settings = Settings.ForUiTest(fixture) with { ClassRosterInitialized = true, AutoStartOnLogin = false };
         var checks = new List<string>(); string? failure = null; object? diagnostic = null;
+        var geometrySamples = new List<object>();
         ChatRuntime? runtime = null; ChatWindow? window = null;
         const string first = "127.0.0.2", second = "127.0.0.3";
         var principal = ClassroomPrincipalKey.ForSourceIp(first);
@@ -92,6 +93,7 @@ public partial class App
             Check(Row(first).Entry.TotalUnread == 1, "hidden chat does not clear unread");
             window.ShowChat(first);
             await Until(() => Row(first).Entry.TotalUnread == 0, "reopening the same chat from the pet path clears new unread");
+            geometrySamples.Add(window.SmokeReadState);
 
             window.ReadReceiptToggle.IsChecked = false;
             window.ReadReceiptToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -148,7 +150,7 @@ public partial class App
             catch (Exception ex) { failure ??= ex.ToString(); }
         }
         await File.WriteAllTextAsync(Path.Combine(output, "unread-result.json"), JsonSerializer.Serialize(new {
-            passed = failure is null, checks, failure, diagnostic, loopbackOnly = true, dailyProfileUsed = false,
+            passed = failure is null, checks, failure, diagnostic, geometrySamples, loopbackOnly = true, dailyProfileUsed = false,
             captureKind = "WPF RenderTargetBitmap96, not physical desktop DPI evidence"
         }, new JsonSerializerOptions { WriteIndented = true }));
         return failure is null ? 0 : 1;

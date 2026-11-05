@@ -398,7 +398,10 @@ public partial class ChatWindow
             {
                 if (History.ItemContainerGenerator.ContainerFromItem(row) is not FrameworkElement container || container.ActualHeight <= 0) continue;
                 var bounds = container.TransformToAncestor(History).TransformBounds(new Rect(container.RenderSize)); var intersection = Rect.Intersect(viewport, bounds);
-                if (!intersection.IsEmpty && ReadVisibility.IsVisible(bounds.Height, intersection.Height, 18, viewport.Height)) visible.Add(row);
+                if (intersection.IsEmpty) continue;
+                // Rect.Intersect subtracts translated coordinates; roundoff can exceed a fully visible row's height.
+                double visibleHeight = Math.Min(intersection.Height, Math.Min(bounds.Height, viewport.Height));
+                if (ReadVisibility.IsVisible(bounds.Height, visibleHeight, 18, viewport.Height)) visible.Add(row);
             }
             var signed = visible.Where(r => !r.Legacy && !r.Outgoing && r.Sequence > 0).Select(r => r.Sequence).Take(200).ToArray();
             var legacy = visible.Where(r => r.Legacy && r.Sequence > 0).Select(r => r.Sequence).Take(200).ToArray();
