@@ -15,6 +15,7 @@ public partial class ChatWindow
     { foreach (var file in _teacherFiles.Where(x => x.Entry.Attachment.LocalSeq == sequence)) file.Progress = total == 0 ? 100 : (int)(done * 100 / total); var row = History.Rows.FirstOrDefault(r => r.Key == "cr:" + sequence); if (row is not null) row.AttachmentProgress = total == 0 ? 100 : (int)(done * 100 / total); }
     private AttachmentDraft? _attachmentDraft;
     private bool _attachmentBusy;
+    private bool _attachmentDraftLoading;
     private long _attachmentLoad;
     private string? _attachmentConversation;
     private void InitializeAttachments()
@@ -37,17 +38,20 @@ public partial class ChatWindow
     }
     private async Task RefreshAttachmentDraftAsync()
     {
-        if (_runtime?.Attachments is not { } service || !ClassroomPrincipalKey.TryParse(_selected?.ConversationId, out var principal))
-        { _attachmentDraft = null; _attachmentConversation = null; RenderAttachmentDraft(); return; }
+        if (_runtime is not { } runtime || !ClassroomPrincipalKey.TryParse(_selected?.ConversationId, out var principal))
+        { _attachmentDraftLoading = false; _attachmentDraft = null; _attachmentConversation = null; RenderAttachmentDraft(); UpdateComposer(); return; }
         string conversation = principal.Value; long request = ++_attachmentLoad;
-        if (_attachmentConversation != conversation) { _attachmentDraft = null; _attachmentConversation = conversation; RenderAttachmentDraft(); UpdateComposer(); }
+        _attachmentDraftLoading = true;
+        if (_attachmentConversation != conversation) { _attachmentDraft = null; _attachmentConversation = conversation; RenderAttachmentDraft(); }
+        UpdateComposer();
         try
         {
-            var draft = await service.DraftAsync(principal);
-            if (request != _attachmentLoad || _selected?.ConversationId != conversation) return;
-            _attachmentDraft = draft; RenderAttachmentDraft(); UpdateComposer();
+            var draft = runtime.Attachments is { } service ? await service.DraftAsync(principal)
+                : await runtime.ReadAttachmentDraftAsync(principal);
+            if (request != _attachmentLoad || !ReferenceEquals(runtime, _runtime) || _selected?.ConversationId != conversation) return;
+            _attachmentDraftLoading = false; _attachmentDraft = draft; RenderAttachmentDraft(); UpdateComposer();
         }
-        catch (Exception error) { if (!_closingRequested) SetStatus(AttachmentException.Describe(error)); }
+        catch (Exception error) { if (!_closingRequested && request == _attachmentLoad && ReferenceEquals(runtime, _runtime)) { SetStatus("無法讀取附件草稿，請重新開啟此對話。文字已保留。" + AttachmentException.Describe(error)); UpdateComposer(); } }
     }
     private void RenderAttachmentDraft()
     {
@@ -56,13 +60,13 @@ public partial class ChatWindow
         AttachmentDraftImage.Source = null;
         if (_attachmentDraft is not { } draft) return;
         AttachmentDraftText.ToolTip = draft.File.Name;
-        AttachmentDraftText.Text = draft.File.Name + "\n" + AttachmentSize(draft.File.Size) + " · 待傳附件";
+        AttachmentDraftText.Text = draft.File.Name + "\n" + AttachmentSize(draft.File.Size) + (_runtime?.Attachments is null ? " · 附件暫停；移除附件後可傳文字" : " · 待傳附件");
         if (_runtime?.Attachments is { } service && service.Vault.Exists(draft.File))
             AttachmentDraftImage.Source = AttachmentImage.Load(service.Vault.PathFor(draft.File.BlobId), draft.File.Name);
         AttachmentDraftImage.Visibility = AttachmentDraftImage.Source is null ? Visibility.Collapsed : Visibility.Visible;
     }
     internal static string AttachmentSize(long bytes) => bytes >= 1024 * 1024 ? $"{bytes / (1024d * 1024):0.##} MB" : bytes >= 1024 ? $"{bytes / 1024d:0.##} KB" : bytes + " B";
-    private bool CanAddAttachment() => !_attachmentBusy && !_sending && !_closingRequested && Draft.IsEnabled && !Draft.IsReadOnly && _runtime?.Attachments is not null;
+    private bool CanAddAttachment() => !_attachmentDraftLoading && !_attachmentBusy && !_sending && !_closingRequested && Draft.IsEnabled && !Draft.IsReadOnly && _runtime?.Attachments is not null;
     private async Task AddAttachmentPathsAsync(string[] paths)
     {
         if (!CanAddAttachment()) return;
@@ -93,8 +97,12 @@ public partial class ChatWindow
     }
     private async void RemoveAttachmentClick(object sender, RoutedEventArgs e)
     {
-        if (_attachmentDraft is not { } draft || _runtime?.Attachments is not { } service || !ClassroomPrincipalKey.TryParse(_selected?.ConversationId, out var principal)) return;
-        try { await service.RemoveDraftAsync(principal, draft.File.BlobId); await RefreshAttachmentDraftAsync(); SetStatus("待傳附件已移除。"); }
+        if (_attachmentDraft is not { } draft || _runtime is not { } runtime || !ClassroomPrincipalKey.TryParse(_selected?.ConversationId, out var principal)) return;
+        try {
+            if (runtime.Attachments is { } service) await service.RemoveDraftAsync(principal, draft.File.BlobId);
+            else await runtime.RemoveAttachmentDraftMetadataAsync(principal, draft.File.BlobId);
+            await RefreshAttachmentDraftAsync(); UpdateComposer(); SetStatus("待傳附件已移除。");
+        }
         catch (Exception error) { SetStatus(AttachmentException.Describe(error)); }
     }
     private async Task SendAttachmentCoreAsync(ChatRuntime runtime, InboxEntry entry, DraftEditBuffer buffer, DraftWriteSnapshot sent)

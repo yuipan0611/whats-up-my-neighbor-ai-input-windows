@@ -239,14 +239,21 @@ public partial class App : Application
 
             if (startupArgs.Length == 2 && startupArgs[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test")
             {
-                _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(() =>
+                _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(async () =>
                 {
-                    Directory.CreateDirectory(startupArgs[1]);
-                    bool visible = pet.IsVisible && chat.IsVisible;
-                    bool listenerRunning = directListener?.Running == true;
-                    File.WriteAllText(Path.Combine(startupArgs[1], "startup-result.txt"),
-                        visible && listenerRunning ? "PASS: Lite edition direct LAN startup and UI rendered." : "FAIL: initial windows or listener state were incorrect.");
-                    Environment.Exit(visible && listenerRunning ? 0 : 1);
+                    try
+                    {
+                        Directory.CreateDirectory(startupArgs[1]);
+                        Require(pet.IsVisible && chat.IsVisible && directListener?.Running == true, "Initial windows or listener state incorrect");
+                        await RunAttachmentStartupChecksAsync(startupArgs[1]);
+                        File.WriteAllText(Path.Combine(startupArgs[1], "startup-result.txt"), "PASS: Lite LAN startup/UI; attachment filesystem failures preserve text TCP and pending drafts; repair/restart recovers; corrupt database remains fail-closed.");
+                        Environment.Exit(0);
+                    }
+                    catch (Exception error)
+                    {
+                        File.WriteAllText(Path.Combine(startupArgs[1], "startup-result.txt"), "FAIL: " + error);
+                        Environment.Exit(1);
+                    }
                 }));
             }
         }

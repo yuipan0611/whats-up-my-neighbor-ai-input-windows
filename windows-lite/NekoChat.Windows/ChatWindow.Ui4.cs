@@ -33,6 +33,14 @@ public partial class ChatWindow
     private async void MoreTeacherFilesClick(object sender, RoutedEventArgs e) => await LoadTeacherFilesAsync(true);
     private async Task LoadTeacherFilesAsync(bool older)
     {
+        if (_runtime?.AttachmentWarning is { } warning)
+        {
+            UploadClassroomFileButton.IsEnabled = false;
+            MoreTeacherFilesButton.Visibility = Visibility.Collapsed;
+            TeacherFilesState.Text = warning; TeacherFilesState.Visibility = Visibility.Visible;
+            ClassroomHostState.Text = "附件功能暫停 · 文字聊天仍可用";
+            return;
+        }
         if (_runtime?.ClassroomFiles is not null) { await LoadSharedFilesAsync(older); return; }
         if (!_showTeacherFiles || _runtime is not { } runtime || runtime.ArchivedIdentityFixture) return;
         long generation = ++_teacherFilesRequest; long? before = older ? _teacherFilesBefore : null;

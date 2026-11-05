@@ -58,7 +58,8 @@
       "UI-4 teacher-file index is a read-only, keyset-paged join of incoming Attachment/ClassroomMessage rows to current teacher roster principals and attachmentEpoch; file browsing does not mark chat read.",
       "Migration12 adds immutable signed classroom share/withdraw operations, DPAPI-protected per-share owner credentials and managed blob references. Withdrawal dominates additions, even when received first. Shared catalog is separate from private chat.",
       "ClassroomFileEndpoint adds classroom-files.v1 on the existing listener. Teacher-preferred roster-only anti-entropy; all nodes accept valid operations during teacher absence. Uses AttachmentService vault, file/serve/download gates and listener quota.",
-      "WPF file drops route by active pane: private chat stages AttachmentDraft; shared pane uses the same single-file upload path as its picker. Both own rejected FileDrop events to prevent filename fallback."
+      "WPF file drops route by active pane: private chat stages AttachmentDraft; shared pane uses the same single-file upload path as its picker. Both own rejected FileDrop events to prevent filename fallback.",
+      "Known attachment filesystem initialization errors degrade to text/receipt-only runtime with persistent warning and no attachment capability. SQLite/schema failures remain fatal; pending attachment metadata and loading gates prevent silent plaintext sends."
     ],
     "external_integrations": []
   },
@@ -158,6 +159,10 @@
     {
       "fact": "Archived signed messaging smoke uses a guarded, roster-backed synthetic reaction recipient; teacher reactions reject classmates, peer stickers use the visible popup, and failure checks target inline attempt cards without fabricating persisted delivered messages. Product recipient/role guards stay unchanged.",
       "source": "windows-lite/NekoChat.Windows/App.ReactionSmokeTest.cs; windows-lite/NekoChat.Windows/App.MessagingSmokeTest.cs; docs/classroom-ux/CI-20261105.md"
+    },
+    {
+      "fact": "Windows startup smoke exercises real runtime/TCP for blocked vault directory, exclusive .part lock, retained/removable pending attachment, text roundtrip, restart recovery and corrupt DB fail-closed.",
+      "source": "windows-lite/NekoChat.Windows/App.AttachmentStartupSmoke.cs; docs/classroom-ux/STARTUP-ISOLATION.md"
     }
   ]
 }

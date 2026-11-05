@@ -52,6 +52,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal int? MaximumTextBytes { get; }
     internal string IdentityStatus { get; }
     internal string? StartupWarning { get; }
+    internal string? AttachmentWarning { get; }
     internal string DataDirectory { get; }
     internal ClassroomSender ClassroomSender { get; }
     internal AttachmentService? Attachments { get; }
@@ -60,6 +61,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal bool CanSend => ArchivedIdentityFixture ? (_writer is not null && Listener.Running && !_lifetime.IsCancellationRequested) : (Listener.Running && !_lifetime.IsCancellationRequested);
     internal CancellationToken Lifetime => _lifetime.Token;
     internal bool IsStopping => _lifetime.IsCancellationRequested;
+    internal Task<AttachmentDraft?> ReadAttachmentDraftAsync(ClassroomPrincipalKey principal) => Worker.Run(_ => _store.GetAttachmentDraft(principal));
+    internal Task<bool> RemoveAttachmentDraftMetadataAsync(ClassroomPrincipalKey principal, string blob) => Worker.Run(_ => { _store.RemoveAttachmentDraft(principal, blob); return true; });
     internal long WireGeneration => Volatile.Read(ref _wireGeneration);
     private ChatRuntime(ChatStore store, string dataDirectory, string identityDirectory, int port, ChatWireConfiguration? configuration, ChatPairingConfiguration? pairingConfiguration, bool isolated, string? warning, bool loopbackOnly)
     {
@@ -102,32 +105,46 @@ internal sealed class ChatRuntime : IAsyncDisposable
         else
         {
             var sink = new ClassroomStoreSink(store);
-            Attachments = new AttachmentService(store, Path.Combine(dataDirectory, "attachments"), port);
-            Attachments.Changed += () => DataChanged?.Invoke();
-            Attachments.Progress += (id, done, total) => AttachmentProgress?.Invoke(id, done, total);
-            ClassroomFiles = new(store, Attachments, new WindowsShareSecrets(), () => {
-                var local = LanInvitation.LocalAddresses().ToHashSet();
-                return store.GetRosterSnapshot().Where(r => r.Entry.Endpoint is { } ip && !local.Contains(ip))
-                    .Select(r => new SharePeer(r.Entry.Endpoint!, Attachments.Port, r.Entry.IsTeacher)).ToArray();
-            }, () => {
-                string? target = store.GetRosterSnapshot().Select(r => r.Entry.Endpoint).FirstOrDefault(ip => ip is not null);
-                return target is null ? LanInvitation.LocalAddresses().FirstOrDefault(LanInvitation.PrivateIPv4) ?? "127.0.0.1" : ResolveLocalEndpointIp(target, Attachments.Port);
-            });
-            try
+            try { Attachments = new AttachmentService(store, Path.Combine(dataDirectory, "attachments"), port); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException || error is AttachmentException { Code: "unsafe_path" })
             {
-                string rosterPath = Path.Combine(AppContext.BaseDirectory, "classroom-roster.csv");
-                if (File.Exists(rosterPath) && new FileInfo(rosterPath).Length <= NekoChat.Core.Roster.RosterCsv.MaxBytes)
-                {
-                    var roster = NekoChat.Core.Roster.RosterCsv.Parse(File.ReadAllBytes(rosterPath));
-                    var local = LanInvitation.LocalAddresses().ToHashSet();
-                    ClassroomFiles.IsTeacherNode = roster.FatalError is null && roster.Errors.Count == 0 && roster.Rows.Any(r => r.IsTeacher && r.Endpoint is { } ip && local.Contains(ip));
-                }
+                store.RecoverAttachments();
+                AttachmentWarning = "附件儲存暫時無法使用；文字聊天仍可用。請檢查附件資料夾權限、磁碟空間或被鎖住的檔案，修復後重新啟動。";
+                StartupWarning = string.Join("\n", new[] { warning, AttachmentWarning }.Where(value => !string.IsNullOrEmpty(value)));
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* display role only; never grants withdrawal authority */ }
-            ClassroomFiles.Changed += () => DataChanged?.Invoke();
-            ClassroomFiles.Progress += (id,done,total) => ShareProgress?.Invoke(id,done,total);
-            var endpoint = new ClassroomEndpointAdapter(sink, capabilities: new[] { "msg.plain", "receipt.read", AttachmentLimits.Capability, ShareProtocol.Capability });
-            var classroomListener = new ClassroomTcpListener(new ClassroomFileEndpoint(new AttachmentEndpoint(endpoint, Attachments), ClassroomFiles), new ClassroomListenerOptions { Port = port, BindAddress = loopbackOnly ? IPAddress.Loopback : IPAddress.Any });
+            if (Attachments is { } attachments)
+            {
+                attachments.Changed += () => DataChanged?.Invoke();
+                attachments.Progress += (id, done, total) => AttachmentProgress?.Invoke(id, done, total);
+                ClassroomFiles = new(store, attachments, new WindowsShareSecrets(), () => {
+                    var local = LanInvitation.LocalAddresses().ToHashSet();
+                    return store.GetRosterSnapshot().Where(r => r.Entry.Endpoint is { } ip && !local.Contains(ip))
+                        .Select(r => new SharePeer(r.Entry.Endpoint!, attachments.Port, r.Entry.IsTeacher)).ToArray();
+                }, () => {
+                    string? target = store.GetRosterSnapshot().Select(r => r.Entry.Endpoint).FirstOrDefault(ip => ip is not null);
+                    return target is null ? LanInvitation.LocalAddresses().FirstOrDefault(LanInvitation.PrivateIPv4) ?? "127.0.0.1" : ResolveLocalEndpointIp(target, attachments.Port);
+                });
+                try
+                {
+                    string rosterPath = Path.Combine(AppContext.BaseDirectory, "classroom-roster.csv");
+                    if (File.Exists(rosterPath) && new FileInfo(rosterPath).Length <= NekoChat.Core.Roster.RosterCsv.MaxBytes)
+                    {
+                        var roster = NekoChat.Core.Roster.RosterCsv.Parse(File.ReadAllBytes(rosterPath));
+                        var local = LanInvitation.LocalAddresses().ToHashSet();
+                        ClassroomFiles.IsTeacherNode = roster.FatalError is null && roster.Errors.Count == 0 && roster.Rows.Any(r => r.IsTeacher && r.Endpoint is { } ip && local.Contains(ip));
+                    }
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* display role only; never grants withdrawal authority */ }
+                ClassroomFiles.Changed += () => DataChanged?.Invoke();
+                ClassroomFiles.Progress += (id,done,total) => ShareProgress?.Invoke(id,done,total);
+            }
+            var textEndpoint = new ClassroomEndpointAdapter(sink, capabilities: Attachments is null
+                ? new[] { "msg.plain", "receipt.read" }
+                : new[] { "msg.plain", "receipt.read", AttachmentLimits.Capability, ShareProtocol.Capability });
+            IClassroomRequestEndpoint endpoint = textEndpoint;
+            if (Attachments is { } activeAttachments && ClassroomFiles is { } sharedFiles)
+                endpoint = new ClassroomFileEndpoint(new AttachmentEndpoint(textEndpoint, activeAttachments), sharedFiles);
+            var classroomListener = new ClassroomTcpListener(endpoint, new ClassroomListenerOptions { Port = port, BindAddress = loopbackOnly ? IPAddress.Loopback : IPAddress.Any });
             sink.MessageStored += (_, _, _) => DataChanged?.Invoke();
             sink.ReceiptStored += (_, _) => DataChanged?.Invoke();
             Listener = new DirectLanListener(classroomListener, sink, Attachments);

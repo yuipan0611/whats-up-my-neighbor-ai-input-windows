@@ -275,9 +275,11 @@ public partial class ChatWindow
         Draft.IsEnabled = !_showTeacherFiles && !_stopping && !_closingRequested && (attached ? buffer is { Clearing: false } : _receiverRunning) && !isRemoved;
         bool hasAttachment = _attachmentDraft is not null;
         bool valid = hasAttachment ? Encoding.UTF8.GetByteCount(Draft.Text) <= (_runtime?.MaximumTextBytes ?? 65536) : !string.IsNullOrWhiteSpace(Draft.Text) && (_runtime?.MaximumTextBytes is not { } limit || V2Text.Check(Draft.Text, limit) == V2TextProblem.None);
-        AttachFileButton.IsEnabled = Draft.IsEnabled && !_sending && !_attachmentBusy && _runtime?.Attachments is not null;
+        AttachFileButton.IsEnabled = Draft.IsEnabled && !_sending && !_attachmentDraftLoading && !_attachmentBusy && _runtime?.Attachments is not null;
         RemoveAttachmentButton.IsEnabled = !_sending && !_attachmentBusy;
-        SendButton.IsEnabled = !_attachmentBusy && !_closingRequested && !_sending && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
+        SendButton.IsEnabled = !_attachmentDraftLoading && (!hasAttachment || _runtime?.Attachments is not null) &&
+            !_attachmentBusy && !_closingRequested && !_sending && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
+        ClearAttachmentCacheButton.IsEnabled = _runtime?.Attachments is not null;
         bool teacher = !_showTeacherFiles && _selected?.IsTeacher == true && !_selected.Removed;
         TeacherReactions.Visibility = teacher ? Visibility.Visible : Visibility.Collapsed;
         PeerReactions.Visibility = Visibility.Collapsed;
