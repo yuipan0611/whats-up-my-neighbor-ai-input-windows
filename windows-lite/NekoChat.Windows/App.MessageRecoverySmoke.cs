@@ -70,7 +70,10 @@ public partial class App
             Check(await peer.Worker.Run(s => s.ListClassroomMessages(principal).Items.Count == 1), "reconnection automatically delivers queued message exactly once");
             Check(window.Draft.Text == "第二則：恢復連線後獨立送達", "background delivery preserves new edit");
             await Wait(() => window.SendButton.IsEnabled); Click(window.SendButton);
-            await Wait(() => window.SmokeSendIdle && window.Draft.Text.Length == 0 && window.SmokeSelectedEntry?.Attempt is null);
+            await Wait(() => window.SmokeSendIdle && window.Draft.Text.Length == 0);
+            while (!await peer.Worker.Run(s => s.ListClassroomMessages(principal).Items.Any(row => row.RawText == "第二則：恢復連線後獨立送達")))
+                await Task.Delay(25, deadline.Token);
+            await Wait(() => window.History.Rows.Any(row => row.RawText == "第二則：恢復連線後獨立送達" && row.AttemptId is null));
             Check(await peer.Worker.Run(s => s.ListClassroomMessages(principal).Items.Count == 2), "next Send remains independent");
             Check(window.History.Rows.Count(r => r.RawText == first.RawSnapshot) == 1 && window.History.Rows.All(r => r.AttemptId is null), "success leaves no duplicate or stale failure card");
             Check(window.History.Rows.Last().RawText == "第二則：恢復連線後獨立送達", "history and latest message follow chronological order");
