@@ -10,6 +10,8 @@
 
 ## NekoChat Lite：教室聊天與綠色版（教室輕量版）
 
+新版本為 **0.1.0-beta.10 預發布測試版**：[下載與更新說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.10)。加入真實附件、老師／同學聊天室及課堂檔案分享；教室雙機、網路及其他 DPI 驗收仍未完成。
+
 教室環境專屬的輕量化實作位於 [windows-lite/](windows-lite/README.md)：透明桌面貓咪、9 種花色隨選、訊息氣泡，以及「免邀請碼、純內網 IP 直連通信」。
 
 - **雙版本體系**：
@@ -25,7 +27,7 @@
 | 詳細功能與教室使用指南 | [Lite 教室版完整說明](windows-lite/README.md) |
 
 
-目前本機整合候選版的實作、驗證與打包界線見 [Lite 交付紀錄](windows-lite/DELIVERY.md)，可重做的本機建置入口見 [打包工具說明](windows-lite/tools/README.md)。候選版尚未發布；身分方案與訊息上限未決時，普通 App 不會自動建立身分或啟用新配對／V2 私訊。上面的舊版下載與 IP 直送說明不能視為這批新來源的啟用狀態。
+Lite 功能與驗證界線見 [Lite 說明](windows-lite/README.md) 與 [交付紀錄](windows-lite/DELIVERY.md)。一般啟動不啟用歷史 signed 配對流程；正文上限 65,536 UTF-8 bytes。標準版語音工具的版本與流程仍獨立。
 
 ## 桌面小黑貓（Windows 第一階段）
 

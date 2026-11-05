@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Version>0.1.0-beta.9</Version>
-    <FileVersion>0.1.0.9</FileVersion>
+    <Version>0.1.0-beta.10</Version>
+    <FileVersion>0.1.0.10</FileVersion>
     <OutputType>WinExe</OutputType>
     <AssemblyName Condition="'$(DndVerifierAssemblyName)' != ''">$(DndVerifierAssemblyName)</AssemblyName>
     <RootNamespace Condition="'$(DndVerifierAssemblyName)' != ''">NekoChat.Windows</RootNamespace>

@@ -1,6 +1,6 @@
-# 真實附件（本機測試候選）
+# 真實附件（beta.10）
 
-本分支補上拖曳、迴紋針選檔、Ctrl＋V 截圖的真正位元組傳輸；不是 beta.9 已發布功能的回溯聲明。尚未正式發布、安裝或完成兩台 Windows 驗收。
+本分支補上拖曳、迴紋針選檔、Ctrl＋V 截圖的真正位元組傳輸；不是 beta.9 已發布功能的回溯聲明。beta.10 為預發布測試版；兩台 Windows 與教室網路驗收尚未完成。
 
 ## 使用方式
 
@@ -24,4 +24,6 @@
 
 Mac可跑：dotnet run --project windows-lite/NekoChat.Tests -c Release -- --attachments；亦納入 --classroom-all 與 CI／本機打包門檻。Windows App必須另做 win-x64建置。
 
-Windows原生／雙機操作單在 docs/attachments/WINDOWS-ACCEPTANCE.md。原生剪貼簿、WPF、兩台Windows與實際教室網路／DPI尚未執行，不能拿Core或交叉建置代替。
+Windows原生／雙機操作單在 docs/attachments/WINDOWS-ACCEPTANCE.md。Parallels 已驗證真正檔案總管拖放，Windows CI 已驗證原生 WPF／輸入與安裝；本輪原生剪貼簿、兩台 Windows、實際教室網路與其他 DPI 仍未完成。
+
+附件儲存初始化失敗時，附件與課堂檔案停用，文字聊天仍可使用。待傳附件與文字保留，明確移除附件後才能改傳文字；草稿尚未讀取完成時暫停送出。修復磁碟／權限／鎖定後重啟可恢復。資料庫本身損壞或升級失敗不會降級成未持久化聊天，仍停止收發並保留原檔。

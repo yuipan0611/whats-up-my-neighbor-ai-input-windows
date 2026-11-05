@@ -64,6 +64,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Copy-Item windows-lite/README.md build/windows-lite-package/README.md
           Copy-Item windows-lite/DELIVERY.md build/windows-lite-package/DELIVERY.md
+          Copy-Item windows-lite/ATTACHMENTS.md build/windows-lite-package/ATTACHMENTS.md
           Copy-Item windows-lite/SEND-CANCELLATION.md build/windows-lite-package/SEND-CANCELLATION.md
           Copy-Item windows-lite/BACKUP-RESTORE.md build/windows-lite-package/BACKUP-RESTORE.md
           Copy-Item LICENSE build/windows-lite-package/LICENSE
