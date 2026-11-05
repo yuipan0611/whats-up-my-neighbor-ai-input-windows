@@ -11,10 +11,9 @@
 
 ## 驗證
 
-來源為此版本的 main commit。Windows、NekoChat Lite Windows 與 Relay CI 全數通過；原生 Windows CI 驗證封裝版、免安裝版、安裝後版本的訊息恢復、傳送／接收、更新下載及 Setup 安裝流程。
+來源為此版本的 main commit。NekoChat Lite Windows、Relay 與原生封裝／安裝 CI 全數通過；驗證封裝版、免安裝版、安裝後版本的訊息恢復、傳送／接收、更新下載及 Setup 安裝流程。
 
-- [Windows CI](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/runs/42073360212)
-- [NekoChat Lite Windows／Relay CI 與發布產物](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/runs/42073360289)
+- [NekoChat Lite Windows／Relay CI 與發布產物](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/runs/42077063544)
 
 ## 已知驗收範圍
 
