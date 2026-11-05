@@ -48,7 +48,7 @@ public sealed class DiagnosticJournal : IAsyncDisposable
         if (_options.FileBytes is < 16384 or > 1048576 || _options.FileCount is < 1 or > 8 ||
             _options.QueueCapacity is < 1 or > 4096 || _options.RecentCapacity is < 1 or > 1024)
             throw new ArgumentOutOfRangeException(nameof(options));
-        _version = version.Length is > 0 and <= 48 && version.All(c => char.IsAsciiDigit(c) || c is '.' or '-' or '+' || c is >= 'a' and <= 'z') ? version : "unknown";
+        _version = version.Length is > 0 and <= 96 && version.All(c => char.IsAsciiDigit(c) || c is '.' or '-' or '+' || c is >= 'a' and <= 'z') ? version : "unknown";
         _pending = Channel.CreateBounded<Work>(new BoundedChannelOptions(_options.QueueCapacity) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
         _writer = Task.Run(WriteLoopAsync);
         Record(DiagnosticStage.Journal, DiagnosticOutcome.Started);
@@ -59,7 +59,7 @@ public sealed class DiagnosticJournal : IAsyncDisposable
         if (Volatile.Read(ref _stopping) != 0) return;
         try
         {
-            var fault = code != DiagnosticCode.None ? DiagnosticFault.For(code) : error is null ? DiagnosticFault.For(code) : DiagnosticFault.FromException(error, cancellationRequested);
+            var fault = code != DiagnosticCode.None ? DiagnosticFault.For(code) : error is null ? DiagnosticFault.For(code) : DiagnosticFault.FromException(error, cancellationRequested, stage);
             string? id = Guid.TryParseExact(messageId, "D", out var parsed) || Guid.TryParseExact(messageId, "N", out parsed) ? parsed.ToString("D") : null;
             var item = new DiagnosticEvent(Interlocked.Increment(ref _sequence), DateTime.UtcNow, _session, _version, stage, outcome,
                 fault.Code, fault.Category, fault.Severity, origin, id, Math.Max(0, attempt), elapsedMs is { } elapsed ? Math.Clamp(elapsed, 0, 604800000) : null, Math.Max(0, count), SafeExceptionType(error), SafeFrames(error));
@@ -79,6 +79,7 @@ public sealed class DiagnosticJournal : IAsyncDisposable
     {
         try
         {
+            if (Volatile.Read(ref _stopping) != 0) return new(false, DiagnosticCode.LoggerUnavailable);
             string full = Path.GetFullPath(destination);
             if (full.StartsWith(_directory.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return new(false, DiagnosticCode.InvalidPayload);
             var done = new TaskCompletionSource<DiagnosticExportResult>(TaskCreationOptions.RunContinuationsAsynchronously);

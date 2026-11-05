@@ -27,8 +27,9 @@ public partial class ChatWindow
         DiagnosticJournal? temporary = null;
         try
         {
-            var journal = _runtime?.Diagnostics ?? (temporary = new DiagnosticJournal(_diagnosticsDirectory, typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown"));
+            var journal = _runtime?.Diagnostics ?? (temporary = new DiagnosticJournal(_diagnosticsDirectory, ChatRuntime.DiagnosticVersion));
             var result = await journal.ExportAsync(destination);
+            journal.Record(DiagnosticStage.Journal, result.Success ? DiagnosticOutcome.Succeeded : DiagnosticOutcome.Failed, result.Code);
             DiagnosticsStatus.Text = result.Success ? "診斷已匯出。請自行選擇是否分享給開發者。" : "診斷匯出未完成，請重試。（NCD-" + result.Code + "）";
             return result;
         }

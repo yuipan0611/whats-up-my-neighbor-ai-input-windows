@@ -55,6 +55,8 @@ internal static class DiagnosticChecks
             }) Check(DiagnosticFault.FromException(pair.Item1).Code == pair.Item2, "typed SQLite fault classification " + pair.Item2);
             Check(DiagnosticFault.FromException(new OperationCanceledException()).Code == DiagnosticCode.Timeout, "timeout is distinct from explicit cancellation");
             Check(DiagnosticFault.FromException(new OperationCanceledException(), true).Code == DiagnosticCode.Cancelled, "explicit cancellation is informational");
+            Check(DiagnosticFault.FromException(new IOException("private network failure"), stage: DiagnosticStage.SendTransmit).Code == DiagnosticCode.NetworkUnavailable &&
+                DiagnosticFault.FromException(new IOException("private storage failure"), stage: DiagnosticStage.StorageRead).Code == DiagnosticCode.StorageIo, "I/O classification uses the owning boundary rather than treating network streams as disks");
             Check(DiagnosticFault.FromException(new AttachmentException("hash_mismatch")).Category == DiagnosticCategory.DataIntegrity, "attachment hash mismatch is integrity fault");
             Check(DiagnosticFault.For(DiagnosticCode.CorruptData).StopDataOperations && !DiagnosticFault.For(DiagnosticCode.StorageBusy).StopDataOperations, "corruption and temporary contention are distinct");
             Check(DiagnosticFault.FromReason("private-token-and-ip").Code == DiagnosticCode.Unexpected, "unknown remote reason maps to a fixed code");
@@ -96,7 +98,10 @@ internal static class DiagnosticChecks
                 for (int i = 0; i < 180; i++) journal.Record(DiagnosticStage.SendPrepare, DiagnosticOutcome.Started, messageId: Guid.NewGuid().ToString("D"));
             var files = Directory.GetFiles(rotation, "*.jsonl");
             Check(files.Length == 2 && files.All(file => new FileInfo(file).Length <= 16384), "rotation enforces file count and byte bounds");
-            foreach (string file in files) foreach (string line in File.ReadLines(file)) { using var json = JsonDocument.Parse(line); Check(json.RootElement.GetProperty("Sequence").GetInt64() > 0, "retained log line is valid structured JSON"); }
+            int retained = 0;
+            foreach (string file in files) foreach (string line in File.ReadLines(file))
+            { using var json = JsonDocument.Parse(line); if (json.RootElement.GetProperty("Sequence").GetInt64() <= 0) throw new InvalidDataException("Retained diagnostic sequence is invalid."); retained++; }
+            Check(retained > 0, "every retained log line parses as structured JSON with a valid sequence");
             await using (var journal = new DiagnosticJournal(Path.Combine(root, "burst"), "1.0.0", new() { QueueCapacity = 1, RecentCapacity = 8 }))
             {
                 var timer = Stopwatch.StartNew();

@@ -37,7 +37,7 @@ public partial class App
             runtime = await ChatRuntime.OpenAsync(new(settings, SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true);
             peer = await ChatRuntime.OpenAsync(new(peerSettings, SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true);
             runtime.Start(); peer.Start();
-            await runtime.Worker.Run(store => store.SaveClassroomDraft(principal, "", 0, 1));
+            await runtime.Worker.Run(store => store.SaveClassroomDraft(principal, "PRIVATE-DIAG-CHAT fixture draft", 0, 1));
             window = new(settings); await window.AttachRuntimeAsync(runtime, 0); window.SetReceiverState(true, runtime.Listener.Port, null);
             window.Show(); window.Activate(); await window.SmokeOpenEntryAsync(entry => entry.ConversationId == principal.Value);
             await Until(() => window.IsActive && window.Draft.IsEnabled, "native window remains usable with blocked diagnostic disk");

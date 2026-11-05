@@ -5,7 +5,7 @@ using NekoChat.Core.Storage;
 
 namespace NekoChat.Core.Diagnostics;
 
-public enum DiagnosticStage { Startup, SendPrepare, SendHello, SendTransmit, SendConfirm, ReceiveValidate, ReceiveCommit, ReceiveNotify, ReceiveReceipt, StorageRead, StorageWrite, StorageQueue, Attachment, UiRefresh, UiRead, UiAction, Shutdown, Journal }
+public enum DiagnosticStage { Startup, SendPrepare, SendHello, SendTransmit, SendConfirm, ReceiveValidate, ReceiveRespond, ReceiveCommit, ReceiveNotify, ReceiveReceipt, StorageRead, StorageWrite, StorageQueue, Attachment, UiRefresh, UiRead, UiAction, Shutdown, Journal }
 public enum DiagnosticOrigin { Local, RemoteResponse }
 public enum DiagnosticOutcome { Started, Succeeded, Failed, Unconfirmed, Cancelled, Rejected, Stale, Deferred }
 public enum DiagnosticCategory { None, Network, Timeout, Cancellation, Validation, Remote, DeliveryUnconfirmed, StorageBusy, StorageFull, Permission, StorageIo, DataIntegrity, Capacity, State, Unexpected }
@@ -16,9 +16,9 @@ public sealed record DiagnosticFault(DiagnosticCode Code, DiagnosticCategory Cat
 {
     public string DisplayCode => "NCD-" + Code;
     public static bool Catchable(Exception error) => error is not OutOfMemoryException and not AccessViolationException;
-    public static DiagnosticFault FromException(Exception error, bool cancellationRequested = false)
+    public static DiagnosticFault FromException(Exception error, bool cancellationRequested = false, DiagnosticStage? stage = null)
     {
-        if (error is AggregateException { InnerExceptions.Count: 1 } aggregate) return FromException(aggregate.InnerExceptions[0], cancellationRequested);
+        if (error is AggregateException { InnerExceptions.Count: 1 } aggregate) return FromException(aggregate.InnerExceptions[0], cancellationRequested, stage);
         if (error is StoreException store) return For(store.Kind switch {
             StoreErrorKind.StorageBusy => DiagnosticCode.StorageBusy,
             StoreErrorKind.DiskFull => DiagnosticCode.DiskFull,
@@ -28,6 +28,9 @@ public sealed record DiagnosticFault(DiagnosticCode Code, DiagnosticCategory Cat
             StoreErrorKind.ConstraintViolation => DiagnosticCode.InvalidPayload,
             _ => DiagnosticCode.StorageIo
         });
+        if (error is IOException { InnerException: SocketException } networkIo) return FromException(networkIo.InnerException!, cancellationRequested, stage);
+        if (error is HttpRequestException { InnerException: TimeoutException }) return For(DiagnosticCode.Timeout);
+        if (error is SocketException { SocketErrorCode: SocketError.TimedOut }) return For(DiagnosticCode.Timeout);
         if (error is StorageWorkQueueFullException) return For(DiagnosticCode.QueueFull);
         if (error is AttachmentException attachment) return FromReason(attachment.Code);
         return For(error switch {
@@ -36,6 +39,7 @@ public sealed record DiagnosticFault(DiagnosticCode Code, DiagnosticCategory Cat
             SocketException or HttpRequestException => DiagnosticCode.NetworkUnavailable,
             UnauthorizedAccessException => DiagnosticCode.ReadOnly,
             IOException io when (io.HResult & 0xffff) is 112 or 39 => DiagnosticCode.DiskFull,
+            IOException when stage is DiagnosticStage.SendHello or DiagnosticStage.SendTransmit or DiagnosticStage.SendConfirm or DiagnosticStage.ReceiveValidate => DiagnosticCode.NetworkUnavailable,
             IOException => DiagnosticCode.StorageIo,
             ArgumentException or FormatException or System.Text.Json.JsonException => DiagnosticCode.InvalidPayload,
             _ => DiagnosticCode.Unexpected

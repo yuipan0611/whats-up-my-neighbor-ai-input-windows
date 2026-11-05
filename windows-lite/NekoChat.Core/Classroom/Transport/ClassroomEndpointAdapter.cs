@@ -56,6 +56,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         var result = ClassroomHead.Check(header.Span);
         if (!result.Ok)
         {
+            _diagnostics?.Record(DiagnosticStage.ReceiveValidate, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(result.Code).Code);
             return new ClassroomHeadDecision(result.Code);
         }
 
@@ -92,7 +93,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
 
     public ClassroomTransportResponse Error(string code)
     {
-        _diagnostics?.Record(DiagnosticStage.ReceiveValidate, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(code).Code);
+        _diagnostics?.Record(DiagnosticStage.ReceiveRespond, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(code).Code);
         if (ClassroomWire.TryErrorStatus(code, out int status))
         {
             var (_, body) = ClassroomPacketWriter.Error(code);
@@ -164,6 +165,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         var v = ClassroomRequestValidator.Validate(ClassroomRequestKind.Hello, body, localIp, sourceIp, _sessions);
         if (!v.Ok)
         {
+            _diagnostics?.Record(DiagnosticStage.ReceiveValidate, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(v.Code).Code);
             return Error(v.Code);
         }
 
@@ -182,6 +184,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         var v = ClassroomRequestValidator.Validate(ClassroomRequestKind.Message, body.Span, localIp, sourceIp, _sessions);
         if (!v.Ok)
         {
+            _diagnostics?.Record(DiagnosticStage.ReceiveValidate, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(v.Code).Code);
             return Error(v.Code);
         }
 
@@ -223,6 +226,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         var v = ClassroomRequestValidator.Validate(ClassroomRequestKind.Receipt, body.Span, localIp, sourceIp, _sessions);
         if (!v.Ok)
         {
+            _diagnostics?.Record(DiagnosticStage.ReceiveValidate, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(v.Code).Code);
             return Error(v.Code);
         }
 

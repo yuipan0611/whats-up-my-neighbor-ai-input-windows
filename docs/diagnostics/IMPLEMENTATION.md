@@ -26,3 +26,5 @@
 - 第一輪 logger ownership 測試抓到同一 process 在 Unix 的檔案分享鎖不足；加入有限 process registry 並保留 OS writer lock 後通過，未刪除斷言。另有一次本機 MSBuild worker 提前退出；以工作區 TMPDIR 與單節點重建成功，非產品測試失敗。
 
 使用方式、容量上限及最後事件可能未落盤的限制見 `windows-lite/DIAGNOSTICS.md`。
+
+Windows 首輪原生 run `42036124701`：測試使用空白草稿，依既有 inbox 規則不會建立可選對話，因此在操作前失敗。已改為有效合成草稿再測；沒有修改產品的空白草稿規則或刪除驗收斷言。Core 的逐行 JSON 驗證改為統一一項 assertion，仍逐行解析，避免容量差異影響檢查總數。另補 I/O 所屬階段分類及匯出失敗事件，診斷版本保留 build commit。

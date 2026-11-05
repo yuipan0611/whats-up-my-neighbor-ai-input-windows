@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using NekoChat.Core.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -41,6 +42,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     private long _wireGeneration;
     internal ChatStoreWorker Worker { get; }
     internal DiagnosticJournal Diagnostics { get; }
+    internal static string DiagnosticVersion => typeof(App).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown";
     internal VisibleReadSession Reads { get; }
     internal ClassroomOutbox? Outbox { get; private set; }
     internal string? OutboxFailure { get; private set; }
@@ -190,7 +192,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
         string root = RootDirectory(source.Value, isolated);
         string data = Path.Combine(root, "data"); ChatStore? store = null;
         string version = typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown";
-        DiagnosticJournal? diagnostics = new(Path.Combine(root, "diagnostics"), version);
+        DiagnosticJournal? diagnostics = new(Path.Combine(root, "diagnostics"), DiagnosticVersion);
         try
         {
             store = ChatStore.Open(new(data) {
