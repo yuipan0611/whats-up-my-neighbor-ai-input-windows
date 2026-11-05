@@ -9,7 +9,14 @@ public partial class ChatWindow
 {
     private Task _activeSend = Task.CompletedTask;
     private Task SendCurrentAsync(bool retry, PendingSendSummary? retryAttempt = null)
-    { if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask; return _activeSend = SendCoreAsync(retry, retryAttempt); }
+    {
+        if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask;
+        var send = _activeSend = SendCoreAsync(retry, retryAttempt);
+        _ = send.ContinueWith(_ => {
+            if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(new Action(UpdateComposer));
+        }, TaskScheduler.Default);
+        return send;
+    }
     private async Task SendCoreAsync(bool retry, PendingSendSummary? retryAttempt)
     {
         if (_attachmentDraftLoading || _runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) return;
