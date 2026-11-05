@@ -11,6 +11,8 @@
 - 已知例外類型、專案程式的方法名稱；不含 Exception.Message、InnerException.Message、來源檔路徑、SQL、HTTP body／標頭、IP、姓名、暱稱、附件名稱、聊天、token 或金鑰。
 - 遠端回覆的錯誤只映射至固定代碼；不保存任意遠端字串。`RemoteResponse` 表示固定代碼來自對方的回覆，避免誤認為本機儲存錯誤。
 
+入列前也記錄 SendAdmission：UiNotReady 表示當次介面未接受傳送、OperationBusy 表示操作尚未完成、DraftNotSaved 表示草稿尚未完成保存。嚴格版本拒絕記 StorageWrite／Rejected／StaleView；這些不是網路送達失敗，也不會建立新的訊息 ID。
+
 錯誤分類使用 `NCD-<Code>`。例如 StorageBusy／QueueFull 可稍後重試；DiskFull／ReadOnly 需先處理空間／權限；Unconfirmed 代表尚未確認送達；IntegrityMismatch 表示校驗或內容衝突；Unexpected 保留程式位置供查 bug。CorruptData／UnsupportedData 表示資料完整性或版本需要檢查，保持既有 fail-closed 規則，不刪除或重建原資料庫。
 
 ## 上限與失敗隔離

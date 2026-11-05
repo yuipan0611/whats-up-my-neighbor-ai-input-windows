@@ -1,6 +1,6 @@
 # 統一錯誤分類與本機診斷
 
-使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `8d8f415`（含共用等待與正常訊息ID去重修正）；診斷保持 draft，未安裝或發布。
+使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `24d4618`（含草稿保存／Send互斥、交錯回歸與訊息ID去重）；診斷保持 draft，未安裝或發布。
 
 ## 範圍與守門條件
 
@@ -32,3 +32,7 @@ SQLite contention 保持聊天前景：可視讀、Send flush、autosave可能�
 共用recovery等待再修正：eafb6b3 的package18全過，但portable在第二則Count==2過早斷言。現已同步peer先等待接收SQLite原文、再等待自己的正常history row；第一則與人工重試也使用正向正常row證據，保留原Count／ID／無殘留卡斷言。focused診斷workflow額外跑既有18項native recovery並獨立上傳JSON，較早發現這類錯誤；完整套件gate保持不變。
 
 產品UI修正整合：peer full run42058610700發現history可新於inbox摘要，舊_selected.Attempt可能把已送達訊息的待送卡加回。正常classroom列現在保留內部MessageId，SyncAttemptRow只在目前History存在同ID、Outgoing且非Legacy的正常列時移除／拒絕舊卡。不同ID同文字不合併，incoming不壓掉outgoing待送卡；UUID不顯示在UI。保留即時無殘留卡斷言及diagnostic接線，重新驗證focused18與完整封裝gate。
+
+入列前診斷補強：SendAdmission以固定UiNotReady／OperationBusy／DraftNotSaved／StaleView記錄disabled click、傳送中、editor未ready或保存後拒送；StorageWrite也記非exception的Saved=false，不保存原始reason字串。Core新增分類／匯出檢查後為63項。Native診斷新增空輸入disabled Send的真事件斷言（28→30）。
+
+peer gate修正473116a：autosave、Send與exit保存共用async gate，涵蓋真正SQLite返回後的CompleteWrite，保持嚴格epoch／revision CAS。native recovery用isolated completion hook把第一筆真autosave停在SQLite已存、UI未CompleteWrite的位置；再按一次Send，要求兩者仍等待，放行後真peer／正常row／Count2。不是重複點擊或放寬deadline，恢復套件18→19項。

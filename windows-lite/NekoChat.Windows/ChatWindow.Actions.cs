@@ -10,7 +10,13 @@ public partial class ChatWindow
 {
     private Task _activeSend = Task.CompletedTask;
     private Task SendCurrentAsync(bool retry, PendingSendSummary? retryAttempt = null)
-    { if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask; return _activeSend = SendBoundaryAsync(retry, retryAttempt); }
+    {
+        if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) {
+            _runtime?.Diagnostics.Record(DiagnosticStage.SendAdmission, DiagnosticOutcome.Deferred, !_activeSend.IsCompleted ? DiagnosticCode.OperationBusy : DiagnosticCode.StaleView);
+            return Task.CompletedTask;
+        }
+        return _activeSend = SendBoundaryAsync(retry, retryAttempt);
+    }
     private async Task SendBoundaryAsync(bool retry, PendingSendSummary? retryAttempt)
     {
         try { await SendCoreAsync(retry, retryAttempt); }
@@ -19,7 +25,10 @@ public partial class ChatWindow
     }
     private async Task SendCoreAsync(bool retry, PendingSendSummary? retryAttempt)
     {
-        if (_attachmentDraftLoading || _runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) return;
+        if (_attachmentDraftLoading || _runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) {
+            _runtime?.Diagnostics.Record(DiagnosticStage.SendAdmission, DiagnosticOutcome.Deferred, _sending ? DiagnosticCode.OperationBusy : DiagnosticCode.UiNotReady);
+            return;
+        }
         var runtime = _runtime; var sent = buffer.Capture();
         if (!runtime.ArchivedIdentityFixture) { await QueueCurrentMessageAsync(runtime, entry, buffer); return; }
         if (_attachmentDraft is not null) { await SendAttachmentCoreAsync(runtime, entry, buffer, sent); return; }
@@ -75,7 +84,10 @@ public partial class ChatWindow
         SetSending(true); DraftClearTicket? ticket = null;
         try {
             await FlushDraftsAsync();
-            if (buffer.Dirty || buffer.Clearing || _selected?.Id != entry.Id || !ReferenceEquals(runtime, _runtime)) return;
+            if (buffer.Dirty || buffer.Clearing || _selected?.Id != entry.Id || !ReferenceEquals(runtime, _runtime)) {
+                runtime.Diagnostics.Record(DiagnosticStage.SendAdmission, DiagnosticOutcome.Deferred, buffer.Dirty ? DiagnosticCode.DraftNotSaved : buffer.Clearing ? DiagnosticCode.OperationBusy : DiagnosticCode.StaleView);
+                return;
+            }
             var sent = buffer.Capture(); bool attachment = _attachmentDraft is not null;
             if (!attachment && string.IsNullOrWhiteSpace(sent.Text)) return;
             ticket = buffer.BeginClear(); UpdateComposer();
@@ -165,6 +177,7 @@ public partial class ChatWindow
             {
                 saved = write.Ticket.Persist(s, write.Key);
             }
+            if (!saved.Saved) runtime.Diagnostics.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(saved.Reason).Code);
             write.Buffer.CompleteWrite(write.Ticket, saved);
             if (!saved.Saved && write.Buffer.IsCurrent(write.Ticket) && write.Buffer.Dirty && saved.Reason != "draft-too-large")
                 throw new InvalidOperationException("Draft could not be saved before exit.");

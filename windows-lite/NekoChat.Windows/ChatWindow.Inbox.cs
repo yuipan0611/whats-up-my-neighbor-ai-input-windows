@@ -275,6 +275,7 @@ public partial class ChatWindow
                     });
                     if (SmokeBeforeDraftWriteCompletion is { } beforeCompletion) await beforeCompletion();
                     pair.Value.CompleteWrite(ticket, result);
+                    if (!result.Saved) runtime.Diagnostics.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(result.Reason).Code);
                     if (!result.Saved && pair.Value.IsCurrent(ticket) && pair.Value.Dirty)
                         StorageStatus.Text = result.Reason == "draft-too-large" ? "草稿太長無法保存，請縮短。" : "草稿尚未儲存，請重新讀取或保留目前文字後重試。";
                 }
