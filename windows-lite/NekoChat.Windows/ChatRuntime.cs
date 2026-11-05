@@ -174,7 +174,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             "queued" => "等待傳送；連線恢復後會自動續送。",
             "sending" => "傳送中，等待對方儲存確認。",
             "cancelled" => "已取消自動續送；可重試或從本機刪除。",
-            "failed" => item.Error switch { "missing_file" => "附件副本已遺失，請重新選檔。", "recipient_changed" => "對方名單或 IP 已改變，請確認對象。", "unsupported_version" => "對方版本不支援，請更新後重試。", "payload_too_large" or "legacy_payload_too_large" => "訊息超過對方上限，請修改後另送。", _ => "傳送失敗（" + item.Error + "）；可重試或從本機刪除。" },
+            "failed" => item.Error switch { "missing_file" => "附件副本已遺失，請重新選檔。", "recipient_changed" => "對方名單或 IP 已改變，請確認對象。", "unsupported_version" => "對方版本不支援，請更新後重試。", "payload_too_large" or "legacy_payload_too_large" => "訊息超過對方上限，請修改後另送。", "legacy_delivery_unconfirmed" or "classroom-may-have-delivered" => "先前傳送可能已送達，請確認後再手動重試。", "capacity_exceeded" => "對方訊息空間已滿，請對方清理後再重試。", "wrong_recipient" or "source_not_allowed" => "對方拒絕此來源，請核對名單及 IP 位址。", "conflict" => "訊息識別資料不一致，請重新確認後另送。", "invalid_payload" => "對方無法接受訊息格式，請修改後另送。", _ => "目前無法完成傳送，請確認對方狀態後重試或從本機刪除。" },
             _ => null
         };
     }
