@@ -62,6 +62,7 @@ public partial class App
             // Both receivers stay alive until every bidirectional check has finished.
             File.WriteAllText(prefix + ".network-complete", "ready");
             await UntilAsync(() => File.Exists(Path.Combine(options.Directory, other + ".network-complete")), timeout.Token);
+            await ConfigureReactionFixtureAsync(false, "127.0.0.1");
             await chat.SmokeOpenEntryAsync(e => e.PeerId == messagingPeerId);
 
             // Keep a port reserved without serving HTTP: the genuine client must time out, never hit an unrelated process.
@@ -71,14 +72,17 @@ public partial class App
             Send(failed, enter: false);
             await UntilAsync(() => chat.SmokeSendIdle, timeout.Token);
             Require(chat.Draft.Text == failed && chat.SendButton.IsEnabled, "Failed send lost draft or retry affordance");
-            Require(!chat.History.Rows.Any(r => r.RawText == failed), "Unconfirmed attempt appeared as delivered history");
-            Require(chat.Status.Text.Contains("未確認送達") && !chat.Status.Text.Contains("已驗證"), "Failed send claimed a storage ACK");
-            chat.UpdateLayout();
-            var status = chat.Status;
+            await UntilAsync(() => chat.History.Rows.Any(row => row.RawText == failed && row.AttemptId is not null && row.AttemptFailed), timeout.Token);
+            var failure = chat.History.Rows.Single(row => row.RawText == failed);
+            Require(failure.AttemptId is not null && failure.Delivery.Contains("未確認送達") && failure.RetrySend is not null &&
+                !chat.History.Rows.Any(row => row.RawText == failed && row.AttemptId is null), "Failed attempt claimed delivered history or lost inline retry");
+            Require(chat.Status.Visibility == Visibility.Collapsed, "Failed attempt must use its message card, not the global status banner");
+            chat.History.ScrollIntoView(failure); chat.UpdateLayout();
+            var status = SmokeVisuals<TextBlock>(chat.History).Single(block => block.Text == failure.Delivery);
             var measured = new FormattedText(status.Text, System.Globalization.CultureInfo.CurrentCulture,
                 status.FlowDirection, new Typeface(status.FontFamily, status.FontStyle, status.FontWeight, status.FontStretch),
                 status.FontSize, status.Foreground, VisualTreeHelper.GetDpi(status).PixelsPerDip) { MaxTextWidth = status.ActualWidth };
-            Require(status.ActualHeight + 1 >= measured.Height, "Failure explanation is clipped");
+            Require(status.IsVisible && status.ActualHeight + 1 >= measured.Height, "Inline failure explanation is clipped");
             Capture(chat, prefix + "-failure.png");
 
             await chat.PrepareForShutdownAsync();
@@ -132,6 +136,13 @@ public partial class App
     private static async Task UntilAsync(Func<bool> predicate, CancellationToken cancellation)
     {
         while (!predicate()) await Task.Delay(50, cancellation);
+    }
+
+    private static IEnumerable<T> SmokeVisuals<T>(DependencyObject root) where T : DependencyObject
+    {
+        if (root is T match) yield return match;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            foreach (var child in SmokeVisuals<T>(VisualTreeHelper.GetChild(root, i))) yield return child;
     }
 
     private static void Require(bool value, string message)

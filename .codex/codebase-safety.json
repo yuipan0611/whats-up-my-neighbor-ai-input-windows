@@ -154,6 +154,10 @@
     {
       "fact": "Compact WPF layout preserves Draft>=55 and Send>=40 by reducing outer vertical padding; native smoke captures pre-assert geometry at minimum size and 640/641 sidebar boundaries and verifies visible attachment cleanup settings, not the hidden legacy monitor picker.",
       "source": "windows-lite/NekoChat.Windows/ChatLayoutChecks.cs; windows-lite/NekoChat.Windows/ChatWindow.Inbox.cs; docs/classroom-ux/CI-20261105.md"
+    },
+    {
+      "fact": "Archived signed messaging smoke uses a guarded, roster-backed synthetic reaction recipient; teacher reactions reject classmates, peer stickers use the visible popup, and failure checks target inline attempt cards without fabricating persisted delivered messages. Product recipient/role guards stay unchanged.",
+      "source": "windows-lite/NekoChat.Windows/App.ReactionSmokeTest.cs; windows-lite/NekoChat.Windows/App.MessagingSmokeTest.cs; docs/classroom-ux/CI-20261105.md"
     }
   ]
 }
