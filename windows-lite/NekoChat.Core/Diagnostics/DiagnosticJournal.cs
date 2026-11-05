@@ -177,6 +177,7 @@ public sealed class DiagnosticJournal : IAsyncDisposable
     private static string? SafeExceptionType(Exception? error)
     {
         if (error is null) return null;
+        if (error is AggregateException { InnerExceptions.Count: 1 } aggregate) return SafeExceptionType(aggregate.InnerExceptions[0]);
         return error switch {
             NekoChat.Core.Storage.StoreException => "NekoChat.Core.Storage.StoreException",
             NekoChat.Core.Attachments.AttachmentException => "NekoChat.Core.Attachments.AttachmentException",

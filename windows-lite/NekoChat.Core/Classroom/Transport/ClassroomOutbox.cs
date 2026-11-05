@@ -1,3 +1,4 @@
+using NekoChat.Core.Diagnostics;
 using System.Net.Http;
 using System.Net.NetworkInformation;
 using NekoChat.Core.Attachments;
@@ -9,6 +10,7 @@ namespace NekoChat.Core.Classroom.Transport;
 public sealed class ClassroomOutbox : IAsyncDisposable
 {
     private readonly ChatStore _store;
+    private readonly DiagnosticJournal? _diagnostics;
     private readonly ClassroomSender _sender;
     private readonly AttachmentService? _attachments;
     private readonly Func<string, int, string> _ownIp;
@@ -20,13 +22,32 @@ public sealed class ClassroomOutbox : IAsyncDisposable
     public event Action<Exception>? Failed;
     public event Action? Recovered;
     private int _failed;
-    private void ReportFailure(Exception error) { Interlocked.Exchange(ref _failed, 1); try { Failed?.Invoke(error); } catch { } }
-    private void ReportRecovery() { if (Interlocked.Exchange(ref _failed, 0) != 0) { try { Recovered?.Invoke(); } catch { } } }
-    private void Finish(string id, bool success, bool retryable, string? error) { _store.FinishOutbox(id, success, retryable, error); ReportRecovery(); }
-
-    public ClassroomOutbox(ChatStore store, ClassroomSender sender, AttachmentService? attachments, Func<string, int, string> ownIp)
+    private void ReportFailure(Exception error)
     {
-        _store = store; _sender = sender; _attachments = attachments; _ownIp = ownIp;
+        Interlocked.Exchange(ref _failed, 1);
+        _diagnostics?.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Failed, error: error);
+        try { Failed?.Invoke(error); }
+        catch (Exception observer) when (DiagnosticFault.Catchable(observer)) { _diagnostics?.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, observer); }
+    }
+    private void ReportRecovery()
+    {
+        if (Interlocked.Exchange(ref _failed, 0) == 0) return;
+        _diagnostics?.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Recovered);
+        try { Recovered?.Invoke(); }
+        catch (Exception observer) when (DiagnosticFault.Catchable(observer)) { _diagnostics?.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, observer); }
+    }
+    private void Finish(string id, bool success, bool retryable, string? error)
+    {
+        var code = DiagnosticFault.FromReason(error).Code;
+        _diagnostics?.Record(DiagnosticStage.OutboxFinish, DiagnosticOutcome.Started, code, messageId: id);
+        _store.FinishOutbox(id, success, retryable, error);
+        _diagnostics?.Record(DiagnosticStage.OutboxFinish, DiagnosticOutcome.Completed, code, messageId: id);
+        ReportRecovery();
+    }
+
+    public ClassroomOutbox(ChatStore store, ClassroomSender sender, AttachmentService? attachments, Func<string, int, string> ownIp, DiagnosticJournal? diagnostics = null)
+    {
+        _diagnostics = diagnostics; _store = store; _sender = sender; _attachments = attachments; _ownIp = ownIp;
         _store.RecoverOutbox(); _store.WakeOutbox();
         NetworkChange.NetworkAvailabilityChanged += NetworkAvailable;
         NetworkChange.NetworkAddressChanged += NetworkAddressChanged;
@@ -38,14 +59,19 @@ public sealed class ClassroomOutbox : IAsyncDisposable
         if (_lifetime.IsCancellationRequested) return;
         try { Wake(); } catch (Exception error) { ReportFailure(error); }
     }
-    public void Wake() => _store.WakeOutbox();
+    public void Wake() { _store.WakeOutbox(); _diagnostics?.Record(DiagnosticStage.OutboxRetry, DiagnosticOutcome.Completed); }
     public void Cancel(string id)
     {
-        _store.CancelOutbox(id);
+        bool cancelled = _store.CancelOutbox(id);
+        _diagnostics?.Record(DiagnosticStage.OutboxCancel, cancelled ? DiagnosticOutcome.Cancelled : DiagnosticOutcome.Stale, cancelled ? DiagnosticCode.Cancelled : DiagnosticCode.StaleView, messageId: id);
         lock (_gate) if (_jobs.TryGetValue(id, out var job)) _ = job.Cancellation.CancelAsync();
         Notify();
     }
-    private void Notify() { try { Changed?.Invoke(); } catch { /* A view cannot change a committed send. */ } }
+    private void Notify()
+    {
+        try { Changed?.Invoke(); }
+        catch (Exception observer) when (DiagnosticFault.Catchable(observer)) { _diagnostics?.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, observer); }
+    }
     private async Task RunAsync()
     {
         try
@@ -61,14 +87,20 @@ public sealed class ClassroomOutbox : IAsyncDisposable
                         {
                             if (_jobs.Count >= 4) break;
                             if (_jobs.ContainsKey(candidate.MessageId)) continue;
-                            if (candidate.State == "sending") { _store.RecoverOutboxItem(candidate.MessageId); continue; }
+                            if (candidate.State == "sending") {
+                                _diagnostics?.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Started, messageId: candidate.MessageId);
+                                _store.RecoverOutboxItem(candidate.MessageId);
+                                _diagnostics?.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Completed, messageId: candidate.MessageId);
+                                continue;
+                            }
                             var claimed = _store.ClaimOutbox(candidate.MessageId);
                             if (claimed is null) { if (_store.ListOutbox().SingleOrDefault(x => x.MessageId == candidate.MessageId)?.State == "complete") ReportRecovery(); continue; }
+                            _diagnostics?.Record(DiagnosticStage.OutboxClaim, DiagnosticOutcome.Completed, messageId: claimed.MessageId, count: claimed.Failures);
                             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
                             var task = Task.Run(() => SendAsync(claimed, cancellation.Token));
                             _jobs.Add(candidate.MessageId, (cancellation, task));
                             _ = task.ContinueWith(completed => {
-                                if (completed.Exception is { } error) { ReportFailure(error); }
+                                if (completed.Exception is { } error) { _diagnostics?.Record(DiagnosticStage.OutboxAttempt, DiagnosticOutcome.Failed, error: error, messageId: candidate.MessageId); ReportFailure(error); }
                                 lock (_gate) _jobs.Remove(candidate.MessageId);
                                 cancellation.Dispose(); Notify();
                             }, TaskScheduler.Default);
@@ -84,6 +116,7 @@ public sealed class ClassroomOutbox : IAsyncDisposable
     private async Task SendAsync(OutboxItem item, CancellationToken cancellation)
     {
         Notify();
+        _diagnostics?.Record(DiagnosticStage.OutboxAttempt, DiagnosticOutcome.Started, messageId: item.MessageId, count: item.Failures);
         try
         {
             if (item.AttachmentSequence is { } sequence)
@@ -113,6 +146,7 @@ public sealed class ClassroomOutbox : IAsyncDisposable
         }
         catch (Exception error)
         {
+            _diagnostics?.Record(DiagnosticStage.OutboxAttempt, DiagnosticOutcome.Failed, error: error, messageId: item.MessageId);
             string code = error is AttachmentException attachment ? attachment.Code : error is LocalEndpointResolutionException ? "network_error" : error is HttpRequestException ? "network_error" : error is TaskCanceledException ? "timeout" : "send_failed";
             if (item.AttachmentSequence is null && _store.GetClassroomPreparedSend(item.MessageId) is { } active)
                 _store.CompleteClassroomAttempt(item.MessageId, new FailedOutcome(code), null, active.TryCount);

@@ -5,11 +5,11 @@ using NekoChat.Core.Storage;
 
 namespace NekoChat.Core.Diagnostics;
 
-public enum DiagnosticStage { Startup, SendPrepare, SendHello, SendTransmit, SendConfirm, ReceiveValidate, ReceiveRespond, ReceiveCommit, ReceiveNotify, ReceiveReceipt, StorageRead, StorageWrite, StorageQueue, Attachment, UiRefresh, UiRead, UiAction, Shutdown, Journal }
+public enum DiagnosticStage { Startup, OutboxEnqueue, OutboxClaim, OutboxAttempt, OutboxFinish, OutboxRecovery, OutboxCancel, OutboxRetry, SendPrepare, SendHello, SendTransmit, SendConfirm, ReceiveValidate, ReceiveRespond, ReceiveCommit, ReceiveNotify, ReceiveReceipt, StorageRead, StorageWrite, StorageQueue, Attachment, UiRefresh, UiRead, UiAction, Shutdown, Journal }
 public enum DiagnosticOrigin { Local, RemoteResponse }
-public enum DiagnosticOutcome { Started, Succeeded, Failed, Unconfirmed, Cancelled, Rejected, Stale, Deferred, Recovered }
+public enum DiagnosticOutcome { Started, Succeeded, Failed, Unconfirmed, Cancelled, Rejected, Stale, Deferred, Recovered, Completed }
 public enum DiagnosticCategory { None, Network, Timeout, Cancellation, Validation, Remote, DeliveryUnconfirmed, StorageBusy, StorageFull, Permission, StorageIo, DataIntegrity, Capacity, State, Unexpected }
-public enum DiagnosticCode { None, NetworkUnavailable, Timeout, Cancelled, InvalidPayload, RemoteRejected, Unconfirmed, StorageBusy, DiskFull, ReadOnly, StorageIo, CorruptData, UnsupportedData, IntegrityMismatch, CapacityExceeded, QueueFull, StaleView, Duplicate, NotificationFailed, Unexpected, LoggerUnavailable }
+public enum DiagnosticCode { None, AttachmentUnavailable, RecipientChanged, Interrupted, TemporaryUnavailable, NetworkUnavailable, Timeout, Cancelled, InvalidPayload, RemoteRejected, Unconfirmed, StorageBusy, DiskFull, ReadOnly, StorageIo, CorruptData, UnsupportedData, IntegrityMismatch, CapacityExceeded, QueueFull, StaleView, Duplicate, NotificationFailed, Unexpected, LoggerUnavailable }
 public enum DiagnosticSeverity { Information, Warning, Error, Critical }
 
 public sealed record DiagnosticFault(DiagnosticCode Code, DiagnosticCategory Category, DiagnosticSeverity Severity, bool StopDataOperations = false)
@@ -31,6 +31,7 @@ public sealed record DiagnosticFault(DiagnosticCode Code, DiagnosticCategory Cat
         if (error is IOException { InnerException: SocketException } networkIo) return FromException(networkIo.InnerException!, cancellationRequested, stage);
         if (error is HttpRequestException { InnerException: TimeoutException }) return For(DiagnosticCode.Timeout);
         if (error is SocketException { SocketErrorCode: SocketError.TimedOut }) return For(DiagnosticCode.Timeout);
+        if (error is NekoChat.Core.Classroom.Transport.LocalEndpointResolutionException) return For(DiagnosticCode.NetworkUnavailable);
         if (error is StorageWorkQueueFullException) return For(DiagnosticCode.QueueFull);
         if (error is AttachmentException attachment) return FromReason(attachment.Code);
         return For(error switch {
@@ -51,7 +52,11 @@ public sealed record DiagnosticFault(DiagnosticCode Code, DiagnosticCategory Cat
         "timeout" => DiagnosticCode.Timeout,
         "cancelled" => DiagnosticCode.Cancelled,
         "network_error" or "listener_failed" or "connection_failed" or "accept_retry" or "receipt_send_failed" or "local_endpoint_unknown" => DiagnosticCode.NetworkUnavailable,
-        "network_unconfirmed" or "unconfirmed" or "confirmation_pending" => DiagnosticCode.Unconfirmed,
+        "legacy_delivery_unconfirmed" or "network_unconfirmed" or "unconfirmed" or "confirmation_pending" => DiagnosticCode.Unconfirmed,
+        "missing_file" or "attachment_unavailable" => DiagnosticCode.AttachmentUnavailable,
+        "recipient_changed" => DiagnosticCode.RecipientChanged,
+        "interrupted" => DiagnosticCode.Interrupted,
+        "transient" or "busy" => DiagnosticCode.TemporaryUnavailable,
         "storage_busy" => DiagnosticCode.StorageBusy,
         "storage_unavailable" or "receipt_storage_unavailable" => DiagnosticCode.StorageIo,
         "unavailable" or "not_owner" or "receiver_not_ready" or "wrong_recipient" or "source_not_allowed" or "unsupported_version" or "missing_endpoint" => DiagnosticCode.RemoteRejected,
@@ -77,10 +82,11 @@ public sealed record DiagnosticFault(DiagnosticCode Code, DiagnosticCategory Cat
         DiagnosticCode.StorageIo or DiagnosticCode.LoggerUnavailable => DiagnosticCategory.StorageIo,
         DiagnosticCode.CorruptData or DiagnosticCode.UnsupportedData or DiagnosticCode.IntegrityMismatch => DiagnosticCategory.DataIntegrity,
         DiagnosticCode.CapacityExceeded or DiagnosticCode.QueueFull => DiagnosticCategory.Capacity,
-        DiagnosticCode.StaleView => DiagnosticCategory.State,
+        DiagnosticCode.StaleView or DiagnosticCode.AttachmentUnavailable or DiagnosticCode.RecipientChanged or DiagnosticCode.Interrupted => DiagnosticCategory.State,
+        DiagnosticCode.TemporaryUnavailable => DiagnosticCategory.Remote,
         _ => DiagnosticCategory.Unexpected
     }, code switch {
-        DiagnosticCode.None or DiagnosticCode.Duplicate or DiagnosticCode.Cancelled or DiagnosticCode.StaleView => DiagnosticSeverity.Information,
+        DiagnosticCode.None or DiagnosticCode.Duplicate or DiagnosticCode.Cancelled or DiagnosticCode.StaleView or DiagnosticCode.Interrupted => DiagnosticSeverity.Information,
         DiagnosticCode.CorruptData or DiagnosticCode.UnsupportedData => DiagnosticSeverity.Critical,
         DiagnosticCode.Unexpected or DiagnosticCode.StorageIo or DiagnosticCode.NotificationFailed or DiagnosticCode.IntegrityMismatch => DiagnosticSeverity.Error,
         _ => DiagnosticSeverity.Warning
