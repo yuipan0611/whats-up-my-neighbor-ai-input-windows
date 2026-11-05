@@ -75,8 +75,9 @@ public partial class App
             Check(window.Draft.Text == "第二則：恢復連線後獨立送達", "background delivery preserves new edit");
             var autosaveEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var finishAutosave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            int draftWriteCompletions = 0;
             window.SmokeBeforeDraftWriteCompletion = () => {
-                if (autosaveEntered.Task.IsCompleted) return Task.CompletedTask;
+                if (Interlocked.Increment(ref draftWriteCompletions) != 1) return Task.CompletedTask;
                 autosaveEntered.SetResult(); return finishAutosave.Task.WaitAsync(deadline.Token);
             };
             // The timer may already have saved this edit while the first message reconnected.
@@ -88,7 +89,7 @@ public partial class App
                 await SendWhenEnabled();
                 await runtime.Worker.Run(_ => true);
                 await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle).Task.WaitAsync(deadline.Token);
-                Check(!autosave.IsCompleted && !window.SmokeSendIdle, "Send waits for concurrent autosave completion without dropping the edit");
+                Check(draftWriteCompletions == 1 && !autosave.IsCompleted && !window.SmokeSendIdle, "Send waits for concurrent autosave completion without dropping the edit");
             }
             finally { finishAutosave.TrySetResult(); window.SmokeBeforeDraftWriteCompletion = null; }
             await autosave;
