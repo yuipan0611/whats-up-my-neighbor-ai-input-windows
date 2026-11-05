@@ -294,7 +294,7 @@
      <TextBlock Text="提醒螢幕" Margin="0,8"/><ComboBox x:Name="ReactionDisplay" DisplayMemberPath="Label" SelectedValuePath="DeviceName" SelectionChanged="ReactionDisplayChanged" DropDownOpened="ReactionDisplayOpened" AutomationProperties.Name="提醒螢幕"/>
      <CheckBox x:Name="ReactionPreviewToggle" Content="允許桌面顯示課堂反應圖片（可能透露內容）" Click="ReactionPreviewToggleClick" Margin="0,12,0,4"/>
      </StackPanel>
-     <StackPanel Visibility="Collapsed"><CheckBox x:Name="ReadReceiptToggle" IsChecked="True" Content="傳送對外已讀回條（預設開啟）" Click="ReadReceiptToggleClick" Margin="0,20,0,4"/></StackPanel><Button Content="清理附件空間" Click="ClearAttachmentCacheClick" HorizontalAlignment="Left" Margin="0,8,0,0"/><TextBlock Visibility="Collapsed" Text="本機看過才標已讀。關閉不影響本機未讀，未送出的回條會移除；已送出的回條無法撤回。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/>
+     <StackPanel Visibility="Collapsed"><CheckBox x:Name="ReadReceiptToggle" IsChecked="True" Content="傳送對外已讀回條（預設開啟）" Click="ReadReceiptToggleClick" Margin="0,20,0,4"/></StackPanel><Button x:Name="ClearAttachmentCacheButton" Content="清理附件空間" Click="ClearAttachmentCacheClick" HorizontalAlignment="Left" Margin="0,8,0,0"/><TextBlock Visibility="Collapsed" Text="本機看過才標已讀。關閉不影響本機未讀，未送出的回條會移除；已送出的回條無法撤回。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/>
     </StackPanel></ScrollViewer>
    </DockPanel>
   </Border>

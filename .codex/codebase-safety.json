@@ -150,6 +150,10 @@
     {
       "fact": "Attachment KnownLoopbackFixture uses Pooling=false like ChatStore to release its raw SQLite handle before strict Windows fixture deletion. Success output follows cleanup; classroom-all preserves full error stack traces.",
       "source": "windows-lite/NekoChat.Tests/AttachmentChecks.cs; docs/classroom-ux/CI-20261105.md"
+    },
+    {
+      "fact": "Compact WPF layout preserves Draft>=55 and Send>=40 by reducing outer vertical padding; native smoke captures pre-assert geometry at minimum size and 640/641 sidebar boundaries and verifies visible attachment cleanup settings, not the hidden legacy monitor picker.",
+      "source": "windows-lite/NekoChat.Windows/ChatLayoutChecks.cs; windows-lite/NekoChat.Windows/ChatWindow.Inbox.cs; docs/classroom-ux/CI-20261105.md"
     }
   ]
 }

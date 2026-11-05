@@ -444,8 +444,9 @@ public partial class ChatWindow
         SidebarHeaderScroll.MaxHeight = Math.Max(150, Shell.ActualHeight - (compact ? 56 : 86) - 80);
         TeacherFilesButton.Padding = compact ? new(10,4,10,4) : new(12,8,12,8);
         TeacherFilesButton.Margin = compact ? new(0,4,0,8) : new(0,6,0,14);
-        Draft.Height = compact ? 42 : 72; Grid.SetColumnSpan(Draft, 2); Grid.SetRowSpan(Draft, 1);
-        Grid.SetRow(SendButton, 2); Grid.SetRowSpan(SendButton, 1); SendButton.MinHeight = compact ? 32 : 38; SendButton.Margin = new(8, 6, 0, 0);
+        ComposerPanel.Padding = compact ? new(16, 0, 16, 0) : new(16, 12, 16, 12);
+        Draft.Height = compact ? 55 : 72; Grid.SetColumnSpan(Draft, 2); Grid.SetRowSpan(Draft, 1);
+        Grid.SetRow(SendButton, 2); Grid.SetRowSpan(SendButton, 1); SendButton.MinHeight = 40; SendButton.Margin = new(8, 6, 0, 0);
         CodeToolbar.Visibility = Visibility.Visible; CodeToolbarRow.Height = GridLength.Auto;
         ComposerToolsScroll.MaxHeight = compact ? 0 : 90;
         CompactActions.Visibility = !_showTeacherFiles && compact && _selected?.IsTeacher == true ? Visibility.Visible : Visibility.Collapsed;
