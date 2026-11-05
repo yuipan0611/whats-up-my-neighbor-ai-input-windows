@@ -143,7 +143,13 @@ public partial class ChatWindow
     }
     internal void BeginClosing() { _closingRequested = true; _pairingWindow?.CloseSafely(); if (_runtime is not null) _ = _runtime.InvalidatePairingAsync("owner_closing"); IsEnabled = false; _saveTimer.Stop(); _readTimer.Stop(); _userOpened = false; ViewChanged(); UpdateComposer(); }
     internal bool HasUnsavedDrafts => _drafts.Values.Any(buffer => buffer.Dirty && !buffer.Clearing);
-    internal Task FlushForExitAsync()
+    internal async Task FlushForExitAsync()
+    {
+        await _draftSaveGate.WaitAsync();
+        try { await FlushForExitCoreAsync(); }
+        finally { _draftSaveGate.Release(); }
+    }
+    private Task FlushForExitCoreAsync()
     {
         if (_runtime is null) return HasUnsavedDrafts ? Task.FromException(new InvalidOperationException("Draft storage is unavailable.")) : Task.CompletedTask;
         var runtime = _runtime;

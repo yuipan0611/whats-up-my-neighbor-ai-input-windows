@@ -24,6 +24,10 @@ public partial class App
         void Check(bool ok, string name) { if (!ok) throw new InvalidOperationException(name); checks.Add(name); }
         async Task Wait(Func<bool> condition) => await UntilAsync(condition, deadline.Token);
         void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Task SendWhenEnabled() => Wait(() => {
+            if (window?.SendButton.IsEnabled != true) return false;
+            Click(window.SendButton); return true;
+        });
         async Task DeleteViaMenu(MessageView row)
         {
             window!.History.ScrollIntoView(row); window.UpdateLayout();
@@ -58,7 +62,7 @@ public partial class App
             await window.AttachRuntimeAsync(runtime, closedPort);
             window.SetReceiverState(true, runtime.Listener.Port, null); window.Show(); window.Activate();
             await window.SmokeOpenEntryAsync(e => e.ConversationId == principal.Value);
-            await Wait(() => window.SendButton.IsEnabled); Click(window.SendButton);
+            await SendWhenEnabled();
             await Wait(() => window.SmokeSendIdle && window.SmokeSelectedEntry?.Attempt?.State == "queued");
             var first = window.SmokeSelectedEntry!.Attempt!;
             Check(window.History.Rows.Any(r => r.AttemptId == first.MessageId), "real offline send leaves one queued message");
@@ -69,7 +73,25 @@ public partial class App
             await Wait(() => window.History.Rows.Any(r => r.RawText == first.RawSnapshot && r.AttemptId is null) && window.History.Rows.All(r => r.AttemptId != first.MessageId));
             Check(await peer.Worker.Run(s => s.ListClassroomMessages(principal).Items.Count == 1), "reconnection automatically delivers queued message exactly once");
             Check(window.Draft.Text == "第二則：恢復連線後獨立送達", "background delivery preserves new edit");
-            await Wait(() => window.SendButton.IsEnabled); Click(window.SendButton);
+            var autosaveEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var finishAutosave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            window.SmokeBeforeDraftWriteCompletion = () => {
+                if (autosaveEntered.Task.IsCompleted) return Task.CompletedTask;
+                autosaveEntered.SetResult(); return finishAutosave.Task.WaitAsync(deadline.Token);
+            };
+            // The timer may already have saved this edit while the first message reconnected.
+            window.Draft.AppendText("\n"); window.Draft.Text = "第二則：恢復連線後獨立送達";
+            var autosave = window.FlushDraftsAsync();
+            try
+            {
+                await autosaveEntered.Task.WaitAsync(deadline.Token);
+                await SendWhenEnabled();
+                await runtime.Worker.Run(_ => true);
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle).Task.WaitAsync(deadline.Token);
+                Check(!autosave.IsCompleted && !window.SmokeSendIdle, "Send waits for concurrent autosave completion without dropping the edit");
+            }
+            finally { finishAutosave.TrySetResult(); window.SmokeBeforeDraftWriteCompletion = null; }
+            await autosave;
             await Wait(() => window.SmokeSendIdle && window.Draft.Text.Length == 0);
             while (!await peer.Worker.Run(s => s.ListClassroomMessages(principal).Items.Any(row => row.RawText == "第二則：恢復連線後獨立送達")))
                 await Task.Delay(25, deadline.Token);
@@ -86,7 +108,7 @@ public partial class App
             var anotherReservation = new TcpListener(IPAddress.Loopback, 0); anotherReservation.Start();
             int offlinePort = ((IPEndPoint)anotherReservation.LocalEndpoint).Port; anotherReservation.Stop();
             window.SmokeUsePeerPort(offlinePort); window.Draft.Text = "第三則：刪掉失敗草稿";
-            await Wait(() => window.SendButton.IsEnabled); Click(window.SendButton);
+            await SendWhenEnabled();
             await Wait(() => window.SmokeSendIdle && window.SmokeSelectedEntry?.Attempt?.State == "queued");
             Click(window.CancelAttemptButton);
             await Wait(() => window.SmokeSelectedEntry?.Attempt?.State == "cancelled");
@@ -107,7 +129,7 @@ public partial class App
             window.SmokeUsePeerPort(peer.Listener.Port);
             const string newerDelivered = "前一則仍失敗時，較新的訊息先送達";
             window.Draft.Text = newerDelivered;
-            await Wait(() => window.SendButton.IsEnabled); Click(window.SendButton);
+            await SendWhenEnabled();
             await Wait(() => window.SmokeSendIdle && window.History.Rows.Any(row => row.RawText == newerDelivered && row.AttemptId is null));
             var retainedFailure = window.History.Rows.Single(row => row.AttemptId == historic.MessageId);
             var newerRow = window.History.Rows.Single(row => row.RawText == newerDelivered && row.AttemptId is null);
