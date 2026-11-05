@@ -1,6 +1,6 @@
 # 統一錯誤分類與本機診斷
 
-使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `ee813bc`（含共用快照等待與實際送達等待修正）；診斷保持 draft，未安裝或發布。
+使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `8d8f415`（含共用等待與正常訊息ID去重修正）；診斷保持 draft，未安裝或發布。
 
 ## 範圍與守門條件
 
@@ -30,3 +30,5 @@ SQLite contention 保持聊天前景：可視讀、Send flush、autosave可能�
 兩台Windows、真實教室、IME與實體DPI仍需現場驗收。跨平台建置不作原生證據；WPF RenderTargetBitmap截圖不作實體DPI證據。操作、容量與隱私說明見 `windows-lite/DIAGNOSTICS.md`。
 
 共用recovery等待再修正：eafb6b3 的package18全過，但portable在第二則Count==2過早斷言。現已同步peer先等待接收SQLite原文、再等待自己的正常history row；第一則與人工重試也使用正向正常row證據，保留原Count／ID／無殘留卡斷言。focused診斷workflow額外跑既有18項native recovery並獨立上傳JSON，較早發現這類錯誤；完整套件gate保持不變。
+
+產品UI修正整合：peer full run42058610700發現history可新於inbox摘要，舊_selected.Attempt可能把已送達訊息的待送卡加回。正常classroom列現在保留內部MessageId，SyncAttemptRow只在目前History存在同ID、Outgoing且非Legacy的正常列時移除／拒絕舊卡。不同ID同文字不合併，incoming不壓掉outgoing待送卡；UUID不顯示在UI。保留即時無殘留卡斷言及diagnostic接線，重新驗證focused18與完整封裝gate。
