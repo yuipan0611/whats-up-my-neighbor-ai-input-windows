@@ -139,8 +139,7 @@
   },
   "known_unknowns": [
     "Two physical Windows devices, IME, clipboard and other DPI acceptance remain unexecuted for candidate 2.",
-    "Classroom replication/failover and withdrawal propagation need multi-device and classroom network acceptance; native single-VM drag/upload/withdraw is verified separately.",
-    "Integrated on PR #26 1fa485d; final Windows diagnostic acceptance pending."
+    "Classroom replication/failover and withdrawal propagation need multi-device and classroom network acceptance; native single-VM drag/upload/withdraw is verified separately."
   ],
   "evidence": [
     {

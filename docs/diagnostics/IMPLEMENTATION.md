@@ -1,48 +1,30 @@
 # 統一錯誤分類與本機診斷
 
-基準：`6ec7241`（PR #26 未讀修正候選）。獨立分支，不合併其他工作分支。使用者已授權傳送／接收／儲存／畫面更新的診斷與故障測試；不發布或安裝。
+使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `f857620`（含 #24 `272c1c0`）；診斷保持 draft，未安裝或發布。
 
-## 影響與守門條件
+## 範圍與守門條件
 
-風險中等：新增跨 Core／WPF 的觀察接線，但診斷不能影響交易、ACK、草稿、世代檢查或傳輸結果。沿用 StoreException、既有 wire reason codes 與人工原 ID 重試；不新增自動重送，不改 schema／wire／身分／素材。
+風險中等：新增跨 Core／WPF 的觀察接線。沿用 StoreException、wire reason codes、持久 outbox 及 read-through，不改 schema、wire、身分或核准素材。診斷不能改變交易、ACK、草稿、取消／刪除、世代檢查或傳輸結果；不新增重試排程器。
 
-事件只允許固定分類／階段／結果、已驗證 UUID、次數／耗時與不含路徑／訊息的程式呼叫位置。不存聊天內容、附件內容／名稱、IP、暱稱、token、金鑰、SQL 或原始 Exception.Message。記錄具容量上限、背景寫入、佇列上限與遺失計數；記錄失敗降為記憶體，不能改變產品結果。匯出只含診斷檔與固定摘要，不含資料庫或設定。
+事件只允許固定分類／階段／結果、合法 UUID、數字、版本與不含路徑的專案方法名稱。排除聊天、附件內容／名稱、IP、暱稱、token、金鑰、SQL、HTTP body／標頭及原始 Exception.Message。
 
-## 實作順序
+## 接線與失敗隔離
 
-1. Core 固定錯誤分類、非阻塞診斷 journal、受限輪替與匯出；測隱私、容量、佇列／磁碟失敗。
-2. 接入 Sender、StoreSink／Endpoint、ChatStore 失敗與 Worker、附件失敗；保持既有協定與 durable outcomes。
-3. Runtime 管理 journal 生命週期；WPF 接入 refresh／visible-read／操作例外，提供匯出診斷及明確錯誤代碼。確保 finally 恢復 busy／傳送狀態。
-4. 真 TCP／SQLite 故障測試，加 Windows 原生故障操作及後續成功操作；執行既有 classroom／inbox／未讀回歸與封裝 CI。
+- DiagnosticFault 統一網路、逾時、取消、遠端拒絕、未確認、儲存忙碌／滿載／唯讀、完整性與程式例外；UI 顯示固定 NCD 代碼。原始原因與固定程式位置保留在 journal，未知錯誤不改判成功。
+- DiagnosticJournal 背景寫入：4×512 KiB、256 工作／近期事件、單 writer、2秒重複合併及計數。Record 不等待磁碟，記錄失敗降為記憶體。匯出5秒／停止2秒等待上限，最後事件可能尚未落盤。
+- Sender 記準備、hello、傳輸、確認與原始例外；接收記提交與提交後通知例外，通知失敗不撤銷已儲存訊息。Storage／Worker 保持原回傳或拋出行為；附件校驗失敗可用 UUID 追查。
+- Outbox 記入列、領取、傳送、收尾、取消及恢復。入列直接使用 atomic receipt.MessageId，不另做提交後查詢。Finish／Completed 只代表收尾操作返回，送達仍需真實確認。取消使用既有 CancelOutbox 實際布林結果，不新增 SQL；持久停用後才 CancelIo。
+- Runtime 管理 journal。UI finally／傳送邊界恢復 busy；同流程成功清除暫時提示，保留 StartupWarning／OutboxFailure。設定可手動匯出診斷 ZIP，不自動上傳或打包 profile。
+- 保留 no-unread guard、前景與世代／COMMIT 守門條件。未讀仍由實際可視最後一則推進，涵蓋先前未載入訊息，後方新訊息保持未讀。
 
-基準：inbox workspace 25 項、classroom UI policy 133 項通過；safety config strict validation 通過。雙實機／教室／實體 DPI 的既有限制維持。
+## 故障驗證
 
-## 已完成的接線與本機結果
+本機 diagnostics59、Outbox63、附件70、classroom-all全部15組及完整Core6509通過；WPF win-x64交叉建置0警告0錯誤。檢查數不代表相同數量的獨立故障情境。
 
-- Core `DiagnosticFault` 固定分類、原始取消／逾時區分、遠端代碼白名單；`DiagnosticJournal` 有界背景佇列、輪替、記憶體降級、同一 profile 單一 writer、重複事件合併及 ZIP 匯出。
-- Sender 記準備／hello／傳輸／確認及原始例外；接收記交易結果與提交後通知例外；Storage／Worker 記失敗並照原行為回傳或拋出；附件校驗失敗有訊息 ID 關聯。
-- Runtime 管理生命週期。UI refresh／visible-read／操作失敗有診斷，傳送外層隔離與 finally 恢復 busy；設定可手動匯出。移除舊失敗訊息阻擋下一則新訊息的確認視窗，對應本次失敗後可續用的驗收；沒有自動重送。
-- 新的 Core 診斷故障套件 142 項檢查通過（包含逐行 JSON 格式檢查，不代表 142 個獨立故障情境）；附件 70 項通過。WPF 交叉建置通過，原生結果待 CI。
-- 第一輪 logger ownership 測試抓到同一 process 在 Unix 的檔案分享鎖不足；加入有限 process registry 並保留 OS writer lock 後通過，未刪除斷言。另有一次本機 MSBuild worker 提前退出；以工作區 TMPDIR 與單節點重建成功，非產品測試失敗。
+Windows head `125811d`：focused診斷28項／未讀24項通過；封裝與portable各自通過診斷28項、未讀24項、啟動、訊息恢復與取消。原生診斷包含真TCP斷線入列、下一草稿保留、同UUID續送、真SQLite寫鎖、worker滿載、錯誤恢復、匯出失敗後重試與隱私。
 
-使用方式、容量上限及最後事件可能未落盤的限制見 `windows-lite/DIAGNOSTICS.md`。
+SQLite contention 保持聊天前景：可視讀、Send flush、autosave可能各耗既有5秒SQL timeout，整體最多35秒；每25ms監測Dispatcher，回應超2秒即失敗。沒有提高產品SQL timeout或隱藏畫面避開爭用。新no-unread guard消除純傳出畫面的無效寫入。
 
-Windows 首輪原生 run `42036124701`：測試使用空白草稿，依既有 inbox 規則不會建立可選對話，因此在操作前失敗。已改為有效合成草稿再測；沒有修改產品的空白草稿規則或刪除驗收斷言。Core 的逐行 JSON 驗證改為統一一項 assertion，仍逐行解析，避免容量差異影響檢查總數。另補 I/O 所屬階段分類及匯出失敗事件，診斷版本保留 build commit。
+完整CI `42053805683` 在安裝後 archived reaction fixture失敗：SmokeOpenEntryAsync遇到coalesced refresh會先返回，隨即讀舊名單快照。新增有限期等待真實refresh完成再選對象，保留角色／收件人斷言，不跳gate。並同步最新版A失敗／B先送達／A重試排序fixture。最後整合CI仍需核對，先前通過的單項不代替完整綠燈。
 
-同 head `c2cdf1f` Windows 原生 22 項全部通過（run 42036698113）；截圖另發現恢復後舊 StorageBusy 提示仍留在畫面。新增同流程恢復狀態：成功 refresh／可視已讀或確認送達後清除對應暫時錯誤，保留 runtime startup warning，記 Recovered 事件；原生回歸補兩個清除提示斷言。啟動資料失敗亦使用統一分類提示。
-
-## 背景待送整合（2026-11-05）
-
-依使用者授權與另一個 Codex 協作，整合 PR #26 `30c75bc`（含 #24 `1049168`）。前述人工重試基準結果保留作歷史證據；目前產品使用持久 outbox 自動續送，診斷不新增重試器。atomic QueuedMessageReceipt 直接提供訊息 ID 與新草稿，避免提交後讀失敗造成重複入列。閱讀位置採 read-through API，保留前景、世代及 busy requeue 守門條件。
-
-新增 OutboxEnqueue／Claim／Attempt／Finish／Recovery／Cancel 階段；收尾 Completed 不等於傳送成功。工作 fault 被既有 outbox 觀察後記 root cause，修復與取消沿用產品狀態。暫時 UI 錯誤恢復時保留 OutboxFailure 與 StartupWarning。原生診斷 fixture 改驗斷線入列、下一則草稿保留、同 ID 續送及接收端 SQLite 真實資料，不再把 composer 清空當作已送達。
-
-PR #26 啟動檢查曾在新 enqueue 語意下過早對接收資料做 Single，原生未讀當時通過；由流程負責 Codex 修正為有限等待實際接收 SQLite，保留內容斷言，未跳過 gate。
-
-整合後本機：Core diagnostics 59、Outbox 63 項通過；WPF win-x64 交叉建置 0 警告／0 錯誤。原生診斷與封裝回歸由更新後 #27 CI 執行。
-
-取消關閉交錯整合：跟進 #26 `09fb95a`（含 #24 `5bd81a7`），CancelQueuedAsync 以不隨視窗關閉取消的 worker 工作先持久停用，再呼叫 CancelIo。診斷在同一 worker callback 使用既有 CancelOutbox 布林結果，準確區分 Cancelled／Stale；不新增 SQL 或改回同步 UI 寫入。
-
-整合原生首輪 42052519728 在真 SQLite busy 案例逾時：前 18 個斷線／草稿／續送與 refresh 斷言已過，StorageBusy 已顯示但 Send 尚未 idle。新閱讀位置會與 Send flush／autosave 依序各等待原 5 秒 SQL deadline；fixture 保持前景，將整個排隊流程設 35 秒上限，另每 25ms 驗 Dispatcher 可恢復、單次回應不超過 2 秒，故障時附 Send task／busy 狀態及 metadata recent 事件。未改產品 SQL timeout、未隱藏畫面避開爭用。
-
-已同步 #26 `1fa485d`：正常 classroom 沒有未讀時不排 read-through 寫交易，避免純 outgoing 畫面在外部鎖下無效等待。有未讀仍維持前景、世代、COMMIT 守門條件；原生未讀套件另行驗證。
+兩台Windows、真實教室、IME與實體DPI仍需現場驗收。跨平台建置不作原生證據；WPF RenderTargetBitmap截圖不作實體DPI證據。操作、容量與隱私說明見 `windows-lite/DIAGNOSTICS.md`。
