@@ -221,8 +221,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal void Start(bool sharedNetwork = false) { Listener.Start(); if (Attachments is not null) Attachments.Port = Listener.Port;
         if (!ArchivedIdentityFixture && Outbox is null) {
             Outbox = new(_store, ClassroomSender, Attachments, ResolveLocalEndpointIp, Diagnostics);
-            Outbox.Changed += () => { try { RefreshOutboxSnapshot(); } catch (Exception error) { OutboxFailure = "待送儲存暫停，請稍後重試或匯出診斷。（" + DiagnosticFault.FromException(error).DisplayCode + "）"; Diagnostics.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Failed, error: error); } DataChanged?.Invoke(); };
-            Outbox.Failed += error => { OutboxFailure = "待送儲存暫停，請稍後重試或匯出診斷。（" + DiagnosticFault.FromException(error).DisplayCode + "）"; Diagnostics.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Failed, error: error); DataChanged?.Invoke(); };
+            Outbox.Changed += () => { try { RefreshOutboxSnapshot(); } catch (Exception error) { OutboxFailure = "待送儲存暫停：請稍後重試或匯出診斷。（" + DiagnosticFault.FromException(error).DisplayCode + "）"; Diagnostics.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Failed, error: error); } DataChanged?.Invoke(); };
+            Outbox.Failed += error => { OutboxFailure = "待送儲存暫停：請稍後重試或匯出診斷。（" + DiagnosticFault.FromException(error).DisplayCode + "）"; Diagnostics.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Failed, error: error); DataChanged?.Invoke(); };
             Outbox.Recovered += () => { OutboxFailure = null; DataChanged?.Invoke(); };
         } if (!IsolatedData || sharedNetwork) ClassroomFiles?.Start(); Presence?.Start(); Receipts?.Start(); ClassroomReceipts?.Start(); }
     internal Task<V2SendResult> SendAsync(PreparedSend send, string endpoint, int port, string conversation, DraftEditBuffer buffer, DraftWriteSnapshot sent)
