@@ -407,6 +407,8 @@ public partial class ChatWindow
     private async Task MarkViewportAsync()
     {
         if (_runtime is null || _selected is not { } entry || !_historyLoaded || !VisibleContext(entry.ConversationId).WindowActive || !_userOpened || _showInbox || _showTeacherFiles) return;
+        // No unread messages means there is no read position or receipt work to commit.
+        if (!_runtime.ArchivedIdentityFixture && entry.TotalUnread == 0) return;
         // A viewport change can invalidate the in-flight read while SQLite is busy. Keep the latest view queued.
         if (_readBusy) { QueueViewportRead(); return; }
         _readBusy = true; long generation = Volatile.Read(ref _viewGeneration); var visible = new List<MessageView>();
