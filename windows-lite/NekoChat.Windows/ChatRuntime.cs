@@ -163,13 +163,15 @@ internal sealed class ChatRuntime : IAsyncDisposable
         Worker.Run(_ => _store.MarkClassroomReadThrough(principal, legacy, sequence, isLegacy, context, current));
     internal void RegisterAttachmentDownload(AttachmentRecord row) { _store.EnqueueAttachmentDownload(row); _store.RetryOutbox("download:" + row.LocalSeq); }
     internal bool RetryAttachment(AttachmentRecord row) => _store.RequeueAttachment(row);
-    internal Task<DraftState> QueueMessageAsync(ClassroomPrincipalKey principal, DraftWriteSnapshot sent, int port, bool attachment) => Worker.Run(_ => {
-        if (attachment) _store.EnqueueAttachment(principal, sent.Text, sent.Epoch, sent.Revision, port);
-        else _store.EnqueueClassroomMessage(principal, sent.Text, sent.Epoch, sent.Revision, port);
-        RefreshOutboxSnapshot();
-        return _store.GetClassroomDraftState(principal);
-    });
+    internal Task<QueuedMessageReceipt> QueueMessageAsync(ClassroomPrincipalKey principal, DraftWriteSnapshot sent, int port, bool attachment) => Worker.Run(_ =>
+        attachment ? _store.EnqueueAttachmentWithDraft(principal, sent.Text, sent.Epoch, sent.Revision, port).Receipt
+            : _store.EnqueueClassroomMessageWithDraft(principal, sent.Text, sent.Epoch, sent.Revision, port));
     internal Task<bool> RetryStoredAsync(ClassroomPrincipalKey principal, string id, int port) => Worker.Run(_ => _store.RequeueClassroomAttempt(principal, id, port));
+    internal AttachmentRecord AttachmentView(AttachmentRecord row) {
+        string id = row.Direction == "incoming" ? "download:" + row.LocalSeq : row.MessageId;
+        if (row.State == "complete" || !Volatile.Read(ref _outboxSnapshot).TryGetValue(id, out var item)) return row;
+        return item.State is "queued" or "cancelled" or "failed" ? row with { State = item.State, Problem = item.Error } : row;
+    }
     internal string? QueuedStatus(string id) {
         Volatile.Read(ref _outboxSnapshot).TryGetValue(id, out var item);
         return item?.State switch {
@@ -311,7 +313,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             }
         }
 
-        if (!ArchivedIdentityFixture && IsQueuedMessage(messageId)) { Outbox?.Cancel(messageId); return new CancelResult(true, "cancelled"); }
+        if (!ArchivedIdentityFixture && await Worker.Run(_ => _store.ListOutbox().Any(row => row.MessageId == messageId)).ConfigureAwait(false)) { await Task.Run(() => Outbox?.Cancel(messageId)).ConfigureAwait(false); return new CancelResult(true, "cancelled"); }
         if (!ArchivedIdentityFixture) return await Worker.Run(s => s.CancelClassroomAttempt(messageId, tryCount), CancellationToken.None).ConfigureAwait(false);
 
         Task<bool>? cancel;
