@@ -1,3 +1,4 @@
+using NekoChat.Core.Diagnostics;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Security.Cryptography;
@@ -69,7 +70,7 @@ public partial class ChatWindow
         _uploadCancellation=CancellationTokenSource.CreateLinkedTokenSource(_runtime.Lifetime);
         ShareUploadPanel.Visibility=Visibility.Visible;ShareUploadState.Text=Path.GetFileName(_uploadPath)+" · 準備分享中…";RetryClassroomUpload.Visibility=Visibility.Collapsed;UploadClassroomFileButton.IsEnabled=false;
         try{await service.ShareAsync(_uploadPath,cancellation:_uploadCancellation.Token);_uploadPath=null;ShareUploadPanel.Visibility=Visibility.Collapsed;await LoadSharedFilesAsync(false);}
-        catch(Exception ex){ShareUploadState.Text=Path.GetFileName(_uploadPath)+" · "+AttachmentException.Describe(ex);RetryClassroomUpload.Visibility=Visibility.Visible;}
+        catch(Exception ex){_runtime?.Diagnostics.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Failed, error: ex);ShareUploadState.Text=Path.GetFileName(_uploadPath)+" · "+AttachmentException.Describe(ex);RetryClassroomUpload.Visibility=Visibility.Visible;}
         finally{_uploadCancellation.Dispose();_uploadCancellation=null;UploadClassroomFileButton.IsEnabled=_uploadPath is null;}
     }
     private async Task SharedFileActionAsync(string id,string action)
@@ -99,6 +100,6 @@ public partial class ChatWindow
             }
             await LoadSharedFilesAsync(false);
         }
-        catch(Exception ex){view.Error=AttachmentException.Describe(ex);view.Refresh();}
+        catch(Exception ex){_runtime?.Diagnostics.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Failed, error: ex);view.Error=AttachmentException.Describe(ex);view.Refresh();}
     }
 }

@@ -46,6 +46,12 @@ public partial class App : Application
             return;
         }
 
+        if (startupArgs.Length == 2 && startupArgs[0] == "--diagnostics-smoke-test")
+        {
+            Environment.Exit(await RunDiagnosticSmokeAsync(startupArgs[1]));
+            return;
+        }
+
         if (startupArgs.Length == 2 && startupArgs[0] == "--message-recovery-smoke-test")
         {
             Environment.Exit(await RunMessageRecoverySmokeAsync(startupArgs[1]));
@@ -423,6 +429,7 @@ public partial class App : Application
         startingData = true; ChatRuntime? candidate = null;
         try
         {
+            chat.SetDiagnosticsDirectory(Path.Combine(ChatRuntime.RootDirectory(settings, isolatedData), "diagnostics"));
             candidate = await ChatRuntime.OpenAsync(startupSource, isolatedData, startupPort, startupWireConfiguration, loopbackOnly: nativeDndIsolated);
             if (closingApp) return;
             await chat.AttachRuntimeAsync(candidate, directSendPort);

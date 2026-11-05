@@ -1,3 +1,4 @@
+using NekoChat.Core.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
@@ -75,7 +76,7 @@ public partial class ChatWindow
         if (_runtime?.Attachments is not { } service || !ClassroomPrincipalKey.TryParse(_selected?.ConversationId, out var principal)) return;
         _attachmentBusy = true; UpdateComposer(); SetStatus("正在複製並校驗附件…");
         try { await service.AddDraftAsync(principal, paths[0], _runtime.Lifetime); SetStatus("附件已準備，可傳送；尚未傳給對方。"); }
-        catch (Exception error) { SetStatus(AttachmentException.Describe(error)); }
+        catch (Exception error) { _runtime?.Diagnostics.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Failed, error: error); SetStatus(AttachmentException.Describe(error) + "（" + DiagnosticFault.FromException(error).DisplayCode + "）"); }
         finally { _attachmentBusy = false; await RefreshAttachmentDraftAsync(); UpdateComposer(); }
     }
     private async Task AddClipboardImageAsync(BitmapSource image)
@@ -92,7 +93,7 @@ public partial class ChatWindow
             await service.AddDraftAsync(principal, png, "截圖-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".png", _runtime.Lifetime);
             SetStatus("截圖已加入待傳附件。");
         }
-        catch (Exception error) { SetStatus(AttachmentException.Describe(error)); }
+        catch (Exception error) { _runtime?.Diagnostics.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Failed, error: error); SetStatus(AttachmentException.Describe(error) + "（" + DiagnosticFault.FromException(error).DisplayCode + "）"); }
         finally { _attachmentBusy = false; await RefreshAttachmentDraftAsync(); UpdateComposer(); }
     }
     private async void RemoveAttachmentClick(object sender, RoutedEventArgs e)
@@ -103,7 +104,7 @@ public partial class ChatWindow
             else await runtime.RemoveAttachmentDraftMetadataAsync(principal, draft.File.BlobId);
             await RefreshAttachmentDraftAsync(); UpdateComposer(); SetStatus("待傳附件已移除。");
         }
-        catch (Exception error) { SetStatus(AttachmentException.Describe(error)); }
+        catch (Exception error) { _runtime?.Diagnostics.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Failed, error: error); SetStatus(AttachmentException.Describe(error) + "（" + DiagnosticFault.FromException(error).DisplayCode + "）"); }
     }
     private async Task SendAttachmentCoreAsync(ChatRuntime runtime, InboxEntry entry, DraftEditBuffer buffer, DraftWriteSnapshot sent)
     {
@@ -126,7 +127,7 @@ public partial class ChatWindow
             if (_selected?.ConversationId == principal.Value) SetDraftText(buffer.Text);
             SetStatus(row.StateText + "；對方收完並校驗後才會顯示附件已送達。");
         }
-        catch (Exception error) { SetStatus(AttachmentException.Describe(error)); }
+        catch (Exception error) { _runtime?.Diagnostics.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Failed, error: error); SetStatus(AttachmentException.Describe(error) + "（" + DiagnosticFault.FromException(error).DisplayCode + "）"); }
         finally { SetSending(false); await RefreshAttachmentDraftAsync(); await RefreshInboxAsync(true); }
     }
     private async Task AttachmentActionAsync(AttachmentRecord row, string action)
@@ -157,14 +158,14 @@ public partial class ChatWindow
                 }
             }
         }
-        catch (Exception error) { SetStatus(AttachmentException.Describe(error)); }
+        catch (Exception error) { _runtime?.Diagnostics.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Failed, error: error); SetStatus(AttachmentException.Describe(error) + "（" + DiagnosticFault.FromException(error).DisplayCode + "）"); }
         finally { await RefreshInboxAsync(true); }
     }
     private async void ClearAttachmentCacheClick(object sender, RoutedEventArgs e)
     {
         if (_runtime?.Attachments is not { } service || MessageBox.Show(this, "清除 App 保管的附件副本？聊天紀錄和已另存的檔案保留；對方可能無法再下載你先前的附件。", "清理附件空間", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
         try { await service.ClearCacheAsync(); SetStatus("本機附件副本已清理，歷史紀錄保留。"); await RefreshInboxAsync(true); }
-        catch (Exception error) { SetStatus(AttachmentException.Describe(error)); }
+        catch (Exception error) { _runtime?.Diagnostics.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Failed, error: error); SetStatus(AttachmentException.Describe(error) + "（" + DiagnosticFault.FromException(error).DisplayCode + "）"); }
     }
     private sealed class BoundedPngStream : MemoryStream
     {

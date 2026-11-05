@@ -1,3 +1,4 @@
+using NekoChat.Core.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -12,6 +13,7 @@ namespace NekoChat.Core.Attachments;
 public sealed class AttachmentService : IAsyncDisposable
 {
     private readonly ChatStore _store;
+    private readonly DiagnosticJournal? _diagnostics;
     public AttachmentVault Vault { get; }
     private readonly HttpClient _http = new(ClassroomSender.CreateDefaultHandler()) { Timeout = TimeSpan.FromSeconds(10) };
     private readonly object _gate = new();
@@ -32,9 +34,9 @@ public sealed class AttachmentService : IAsyncDisposable
     public event Action<string, string>? MessageStored;
     public event Action<long, long, long>? Progress;
 
-    public AttachmentService(ChatStore store, string root, int port, long capacity = AttachmentLimits.StorageBytes)
+    public AttachmentService(ChatStore store, string root, int port, long capacity = AttachmentLimits.StorageBytes, DiagnosticJournal? diagnostics = null)
     {
-        _store = store; Port = port; Vault = new(root, capacity);
+        _diagnostics = diagnostics; _store = store; Port = port; Vault = new(root, capacity);
         _store.RecoverAttachments(); Vault.Collect(_store.AttachmentReferences().Concat(_store.ClassroomFileReferences()).ToHashSet());
         foreach (var row in _store.ListAttachments().Where(r => r.State == "complete" && !Vault.Exists(r.File)))
             _store.SetAttachmentState(row, "unavailable", "missing_file");
@@ -105,6 +107,7 @@ public sealed class AttachmentService : IAsyncDisposable
             }
             catch (Exception error)
             {
+                _diagnostics?.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Failed, error: error, messageId: row.MessageId, cancellationRequested: token.IsCancellationRequested);
                 _store.SetAttachmentState(row, offerMayHaveWritten ? "unconfirmed" : error is OperationCanceledException ? "cancelled" : "failed", ErrorCode(error));
                 throw;
             }
@@ -126,7 +129,7 @@ public sealed class AttachmentService : IAsyncDisposable
             string state = Get(body.RootElement, "status"); if (state is not ("offered" or "complete")) throw new AttachmentException("cleared");
             if (!_store.SetAttachmentState(row, state, current: () => Current(row, generation, token) && (current?.Invoke() ?? true))) throw new AttachmentException("cleared");
         }
-        catch (Exception error) { _store.SetAttachmentState(row, error is OperationCanceledException ? "cancelled" : "unconfirmed", ErrorCode(error)); throw; }
+        catch (Exception error) { _diagnostics?.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Unconfirmed, error: error, messageId: row.MessageId, cancellationRequested: token.IsCancellationRequested); _store.SetAttachmentState(row, error is OperationCanceledException ? "cancelled" : "unconfirmed", ErrorCode(error)); throw; }
     });
     public Task DownloadAsync(long sequence)
     {
@@ -171,6 +174,7 @@ public sealed class AttachmentService : IAsyncDisposable
             }
             catch (Exception error)
             {
+                _diagnostics?.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Failed, error: error, messageId: row.MessageId, cancellationRequested: token.IsCancellationRequested);
                 if (committed) _store.SetAttachmentState(row, "complete", "confirmation_pending");
                 else { Vault.Delete(row.File.BlobId); _store.SetAttachmentState(row, error is OperationCanceledException ? "cancelled" : "failed", ErrorCode(error)); }
                 throw;
@@ -288,7 +292,7 @@ public sealed class AttachmentService : IAsyncDisposable
             finally { _serve.Release(); }
         }
         catch (Exception error) when (error is AttachmentException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException or OverflowException or IOException or UnauthorizedAccessException)
-        { return Failure(ErrorCode(error)); }
+        { _diagnostics?.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Rejected, error: error); return Failure(ErrorCode(error)); }
     }
     private async Task<ClassroomHelloInfo> HelloAsync(string ip, int port, CancellationToken token)
     {

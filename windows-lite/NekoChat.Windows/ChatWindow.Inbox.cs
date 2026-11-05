@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using NekoChat.Core.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Windows;
@@ -93,7 +95,7 @@ public partial class ChatWindow
     }
     internal async Task AttachRuntimeAsync(ChatRuntime runtime, int peerPort)
     {
-        _runtime = runtime; ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
+        _runtime = runtime; SetDiagnosticsDirectory(Path.Combine(Path.GetDirectoryName(runtime.DataDirectory)!, "diagnostics")); ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
         var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy());
         if (!runtime.ArchivedIdentityFixture && !policy.Enabled && policy.Generation == 0)
         {
@@ -117,6 +119,8 @@ public partial class ChatWindow
         if (_runtime.OutboxFailure is { } failure) StorageStatus.Text = failure;
         else if (StorageStatus.Text.StartsWith("待送儲存暫停：", StringComparison.Ordinal)) StorageStatus.Text = _runtime.StartupWarning ?? "";
         _refreshing = true;
+        long diagnosticStart = Stopwatch.GetTimestamp();
+        _runtime.Diagnostics.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Started);
         try
         {
             do
@@ -146,6 +150,7 @@ public partial class ChatWindow
                 if (_showTeacherFiles) await LoadTeacherFilesAsync(false);
                 UpdateComposer();
             } while (_refreshAgain && !_stopping);
+            _runtime.Diagnostics.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Succeeded, count: _snapshot?.Entries.Count ?? 0, elapsedMs: (long)Stopwatch.GetElapsedTime(diagnosticStart).TotalMilliseconds);
         }
         catch (Exception ex) { ShowStorageError(ex); }
         finally { _refreshing = false; }
@@ -406,7 +411,9 @@ public partial class ChatWindow
     private void QueueViewportRead() { if (!_stopping && _initializedInbox) { _readTimer.Stop(); _readTimer.Start(); } }
     private async Task MarkViewportAsync()
     {
-        if (_runtime is null || _selected is not { } entry || !_historyLoaded || _readBusy || !VisibleContext(entry.ConversationId).WindowActive || !_userOpened || _showInbox || _showTeacherFiles) return;
+        if (_runtime is null || _selected is not { } entry || !_historyLoaded || !VisibleContext(entry.ConversationId).WindowActive || !_userOpened || _showInbox || _showTeacherFiles) return;
+        // A viewport change can invalidate the in-flight read while SQLite is busy. Keep the latest view queued.
+        if (_readBusy) { _runtime.Diagnostics.Record(DiagnosticStage.UiRead, DiagnosticOutcome.Deferred); QueueViewportRead(); return; }
         _readBusy = true; long generation = Volatile.Read(ref _viewGeneration); var visible = new List<MessageView>();
         try
         {
@@ -415,8 +422,11 @@ public partial class ChatWindow
             {
                 if (History.ItemContainerGenerator.ContainerFromItem(row) is not FrameworkElement container || container.ActualHeight <= 0) continue;
                 var bounds = container.TransformToAncestor(History).TransformBounds(new Rect(container.RenderSize)); var intersection = Rect.Intersect(viewport, bounds);
-                if (!intersection.IsEmpty && ReadVisibility.IsVisible(bounds.Height, intersection.Height, 18, viewport.Height)) visible.Add(row);
+                if (intersection.IsEmpty) continue;
+                double visibleHeight = Math.Min(intersection.Height, Math.Min(bounds.Height, viewport.Height));
+                if (ReadVisibility.IsVisible(bounds.Height, visibleHeight, 18, viewport.Height)) visible.Add(row);
             }
+            _runtime.Diagnostics.Record(DiagnosticStage.UiRead, DiagnosticOutcome.Started, count: visible.Count);
             var signed = visible.Where(r => !r.Legacy && !r.Outgoing && r.Sequence > 0).Select(r => r.Sequence).Take(200).ToArray();
             var legacy = visible.Where(r => r.Legacy && r.Sequence > 0).Select(r => r.Sequence).Take(200).ToArray();
             var context = VisibleContext(entry.ConversationId); long readGeneration = _runtime.Reads.Update(context);
@@ -430,6 +440,7 @@ public partial class ChatWindow
                     marked += (await _runtime.Worker.Run(_ => StillCurrent() ? _runtime.Reads.Mark(conv, readGeneration, signed) : new(0, 0, "stale-view"))).Marked;
             }
             if (entry.LegacyScope is { } scope && legacy.Length > 0) marked += (await _runtime.Worker.Run(s => s.MarkLegacyVisibleRead(scope, legacy, context with { ActiveConversationId = scope.ContextId }, StillCurrent))).Marked;
+            _runtime.Diagnostics.Record(DiagnosticStage.UiRead, StillCurrent() ? DiagnosticOutcome.Succeeded : DiagnosticOutcome.Stale, StillCurrent() ? DiagnosticCode.None : DiagnosticCode.StaleView, count: marked);
             if (marked > 0) { _runtime.Receipts?.Pulse(); _runtime.ClassroomReceipts?.Pulse(); await RefreshInboxAsync(); }
         }
         catch (Exception ex) { ShowStorageError(ex); }
@@ -643,12 +654,24 @@ public partial class ChatWindow
         try { long edit = ++_readPolicyEdit; var policy = await _runtime.Worker.Run(s => s.GetReadReceiptPolicy()); if (edit == _readPolicyEdit) { ReadReceiptToggle.IsChecked = policy.Enabled; ReadReceiptToggle.IsEnabled = true; } await FlushDraftsAsync(); _historyLoaded = false; await RefreshInboxAsync(true); }
         catch (Exception ex) { ShowStorageError(ex); }
     }
-    private void ShowStorageError(Exception exception)
+    private void ShowStorageError(Exception exception, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
         if (_closingRequested && exception is OperationCanceledException) return;
-        StorageStatus.Text = exception is StoreException store ? store.Message : exception is ArgumentException ? "資料格式不正確，請檢查輸入後重試。" : "本機資料無法讀取或儲存，請重試。";
+        var stage = caller == nameof(MarkViewportAsync) ? DiagnosticStage.UiRead : caller is nameof(RefreshInboxAsync) or nameof(LoadHistoryAsync) ? DiagnosticStage.UiRefresh : DiagnosticStage.UiAction;
+        var fault = DiagnosticFault.FromException(exception, exception is OperationCanceledException && _closingRequested);
+        _runtime?.Diagnostics.Record(stage, DiagnosticOutcome.Failed, error: exception);
+        StorageStatus.Text = DiagnosticMessage(fault);
         ReloadData.Visibility = Visibility.Visible;
     }
+    private static string DiagnosticMessage(DiagnosticFault fault) => (fault.Code switch {
+        DiagnosticCode.StorageBusy or DiagnosticCode.QueueFull => "本機資料忙碌，這次操作未完成，請稍後重試。",
+        DiagnosticCode.DiskFull => "磁碟空間不足，請釋放空間後重試；請保留目前草稿。",
+        DiagnosticCode.ReadOnly => "本機資料無法寫入，請檢查資料夾權限後重試。",
+        DiagnosticCode.CorruptData or DiagnosticCode.UnsupportedData => "本機資料需要檢查，請保留原檔並匯出診斷；不要刪除資料庫。",
+        DiagnosticCode.NetworkUnavailable or DiagnosticCode.Timeout => "連線未完成，請確認對方已開啟程式；草稿保留供手動重試。",
+        DiagnosticCode.InvalidPayload => "資料格式不正確，請檢查輸入後重試。",
+        _ => "這次操作未完成，請重試；若持續發生，請從設定匯出診斷。"
+    }) + "（" + fault.DisplayCode + "）";
     private static T? FindVisual<T>(DependencyObject root) where T : DependencyObject
     { for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) { var child = VisualTreeHelper.GetChild(root, i); if (child is T found) return found; if (FindVisual<T>(child) is { } nested) return nested; } return null; }
     internal string LegacyNotificationName(NekoChat.Core.LegacyDeliveryNotice notice) => _snapshot?.Entries.FirstOrDefault(e => e.LegacyScope == notice.Scope)?.NotificationName ?? "未驗證來源";

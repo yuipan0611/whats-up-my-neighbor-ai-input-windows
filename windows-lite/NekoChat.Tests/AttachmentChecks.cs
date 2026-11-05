@@ -1,3 +1,4 @@
+using NekoChat.Core.Diagnostics;
 using System.Net;
 using System.Diagnostics;
 using System.Net.Http.Headers;
@@ -37,10 +38,10 @@ public static class AttachmentChecks
         internal AttachmentService Files { get; }
         internal ClassroomTcpListener Listener { get; }
         internal int Notices;
-        internal Node(string root, long capacity = AttachmentLimits.StorageBytes, bool support = true)
+        internal Node(string root, long capacity = AttachmentLimits.StorageBytes, bool support = true, DiagnosticJournal? diagnostics = null)
         {
-            Store = ChatStore.Open(new(Path.Combine(root, "data")));
-            Files = new(Store, Path.Combine(root, "files"), 1, capacity);
+            Store = ChatStore.Open(new(Path.Combine(root, "data")) { Diagnostics = diagnostics });
+            Files = new(Store, Path.Combine(root, "files"), 1, capacity, diagnostics);
             Files.MessageStored += (_, _) => Interlocked.Increment(ref Notices);
             var text = new ClassroomEndpointAdapter(new ClassroomStoreSink(Store), capabilities: support ? ["msg.plain", "receipt.read", AttachmentLimits.Capability] : ["msg.plain", "receipt.read"]);
             Listener = new(new AttachmentEndpoint(text, Files), new() { BindAddress = IPAddress.Loopback, Port = 0 });
@@ -170,8 +171,9 @@ public static class AttachmentChecks
                 try { await Send(sender, receiver, source); Check(false, "old version must reject"); } catch (AttachmentException e) { Check(e.Code == "unsupported_version", "old peer capability rejected"); }
                 Check(sender.Store.GetAttachmentDraft(p) is not null && receiver.Store.ListAttachments().Count == 0, "unsupported peer preserves draft and sends no tag");
             }
-            await using (var sender = new Node(Path.Combine(root, "secure-a")))
-            await using (var receiver = new Node(Path.Combine(root, "secure-b")))
+            await using (var journal = new DiagnosticJournal(Path.Combine(root, "secure-logs"), "1.0.0"))
+            await using (var sender = new Node(Path.Combine(root, "secure-a"), diagnostics: journal))
+            await using (var receiver = new Node(Path.Combine(root, "secure-b"), diagnostics: journal))
             {
                 var outgoing = await Send(sender, receiver, source); var incoming = receiver.Store.ListAttachments().Single();
                 int denied = await Post(sender, "chunk", new { protocol="nekochat.attachments", version=1, kind="chunk", message_id=outgoing.MessageId, token=new string('0',64), offset=0, count=1 });
@@ -183,6 +185,7 @@ public static class AttachmentChecks
                 byte[] damaged = Enumerable.Repeat((byte)42, small.Length).ToArray(); await File.WriteAllBytesAsync(sender.Files.Vault.PathFor(outgoing.File.BlobId), damaged);
                 try { await receiver.Files.DownloadAsync(incoming.LocalSeq); Check(false,"corrupt TCP transfer must reject"); } catch (AttachmentException error) { Check(error.Code == "hash_mismatch", "corrupted bytes fail final verification"); }
                 Check(!receiver.Files.Vault.Exists(incoming.File) && sender.Store.GetAttachment(outgoing.LocalSeq)!.State != "complete", "corruption never creates completion fact");
+                Check(journal.Recent.Any(e => e.Stage == DiagnosticStage.Attachment && e.Code == DiagnosticCode.IntegrityMismatch && e.MessageId == incoming.MessageId), "real corrupted TCP bytes leave a classified UUID-linked integrity diagnostic");
             }
             await using (var sender = new Node(Path.Combine(root, "clear-a")))
             await using (var receiver = new Node(Path.Combine(root, "clear-b")))

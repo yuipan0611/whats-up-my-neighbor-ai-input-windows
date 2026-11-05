@@ -17,6 +17,7 @@ if (NekoChat.Tests.StorageReadChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageLegacyRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageBackupChecks.RunChild(args)) return;
+if (args.SequenceEqual(new[] { "--diagnostics" })) { await NekoChat.Tests.DiagnosticChecks.RunAsync(); return; }
 if (args.SequenceEqual(new[] { "--storage-backups" })) { NekoChat.Tests.StorageBackupChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--shared-regression-guards" })) { Console.WriteLine($"Shared regression guards: {await RunSharedRegressionGuards()} checks."); return; }
 if (args.SequenceEqual(new[] { "--receipt-archived" })) { await NekoChat.Tests.ReceiptServiceChecks.RunArchivedProtocol(); return; }
@@ -263,6 +264,7 @@ checks += await NekoChat.Tests.StorageSendChecks.Run();
 checks += await NekoChat.Tests.StorageHistoryChecks.Run();
 checks += NekoChat.Tests.StorageTombstoneChecks.Run();
 checks += await NekoChat.Tests.StorageReadChecks.Run();
+checks += await NekoChat.Tests.DiagnosticChecks.RunAsync();
 checks += await NekoChat.Tests.StorageRosterChecks.Run();
 checks += await NekoChat.Tests.StorageLegacyRosterChecks.Run();
 checks += await NekoChat.Tests.ClassroomRosterChecks.Run();

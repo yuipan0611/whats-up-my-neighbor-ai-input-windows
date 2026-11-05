@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using NekoChat.Core.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -23,6 +25,7 @@ public sealed record ClassroomReceiptSendResult(bool Completed, string Status, s
 public sealed class ClassroomSender
 {
     private readonly IChatStore _store;
+    private readonly DiagnosticJournal? _diagnostics;
     private readonly HttpClient _http;
     private readonly Func<DateTime> _utcNow;
 
@@ -75,8 +78,9 @@ public sealed class ClassroomSender
         HttpClient? httpClient = null,
         Func<DateTime>? utcNow = null,
         Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>? connectCallback = null,
-        Func<SocketsHttpHandler>? handlerFactory = null)
+        Func<SocketsHttpHandler>? handlerFactory = null, DiagnosticJournal? diagnostics = null)
     {
+        _diagnostics = diagnostics;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         if (httpClient is not null)
@@ -95,7 +99,27 @@ public sealed class ClassroomSender
 
     private static readonly byte[] ExactLegacyBody = "{\"error\":\"empty_text\"}"u8.ToArray();
 
-    public async Task<ClassroomSendResult> SendPreparedAsync(
+    public async Task<ClassroomSendResult> SendPreparedAsync(ClassroomPreparedSend prepared, int port, string ownIp, Func<bool> stillCurrent, CancellationToken cancellation = default)
+    {
+        ArgumentNullException.ThrowIfNull(prepared);
+        long started = Stopwatch.GetTimestamp();
+        _diagnostics?.Record(DiagnosticStage.SendPrepare, DiagnosticOutcome.Started, messageId: prepared.MessageId, attempt: prepared.TryCount);
+        try
+        {
+            var result = await SendPreparedCoreAsync(prepared, port, ownIp, stillCurrent, cancellation).ConfigureAwait(false);
+            var fault = DiagnosticFault.FromReason(result.RemoteCode ?? result.Code);
+            var outcome = result.Success ? DiagnosticOutcome.Succeeded : result.Code == "cancelled" ? DiagnosticOutcome.Cancelled : result.Completion is StateUpdated { NewState: "unconfirmed" } ? DiagnosticOutcome.Unconfirmed : DiagnosticOutcome.Failed;
+            _diagnostics?.Record(DiagnosticStage.SendConfirm, outcome, fault.Code, messageId: prepared.MessageId, attempt: prepared.TryCount, elapsedMs: (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, origin: result.RemoteCode is null ? DiagnosticOrigin.Local : DiagnosticOrigin.RemoteResponse);
+            return result;
+        }
+        catch (Exception error) when (DiagnosticFault.Catchable(error))
+        {
+            _diagnostics?.Record(DiagnosticStage.SendConfirm, DiagnosticOutcome.Failed, error: error, messageId: prepared.MessageId, attempt: prepared.TryCount, cancellationRequested: cancellation.IsCancellationRequested);
+            throw;
+        }
+    }
+
+    private async Task<ClassroomSendResult> SendPreparedCoreAsync(
         ClassroomPreparedSend prepared,
         int port,
         string ownIp,
@@ -136,6 +160,7 @@ public sealed class ClassroomSender
             HttpResponseMessage helloResponse;
             try
             {
+                _diagnostics?.Record(DiagnosticStage.SendHello, DiagnosticOutcome.Started, messageId: prepared.MessageId, attempt: prepared.TryCount);
                 helloResponse = await _http.SendAsync(helloRequest, HttpCompletionOption.ResponseHeadersRead, cancellation).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
@@ -144,6 +169,7 @@ public sealed class ClassroomSender
             }
             catch (Exception ex)
             {
+                _diagnostics?.Record(DiagnosticStage.SendHello, DiagnosticOutcome.Failed, error: ex, messageId: prepared.MessageId, attempt: prepared.TryCount);
                 return (false, null, null, ex is TimeoutException or TaskCanceledException ? "timeout" : "network_error", false);
             }
 
@@ -298,6 +324,7 @@ public sealed class ClassroomSender
                     msgRequest.Content = new ByteArrayContent(messageBytes);
                     msgRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
 
+                    _diagnostics?.Record(DiagnosticStage.SendTransmit, DiagnosticOutcome.Started, messageId: prepared.MessageId, attempt: prepared.TryCount);
                     using var msgResponse = await _http.SendAsync(msgRequest, cancellation).ConfigureAwait(false);
                     string? detectedMsgIp = ExtractActualLocalIp(msgRequest);
                     if (string.IsNullOrWhiteSpace(detectedMsgIp))
@@ -365,8 +392,9 @@ public sealed class ClassroomSender
                     var comp = _store.CompleteClassroomAttempt(prepared.MessageId, new UnconfirmedOutcome(), targetIp, prepared.TryCount);
                     return new ClassroomSendResult(false, "cancelled", comp, ClassroomRoute.Classroom);
                 }
-                catch (Exception)
+                catch (Exception error)
                 {
+                    _diagnostics?.Record(DiagnosticStage.SendTransmit, DiagnosticOutcome.Unconfirmed, error: error, messageId: prepared.MessageId, attempt: prepared.TryCount);
                     var comp = _store.CompleteClassroomAttempt(prepared.MessageId, new UnconfirmedOutcome(), targetIp, prepared.TryCount);
                     return new ClassroomSendResult(false, "network_unconfirmed", comp, ClassroomRoute.Classroom);
                 }
@@ -444,8 +472,9 @@ public sealed class ClassroomSender
                 var unconfirmed = _store.CompleteClassroomAttempt(prepared.MessageId, new UnconfirmedOutcome(), targetIp, prepared.TryCount);
                 return new ClassroomSendResult(false, "cancelled", unconfirmed, ClassroomRoute.Legacy);
             }
-            catch (Exception)
+            catch (Exception error)
             {
+                _diagnostics?.Record(DiagnosticStage.SendTransmit, DiagnosticOutcome.Unconfirmed, error: error, messageId: prepared.MessageId, attempt: prepared.TryCount);
                 var unconfirmed = _store.CompleteClassroomAttempt(prepared.MessageId, new UnconfirmedOutcome(), targetIp, prepared.TryCount);
                 return new ClassroomSendResult(false, "network_unconfirmed", unconfirmed, ClassroomRoute.Legacy);
             }
@@ -544,8 +573,9 @@ public sealed class ClassroomSender
             {
                 return (false, null, "cancelled", "cancelled");
             }
-            catch (Exception)
+            catch (Exception error)
             {
+                _diagnostics?.Record(DiagnosticStage.SendConfirm, DiagnosticOutcome.Failed, error: error, messageId: receipt.MessageId);
                 return (false, null, "transient", "network_error");
             }
         }
@@ -630,8 +660,9 @@ public sealed class ClassroomSender
             {
                 return new ClassroomReceiptSendResult(false, "cancelled", "cancelled");
             }
-            catch (Exception)
+            catch (Exception error)
             {
+                _diagnostics?.Record(DiagnosticStage.SendConfirm, DiagnosticOutcome.Failed, error: error, messageId: receipt.MessageId);
                 return new ClassroomReceiptSendResult(false, "transient", "network_error");
             }
         }

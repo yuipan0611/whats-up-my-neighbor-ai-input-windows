@@ -1,3 +1,4 @@
+using NekoChat.Core.Diagnostics;
 using System.Windows;
 using NekoChat.Core.Classroom.Transport;
 using NekoChat.Core.Presentation;
@@ -9,7 +10,13 @@ public partial class ChatWindow
 {
     private Task _activeSend = Task.CompletedTask;
     private Task SendCurrentAsync(bool retry, PendingSendSummary? retryAttempt = null)
-    { if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask; return _activeSend = SendCoreAsync(retry, retryAttempt); }
+    { if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask; return _activeSend = SendBoundaryAsync(retry, retryAttempt); }
+    private async Task SendBoundaryAsync(bool retry, PendingSendSummary? retryAttempt)
+    {
+        try { await SendCoreAsync(retry, retryAttempt); }
+        catch (Exception error) when (DiagnosticFault.Catchable(error))
+        { ShowStorageError(error); SetSending(false); }
+    }
     private async Task SendCoreAsync(bool retry, PendingSendSummary? retryAttempt)
     {
         if (_attachmentDraftLoading || _runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) return;
@@ -188,6 +195,7 @@ public partial class ChatWindow
         }
         catch (Exception ex)
         {
+            runtime.Diagnostics.Record(DiagnosticStage.SendConfirm, DiagnosticOutcome.Failed, error: ex, messageId: started.MessageId, attempt: started.TryCount);
             var decision = ClassroomSendUiPolicy.DecideException(ex);
             if (decision.Action == AttemptActionKind.MarkFailed)
             {
