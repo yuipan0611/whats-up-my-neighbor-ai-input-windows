@@ -12,7 +12,7 @@ public partial class ChatWindow
     { if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask; return _activeSend = SendCoreAsync(retry); }
     private async Task SendCoreAsync(bool retry)
     {
-        if (_runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) return;
+        if (_attachmentDraftLoading || _runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) return;
         var runtime = _runtime; var sent = buffer.Capture();
         if (_attachmentDraft is not null) { await SendAttachmentCoreAsync(runtime, entry, buffer, sent); return; }
         if (string.IsNullOrWhiteSpace(sent.Text)) return;

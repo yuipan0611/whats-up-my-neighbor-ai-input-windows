@@ -289,7 +289,7 @@ public partial class ChatWindow
         var attempt = _selected?.Attempt; AttemptBanner.Visibility = Visibility.Collapsed;
         bool cancelling = attempt is not null && _runtime?.IsAttemptCancellationRequested(attempt.MessageId, attempt.TryCount) == true;
         AttemptText.Text = ClassroomSendUiPolicy.DecideAttemptBanner(attempt?.State, cancelling);
-        RetryAttempt.IsEnabled = ready && !_sending && attempt is { State: not "sending" } && attempt.RawSnapshot == Draft.Text;
+        RetryAttempt.IsEnabled = ready && !_sending && !_attachmentDraftLoading && !hasAttachment && attempt is { State: not "sending" } && attempt.RawSnapshot == Draft.Text;
         CancelAttemptButton.IsEnabled = !_closingRequested && attached && !cancelling && attempt is { State: not ("cancelled" or "confirmed" or "superseded") } &&
             (attempt.State != "sending" || _runtime!.CanCancelAttempt(attempt.MessageId, attempt.TryCount));
         ClearConversationButton.IsEnabled = attached && _selected is not null && buffer?.Clearing != true;
