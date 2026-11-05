@@ -66,7 +66,7 @@ public partial class App
             window.Draft.Text = "第二則：恢復連線後獨立送達";
             peer = await ChatRuntime.OpenAsync(new(peerSettings, SettingsSourceStatus.Loaded), true, closedPort, loopbackOnly: true);
             peer.Start();
-            await Wait(() => window.History.Rows.All(r => r.AttemptId != first.MessageId));
+            await Wait(() => window.History.Rows.Any(r => r.RawText == first.RawSnapshot && r.AttemptId is null) && window.History.Rows.All(r => r.AttemptId != first.MessageId));
             Check(await peer.Worker.Run(s => s.ListClassroomMessages(principal).Items.Count == 1), "reconnection automatically delivers queued message exactly once");
             Check(window.Draft.Text == "第二則：恢復連線後獨立送達", "background delivery preserves new edit");
             await Wait(() => window.SendButton.IsEnabled); Click(window.SendButton);
@@ -117,7 +117,7 @@ public partial class App
             window.History.ScrollIntoView(oldFailure); window.UpdateLayout();
             var failedCard = FindDndVisuals<MessageCard>(window.History).Single(card => ReferenceEquals(card.Message, oldFailure));
             Click(FindDndVisuals<Button>(failedCard).Single(button => Equals(button.Content, "重試傳送")));
-            await Wait(() => window.History.Rows.All(row => row.AttemptId != historic.MessageId));
+            await Wait(() => window.History.Rows.Any(row => row.RawText == "舊失敗手動重送" && row.AttemptId is null) && window.History.Rows.All(row => row.AttemptId != historic.MessageId));
             Check(window.Draft.Text == "重送時也不能覆蓋的新草稿", "native retry button preserves another edit without clearing composer");
             Check(await peer.Worker.Run(s => s.ListClassroomMessages(principal).Items.Count == 4 && s.ListClassroomMessages(principal).Items.Any(m => m.MessageId == historic.MessageId)), "native manual retry reuses original ID and stores once");
             Check(window.History.Rows.Last().RawText == newerDelivered && window.History.Rows.Count(row => row.RawText == "舊失敗手動重送") == 1, "retry success replaces original card without changing its chronological position");
