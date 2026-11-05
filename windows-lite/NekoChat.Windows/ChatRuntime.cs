@@ -176,6 +176,14 @@ internal sealed class ChatRuntime : IAsyncDisposable
         Diagnostics.Record(DiagnosticStage.OutboxEnqueue, DiagnosticOutcome.Succeeded, messageId: receipt.MessageId);
         return receipt;
     });
+    internal async Task<bool> CancelQueuedAsync(string id) {
+        bool queued = await Worker.Run(_ => { bool exists = _store.ListOutbox().Any(row => row.MessageId == id); if (exists) {
+            bool cancelled = _store.CancelOutbox(id);
+            Diagnostics.Record(DiagnosticStage.OutboxCancel, cancelled ? DiagnosticOutcome.Cancelled : DiagnosticOutcome.Stale, cancelled ? DiagnosticCode.Cancelled : DiagnosticCode.StaleView, messageId: id);
+        } return exists; }, CancellationToken.None).ConfigureAwait(false);
+        if (queued) await Task.Run(() => Outbox?.CancelIo(id)).ConfigureAwait(false);
+        return queued;
+    }
     internal Task<bool> RetryStoredAsync(ClassroomPrincipalKey principal, string id, int port) => Worker.Run(_ => _store.RequeueClassroomAttempt(principal, id, port));
     internal AttachmentRecord AttachmentView(AttachmentRecord row) {
         string id = row.Direction == "incoming" ? "download:" + row.LocalSeq : row.MessageId;
@@ -327,7 +335,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             }
         }
 
-        if (!ArchivedIdentityFixture && await Worker.Run(_ => _store.ListOutbox().Any(row => row.MessageId == messageId)).ConfigureAwait(false)) { await Task.Run(() => Outbox?.Cancel(messageId)).ConfigureAwait(false); return new CancelResult(true, "cancelled"); }
+        if (!ArchivedIdentityFixture && await CancelQueuedAsync(messageId).ConfigureAwait(false)) return new CancelResult(true, "cancelled");
         if (!ArchivedIdentityFixture) return await Worker.Run(s => s.CancelClassroomAttempt(messageId, tryCount), CancellationToken.None).ConfigureAwait(false);
 
         Task<bool>? cancel;

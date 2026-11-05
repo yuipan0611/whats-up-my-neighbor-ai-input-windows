@@ -64,6 +64,10 @@ public sealed class ClassroomOutbox : IAsyncDisposable
     {
         bool cancelled = _store.CancelOutbox(id);
         _diagnostics?.Record(DiagnosticStage.OutboxCancel, cancelled ? DiagnosticOutcome.Cancelled : DiagnosticOutcome.Stale, cancelled ? DiagnosticCode.Cancelled : DiagnosticCode.StaleView, messageId: id);
+        CancelIo(id);
+    }
+    public void CancelIo(string id)
+    {
         lock (_gate) if (_jobs.TryGetValue(id, out var job)) _ = job.Cancellation.CancelAsync();
         Notify();
     }

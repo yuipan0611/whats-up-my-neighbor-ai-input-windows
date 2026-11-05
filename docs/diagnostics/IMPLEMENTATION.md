@@ -40,3 +40,5 @@ Windows 首輪原生 run `42036124701`：測試使用空白草稿，依既有 in
 PR #26 啟動檢查曾在新 enqueue 語意下過早對接收資料做 Single，原生未讀當時通過；由流程負責 Codex 修正為有限等待實際接收 SQLite，保留內容斷言，未跳過 gate。
 
 整合後本機：Core diagnostics 59、Outbox 63 項通過；WPF win-x64 交叉建置 0 警告／0 錯誤。原生診斷與封裝回歸由更新後 #27 CI 執行。
+
+取消關閉交錯整合：跟進 #26 `09fb95a`（含 #24 `5bd81a7`），CancelQueuedAsync 以不隨視窗關閉取消的 worker 工作先持久停用，再呼叫 CancelIo。診斷在同一 worker callback 使用既有 CancelOutbox 布林結果，準確區分 Cancelled／Stale；不新增 SQL 或改回同步 UI 寫入。
