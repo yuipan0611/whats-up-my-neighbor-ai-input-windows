@@ -61,7 +61,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal CancellationToken Lifetime => _lifetime.Token;
     internal bool IsStopping => _lifetime.IsCancellationRequested;
     internal long WireGeneration => Volatile.Read(ref _wireGeneration);
-    private ChatRuntime(ChatStore store, string dataDirectory, string identityDirectory, int port, ChatWireConfiguration? configuration, ChatPairingConfiguration? pairingConfiguration, bool isolated, string? warning)
+    private ChatRuntime(ChatStore store, string dataDirectory, string identityDirectory, int port, ChatWireConfiguration? configuration, ChatPairingConfiguration? pairingConfiguration, bool isolated, string? warning, bool loopbackOnly)
     {
         _store = store; IsolatedData = isolated; DataDirectory = dataDirectory; StartupWarning = warning; Reads = new(store);
         ClassroomSender = new ClassroomSender(store);
@@ -127,7 +127,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             ClassroomFiles.Changed += () => DataChanged?.Invoke();
             ClassroomFiles.Progress += (id,done,total) => ShareProgress?.Invoke(id,done,total);
             var endpoint = new ClassroomEndpointAdapter(sink, capabilities: new[] { "msg.plain", "receipt.read", AttachmentLimits.Capability, ShareProtocol.Capability });
-            var classroomListener = new ClassroomTcpListener(new ClassroomFileEndpoint(new AttachmentEndpoint(endpoint, Attachments), ClassroomFiles), new ClassroomListenerOptions { Port = port });
+            var classroomListener = new ClassroomTcpListener(new ClassroomFileEndpoint(new AttachmentEndpoint(endpoint, Attachments), ClassroomFiles), new ClassroomListenerOptions { Port = port, BindAddress = loopbackOnly ? IPAddress.Loopback : IPAddress.Any });
             sink.MessageStored += (_, _, _) => DataChanged?.Invoke();
             sink.ReceiptStored += (_, _) => DataChanged?.Invoke();
             Listener = new DirectLanListener(classroomListener, sink, Attachments);
@@ -141,7 +141,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal static string ResolveLocalEndpointIp(string targetIp, int port) =>
         LocalEndpointResolver.Resolve(targetIp, port);
     internal static string RootDirectory(Settings source, bool isolated) => UiTestOptions.ResolveRootDirectory(source, isolated);
-    internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null, ChatPairingConfiguration? pairingConfiguration = null) => Task.Run(() => {
+    internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null, ChatPairingConfiguration? pairingConfiguration = null, bool loopbackOnly = false) => Task.Run(() => {
         if (!isolated && (configuration is not null || pairingConfiguration is not null))
             throw new InvalidOperationException("Historical signed identity configuration requires an isolated fixture.");
         string root = RootDirectory(source.Value, isolated);
@@ -155,7 +155,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             });
             var imported = source.CanImportLegacyRoster && source.Value.Contacts.Count <= NekoChat.Core.Roster.RosterCsv.MaxRows ? source.ImportLegacyRoster(store) : null;
             string? warning = !source.CanImportLegacyRoster ? "設定檔無法讀取；原檔保留，未從這份設定匯入名單。" : source.Value.Contacts.Count > NekoChat.Core.Roster.RosterCsv.MaxRows ? "舊名單超過單次載入上限，尚未載入；請聯絡班級包提供者協助。" : imported is { Skipped: > 0 } ? $"舊名單已匯入；略過 {imported.Skipped} 筆無效或重複資料。" : null;
-            var runtime = new ChatRuntime(store, data, Path.Combine(root, "identity"), port, configuration, pairingConfiguration, isolated, warning); store = null; return runtime;
+            var runtime = new ChatRuntime(store, data, Path.Combine(root, "identity"), port, configuration, pairingConfiguration, isolated, warning, loopbackOnly); store = null; return runtime;
         }
         finally { store?.Dispose(); }
     });

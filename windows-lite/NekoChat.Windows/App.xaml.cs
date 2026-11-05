@@ -23,7 +23,7 @@ public partial class App : Application
     private SettingsLoadResult? startupSource;
     private bool isolatedData, startingData, closingApp;
     private int startupPort = DirectLanMessaging.DefaultPort;
-    private bool classroomShareNetwork;
+    private bool classroomShareNetwork, nativeDndIsolated;
     private ChatWireConfiguration? startupWireConfiguration;
 
     protected override async void OnStartup(StartupEventArgs e)
@@ -33,8 +33,11 @@ public partial class App : Application
 #if UI4_LOCAL_PREVIEW
         if (startupArgs.Length == 0) startupArgs = new[] { "--ui4-native-preview", System.IO.Path.Combine(@"C:\NekoChatUI4QA20261105", System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(App).Assembly)!.InformationalVersion.Split('+')[0]) };
 #endif
+#if DND_NATIVE_AUTOTEST
+        if (startupArgs.Length == 0) startupArgs = new[] { "--dnd-native-smoke-test", System.IO.Path.Combine(@"C:\NekoChatDndQA20261105", "Run-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..6]) };
+#endif
 #if CLASSROOM_FILES_LOCAL_TEST
-        if (startupArgs.Length == 0) startupArgs = new[] { "--classroom-files-local-test", @"C:\NekoChatClassroomFilesTest20261105" };
+        if (startupArgs.Length == 0) startupArgs = new[] { "--classroom-files-local-test", @"C:\NekoChatClassroomFilesTest20261105\Files2" };
 #endif
 
         if (startupArgs.Length > 0 && startupArgs[0] == "--restore-backup")
@@ -64,8 +67,13 @@ public partial class App : Application
 
         try
         {
+            bool dndNativeSmoke = startupArgs.Length == 2 && startupArgs[0] == "--dnd-native-smoke-test";
+            nativeDndIsolated = dndNativeSmoke;
+            if (dndNativeSmoke) RetirePriorDndFixtures();
+            string? dndDirectory = dndNativeSmoke ? startupArgs[1] : null;
+            if (dndNativeSmoke) startupArgs = new[] { "--ui-test-data", dndDirectory!, "--ui-test-port", (19000 + Random.Shared.Next(10000)).ToString(System.Globalization.CultureInfo.InvariantCulture) };
             classroomShareNetwork = startupArgs.Length == 2 && startupArgs[0] == "--classroom-files-local-test";
-            if (classroomShareNetwork) startupArgs = new[] { "--ui-test-data", startupArgs[1], "--ui-test-port", "18772" };
+            if (classroomShareNetwork) startupArgs = new[] { "--ui-test-data", startupArgs[1], "--ui-test-port", "18775" };
             bool ui4NativePreview = startupArgs.Length == 2 && startupArgs[0] == "--ui4-native-preview";
             var uiTestOptions = UiTestOptions.Parse(ui4NativePreview ? new[] { "--ui-test-data", startupArgs[1], "--ui-test-port", "18773" } : startupArgs);
             _uiTestOptions = uiTestOptions;
@@ -104,6 +112,13 @@ public partial class App : Application
             if (startupArgs.Length > 0 && smokeDirectory is null && uiTestOptions is null) throw new ArgumentException("不支援這組啟動參數。");
             settings = settingsSource?.Value ?? (smokeDirectory is not null ? Settings.ForSmoke(smokeDirectory) : new Settings { AutoStartOnLogin = false, ReadOnlyFallback = true });
             if (uiTestOptions is not null) settings = settings with { AutoStartOnLogin = false };
+            if (dndNativeSmoke)
+            {
+                if (File.Exists(uiTestOptions!.DatabaseFilePath)) throw new InvalidOperationException("Native drag test requires a fresh isolated profile.");
+                settings = Settings.ForUiTest(uiTestOptions.DataDirectory) with { AutoStartOnLogin = false, WanderEnabled = false, ClassRosterInitialized = true,
+                    Contacts = new() { new("192.168.255.250", "拖曳測試對象") }, LastRecipientIp = "192.168.255.250", TeacherIp = "192.168.255.250" };
+                settingsSource = new SettingsLoadResult(settings, SettingsSourceStatus.Loaded);
+            }
             if (messagingSmoke is not null) settings = settings with { TeacherIp = "127.0.0.1" };
             directSendPort = uiTestOptions?.Port ?? messagingSmoke?.PeerPort ?? DirectLanMessaging.DefaultPort;
             startupPort = uiTestOptions?.Port ?? messagingSmoke?.ListenPort ?? DirectLanMessaging.DefaultPort;
@@ -197,6 +212,7 @@ public partial class App : Application
                 startupWireConfiguration = await PrepareMessagingFixtureAsync(messagingSmoke);
             await StartDataAsync();
             if (ui4NativePreview) { pet.Hide(); await chat.RunUi4NativePreviewAsync(uiTestOptions!.DataDirectory); }
+            if (dndNativeSmoke) { pet.Hide(); _ = Dispatcher.BeginInvoke(new Action(async () => await RunNativeDndAsync(dndDirectory!))); }
             SystemEvents.PowerModeChanged += AppPowerModeChanged;
 
             if (keyboardSmoke)
@@ -395,7 +411,7 @@ public partial class App : Application
         startingData = true; ChatRuntime? candidate = null;
         try
         {
-            candidate = await ChatRuntime.OpenAsync(startupSource, isolatedData, startupPort, startupWireConfiguration);
+            candidate = await ChatRuntime.OpenAsync(startupSource, isolatedData, startupPort, startupWireConfiguration, loopbackOnly: nativeDndIsolated);
             if (closingApp) return;
             await chat.AttachRuntimeAsync(candidate, directSendPort);
             candidate.ShareProgress += (id, done, total) => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.ShowShareProgress(id, done, total); }));
