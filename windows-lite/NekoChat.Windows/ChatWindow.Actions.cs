@@ -15,13 +15,26 @@ public partial class ChatWindow
             _runtime?.Diagnostics.Record(DiagnosticStage.SendAdmission, DiagnosticOutcome.Deferred, !_activeSend.IsCompleted ? DiagnosticCode.OperationBusy : DiagnosticCode.StaleView);
             return Task.CompletedTask;
         }
-        return _activeSend = SendBoundaryAsync(retry, retryAttempt);
+        var send = _activeSend = SendBoundaryAsync(retry, retryAttempt);
+        _ = send.ContinueWith(_ => {
+            try {
+                if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(new Action(() => {
+                    try { UpdateComposer(); }
+                    catch (Exception error) when (DiagnosticFault.Catchable(error)) { ShowStorageError(error); }
+                }));
+            }
+            catch (Exception error) when (DiagnosticFault.Catchable(error)) {
+                _runtime?.Diagnostics.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, error);
+            }
+        }, TaskScheduler.Default);
+        return send;
     }
     private async Task SendBoundaryAsync(bool retry, PendingSendSummary? retryAttempt)
     {
         try { await SendCoreAsync(retry, retryAttempt); }
         catch (Exception error) when (DiagnosticFault.Catchable(error))
         { ShowStorageError(error); SetSending(false); }
+
     }
     private async Task SendCoreAsync(bool retry, PendingSendSummary? retryAttempt)
     {

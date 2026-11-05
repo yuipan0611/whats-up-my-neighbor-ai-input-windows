@@ -297,7 +297,7 @@ public partial class ChatWindow
         AttachFileButton.IsEnabled = Draft.IsEnabled && !_sending && !_attachmentDraftLoading && !_attachmentBusy && _runtime?.Attachments is not null;
         RemoveAttachmentButton.IsEnabled = !_sending && !_attachmentBusy;
         SendButton.IsEnabled = !_attachmentDraftLoading && (!hasAttachment || _runtime?.Attachments is not null) &&
-            !_attachmentBusy && !_closingRequested && !_sending && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
+            !_attachmentBusy && !_closingRequested && !_sending && _activeSend.IsCompleted && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
         ClearAttachmentCacheButton.IsEnabled = _runtime?.Attachments is not null;
         bool teacher = !_showTeacherFiles && _selected?.IsTeacher == true && !_selected.Removed;
         TeacherReactions.Visibility = teacher ? Visibility.Visible : Visibility.Collapsed;
