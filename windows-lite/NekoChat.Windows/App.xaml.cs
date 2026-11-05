@@ -46,6 +46,11 @@ public partial class App : Application
             return;
         }
 
+        if (startupArgs.Length == 2 && startupArgs[0] == "--message-recovery-smoke-test")
+        {
+            Environment.Exit(await RunMessageRecoverySmokeAsync(startupArgs[1]));
+            return;
+        }
         if (startupArgs.Length == 2 && startupArgs[0] == "--manual-send-cancel-smoke-test")
         {
             Environment.Exit(await RunManualSendCancelSmokeAsync(startupArgs[1]));
@@ -403,7 +408,7 @@ public partial class App : Application
         if (chatRuntime is not null)
         {
             if (!closingApp)
-            { closingApp = true; chat.BeginClosing(); chatRuntime.StopReceivingAsync().GetAwaiter().GetResult(); chatRuntime.DrainNetworkAsync().GetAwaiter().GetResult(); try { chat.FlushForExitAsync().GetAwaiter().GetResult(); } catch { } }
+            { closingApp = true; chat.BeginClosing(); chatRuntime.StopReceivingAsync().GetAwaiter().GetResult(); chatRuntime.DrainNetworkAsync().GetAwaiter().GetResult(); try { chat.FlushForDispatcherExitAsync().GetAwaiter().GetResult(); } catch { } }
             chatRuntime.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
         instanceGate?.Dispose();

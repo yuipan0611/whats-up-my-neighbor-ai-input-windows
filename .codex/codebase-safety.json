@@ -2,7 +2,7 @@
   "$schema": "safely-modify-codebase/v1",
   "status": "ready",
   "project": {
-    "name": "nekochat-lite-attachments-20261104",
+    "name": "NekoChat Windows Lite",
     "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",
     "repo_root": ".",
     "last_reviewed": "2026-11-05"
@@ -59,7 +59,8 @@
       "Migration12 adds immutable signed classroom share/withdraw operations, DPAPI-protected per-share owner credentials and managed blob references. Withdrawal dominates additions, even when received first. Shared catalog is separate from private chat.",
       "ClassroomFileEndpoint adds classroom-files.v1 on the existing listener. Teacher-preferred roster-only anti-entropy; all nodes accept valid operations during teacher absence. Uses AttachmentService vault, file/serve/download gates and listener quota.",
       "WPF file drops route by active pane: private chat stages AttachmentDraft; shared pane uses the same single-file upload path as its picker. Both own rejected FileDrop events to prevent filename fallback.",
-      "Known attachment filesystem initialization errors degrade to text/receipt-only runtime with persistent warning and no attachment capability. SQLite/schema failures remain fatal; pending attachment metadata and loading gates prevent silent plaintext sends."
+      "Known attachment filesystem initialization errors degrade to text/receipt-only runtime with persistent warning and no attachment capability. SQLite/schema failures remain fatal; pending attachment metadata and loading gates prevent silent plaintext sends.",
+      "Migration13 adds durable ClassroomOutbox. Only explicit new Send or manual Retry opts content in; background retries never consult live drafts. Per-recipient claims and existing tombstones guard cancellation/deletion. SchemaGuard validates exact V13 DDL."
     ],
     "external_integrations": []
   },
@@ -163,6 +164,14 @@
     {
       "fact": "Windows startup smoke exercises real runtime/TCP for blocked vault directory, exclusive .part lock, retained/removable pending attachment, text roundtrip, restart recovery and corrupt DB fail-closed.",
       "source": "windows-lite/NekoChat.Windows/App.AttachmentStartupSmoke.cs; docs/classroom-ux/STARTUP-ISOLATION.md"
+    },
+    {
+      "fact": "Local per-message deletion uses scoped transactions and existing ClassroomCleared tombstones; exact pending draft deletion also checks epoch/revision/text and staged attachment absence.",
+      "source": "windows-lite/NekoChat.Core/Storage/ChatStore.MessageDeletion.cs; windows-lite/NekoChat.Tests/MessageRecoveryChecks.cs"
+    },
+    {
+      "fact": "Durable queue, reconnect/restart, ACK loss, independent drafts and attachment byte checks use real SQLite/TCP.",
+      "source": "windows-lite/NekoChat.Tests/OutboxChecks.cs; docs/bugfixes/20261105-chat-lifecycle.md"
     }
   ]
 }

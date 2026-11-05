@@ -57,19 +57,22 @@ public sealed partial class ChatStore
     public AttachmentRecord PrepareAttachmentSend(ClassroomPrincipalKey principal, string caption, int peerPort, long draftEpoch, long draftRevision)
     {
         if (Encoding.UTF8.GetByteCount(caption) > 65536 || caption.Any(c => char.IsControl(c) && c is not ('\r' or '\n' or '\t'))) throw new AttachmentException("invalid_caption");
-        return Write("attachment-prepare", ctx => {
+        return Write("attachment-prepare", ctx => (PrepareAttachmentSend(ctx, principal, caption, peerPort, draftEpoch, draftRevision), true));
+    }
+    private AttachmentRecord PrepareAttachmentSend(WriteContext ctx, ClassroomPrincipalKey principal, string caption, int peerPort, long draftEpoch, long draftRevision)
+    {
             string? ip = ClassroomTarget(ctx, principal); var binding = ReadClassroomBinding(ctx, principal.Value);
             if (ip is null || binding is null || binding.Epoch != draftEpoch || binding.Revision != draftRevision || (binding.Text ?? "") != caption) throw new AttachmentException("cleared");
             var draft = ctx.Query("SELECT blobId,name,size,sha256 FROM AttachmentDraft WHERE principal=@p AND epoch=@e", r => new AttachmentFile(r.GetString(0), r.GetString(1), r.GetInt64(2), r.GetString(3)), ("@p", principal.Value), ("@e", draftEpoch)).SingleOrDefault()
                 ?? throw new AttachmentException("missing_draft");
             var old = ctx.Query(AttachmentSelect + "WHERE m.principal=@p AND m.direction='outgoing' AND a.blobId=@b AND a.caption=@c AND a.peerIp=@ip ORDER BY a.localSeq DESC LIMIT 1", MapAttachment,
                 ("@p", principal.Value), ("@b", draft.BlobId), ("@c", caption), ("@ip", ip)).SingleOrDefault();
-            if (old is not null) return (old, false);
+            if (old is not null) return old;
             long epoch = Convert.ToInt64(ctx.Scalar("SELECT attachmentEpoch FROM ClassroomConversation WHERE principal=@p", ("@p", principal.Value)), CultureInfo.InvariantCulture);
             string messageId = Guid.NewGuid().ToString("D");
-            return (InsertAttachment(ctx, principal, "outgoing", messageId, draft, caption, ip, peerPort, AttachmentLimits.Token(), epoch, "sending"), true);
-        });
+            return InsertAttachment(ctx, principal, "outgoing", messageId, draft, caption, ip, peerPort, AttachmentLimits.Token(), epoch, "sending");
     }
+
     public (AttachmentRecord? Record, bool New) ReceiveAttachmentOffer(string sourceIp, int sourcePort, string messageId, AttachmentFile wireFile, string caption, string token, Func<bool> current)
     {
         RequireAttachment(wireFile);

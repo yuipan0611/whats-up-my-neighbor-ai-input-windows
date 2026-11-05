@@ -111,17 +111,20 @@ public sealed class AttachmentService : IAsyncDisposable
         }).ConfigureAwait(false);
         return _store.GetAttachment(row.LocalSeq) ?? throw new AttachmentException("cleared");
     }
-    public Task RetryOfferAsync(AttachmentRecord row) => Start(row, async (generation, token) => {
+    public Task RetryOfferAsync(AttachmentRecord row, Func<bool>? current = null, CancellationToken cancellation = default) => Start(row, async (generation, jobToken) => {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(jobToken, cancellation); var token = linked.Token;
         try
         {
             if (row.Direction != "outgoing" || !Vault.Exists(row.File)) throw new AttachmentException("unavailable");
             if (row.State != "complete") _store.SetAttachmentState(row, "sending", current: () => Current(row, generation, token));
             var hello = await HelloAsync(row.PeerIp, row.PeerPort, token).ConfigureAwait(false);
+            EnsureCurrent(row, generation, token);
+            if (current?.Invoke() == false) throw new AttachmentException("cleared");
             using var response = await RequestAsync(row.PeerIp, row.PeerPort, "offer", new { protocol = "nekochat.attachments", version = 1, kind = "offer", session = hello.Session,
                 message_id = row.MessageId, blob_id = row.File.BlobId, name = row.File.Name, size = row.File.Size, sha256 = row.File.Sha256, caption = row.Caption, token = row.Token, port = Port }, token).ConfigureAwait(false);
             using var body = await JsonResponseAsync(response, token).ConfigureAwait(false); ValidateAck(body.RootElement, row);
             string state = Get(body.RootElement, "status"); if (state is not ("offered" or "complete")) throw new AttachmentException("cleared");
-            if (!_store.SetAttachmentState(row, state, current: () => Current(row, generation, token))) throw new AttachmentException("cleared");
+            if (!_store.SetAttachmentState(row, state, current: () => Current(row, generation, token) && (current?.Invoke() ?? true))) throw new AttachmentException("cleared");
         }
         catch (Exception error) { _store.SetAttachmentState(row, error is OperationCanceledException ? "cancelled" : "unconfirmed", ErrorCode(error)); throw; }
     });
@@ -250,6 +253,7 @@ public sealed class AttachmentService : IAsyncDisposable
                     Notify();
                     if (ClassroomPrincipalKey.TryParse(record.Principal, out var principal) && AttachmentLimits.Automatic(principal.IsRoster, file.Size))
                     {
+                        _store.EnqueueAttachmentDownload(record);
                         try { _ = DownloadAsync(record.LocalSeq).ContinueWith(task => { _ = task.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default); }
                         catch (AttachmentException) { /* busy: offer stays visible for manual download */ }
                     }
@@ -320,7 +324,7 @@ public sealed class AttachmentService : IAsyncDisposable
     private static async Task<JsonDocument> JsonResponseAsync(HttpResponseMessage response, CancellationToken token)
     {
         byte[] bytes = await ReadBoundedAsync(response.Content, 8192, token).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) throw new AttachmentException("unavailable");
+        if (!response.IsSuccessStatusCode) throw new AttachmentException((int)response.StatusCode is 429 or 503 ? "busy" : "unavailable");
         return JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 4 });
     }
     private static void ValidateAck(JsonElement body, AttachmentRecord row)

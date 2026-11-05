@@ -31,8 +31,12 @@ if (args.SequenceEqual(new[] { "--attachments" })) { await NekoChat.Tests.Attach
 if (args.SequenceEqual(new[] { "--classroom-files" })) { await NekoChat.Tests.ClassroomFileChecks.RunAsync(); return; }
 if (args.SequenceEqual(new[] { "--teacher-files" })) { NekoChat.Tests.TeacherFileChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-ux" })) { NekoChat.Tests.ClassroomUxChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--outbox" })) { await NekoChat.Tests.OutboxChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--message-recovery" })) { NekoChat.Tests.MessageRecoveryChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-all" }))
 {
+    await NekoChat.Tests.OutboxChecks.Run();
+    NekoChat.Tests.MessageRecoveryChecks.Run();
     NekoChat.Tests.ClassroomUxChecks.Run();
     NekoChat.Tests.TeacherFileChecks.Run();
     await NekoChat.Tests.ClassroomFileChecks.RunAsync();

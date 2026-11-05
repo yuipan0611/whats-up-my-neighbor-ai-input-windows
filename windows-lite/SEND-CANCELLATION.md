@@ -1,3 +1,5 @@
+> 本文件後面的 ManualSendOperation 與 native manual fixture 屬歷史簽章協定。現行教室訊息採 SQLite 待送佇列；取消先持久停用後續傳送，再取消當次 I/O；App 關閉仍會排空已接受的取消寫入。暫時斷線自動續送，使用者取消不會自行恢復。最新規則見 `../docs/bugfixes/20261105-chat-lifecycle.md`。
+
 # 當次手動傳送取消
 
 TC-05／SDS API-02 要求取消目前的網路操作；它不能撤回對方已存的訊息。完成稽核發現原本 Cancel 在 `_sending` 時反而停用，僅能改已結束嘗試的資料狀態。本次已補實際 runtime 接線，未更改核准版面或通訊格式。
