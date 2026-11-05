@@ -90,6 +90,9 @@ public partial class App
                 await runtime.Worker.Run(_ => true);
                 await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle).Task.WaitAsync(deadline.Token);
                 Check(draftWriteCompletions == 1 && !autosave.IsCompleted && !window.SmokeSendIdle, "Send waits for concurrent autosave completion without dropping the edit");
+                try { window.FlushForDispatcherExitAsync().GetAwaiter().GetResult(); }
+                catch (InvalidOperationException) { /* Strict duplicate revision may reject the already saved ticket. */ }
+                Check(await runtime.Worker.Run(s => s.GetClassroomDraftState(principal).RawText == "第二則：恢復連線後獨立送達"), "synchronous exit fallback preserves saved draft without waiting for UI autosave completion");
             }
             finally { finishAutosave.TrySetResult(); window.SmokeBeforeDraftWriteCompletion = null; }
             await autosave;
