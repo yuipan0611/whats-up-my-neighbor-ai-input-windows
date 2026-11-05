@@ -164,6 +164,11 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal Task<QueuedMessageReceipt> QueueMessageAsync(ClassroomPrincipalKey principal, DraftWriteSnapshot sent, int port, bool attachment) => Worker.Run(_ =>
         attachment ? _store.EnqueueAttachmentWithDraft(principal, sent.Text, sent.Epoch, sent.Revision, port).Receipt
             : _store.EnqueueClassroomMessageWithDraft(principal, sent.Text, sent.Epoch, sent.Revision, port));
+    internal async Task<bool> CancelQueuedAsync(string id) {
+        bool queued = await Worker.Run(_ => { bool exists = _store.ListOutbox().Any(row => row.MessageId == id); if (exists) _store.CancelOutbox(id); return exists; }, CancellationToken.None).ConfigureAwait(false);
+        if (queued) await Task.Run(() => Outbox?.CancelIo(id)).ConfigureAwait(false);
+        return queued;
+    }
     internal Task<bool> RetryStoredAsync(ClassroomPrincipalKey principal, string id, int port) => Worker.Run(_ => _store.RequeueClassroomAttempt(principal, id, port));
     internal AttachmentRecord AttachmentView(AttachmentRecord row) {
         string id = row.Direction == "incoming" ? "download:" + row.LocalSeq : row.MessageId;
@@ -311,7 +316,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             }
         }
 
-        if (!ArchivedIdentityFixture && await Worker.Run(_ => _store.ListOutbox().Any(row => row.MessageId == messageId)).ConfigureAwait(false)) { await Task.Run(() => Outbox?.Cancel(messageId)).ConfigureAwait(false); return new CancelResult(true, "cancelled"); }
+        if (!ArchivedIdentityFixture && await CancelQueuedAsync(messageId).ConfigureAwait(false)) return new CancelResult(true, "cancelled");
         if (!ArchivedIdentityFixture) return await Worker.Run(s => s.CancelClassroomAttempt(messageId, tryCount), CancellationToken.None).ConfigureAwait(false);
 
         Task<bool>? cancel;

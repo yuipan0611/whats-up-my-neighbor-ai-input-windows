@@ -153,7 +153,7 @@ internal static class OutboxChecks
 
                 foreach (string name in new[] { "測試.txt", "測試.png" })
                 {
-                    string path = Path.Combine(root, name); byte[] bytes = Encoding.UTF8.GetBytes("binary payload " + name);
+                    string path = Path.Combine(root, name); byte[] bytes = name.EndsWith(".png", StringComparison.Ordinal) ? Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=") : Encoding.UTF8.GetBytes("binary payload " + name);
                     await File.WriteAllBytesAsync(path, bytes);
                     await sender.Files.AddDraftAsync(p, path);
                     var draft = sender.Store.GetClassroomDraftState(p);
@@ -178,7 +178,7 @@ internal static class OutboxChecks
             {
                 var hold = new TcpListener(IPAddress.Loopback, 0); hold.Start(); int offlinePort = ((IPEndPoint)hold.LocalEndpoint).Port; hold.Stop();
                 await using var sender = new Node(Path.Combine(root, "offline-file-" + extension[1..]));
-                string path = Path.Combine(root, "offline" + extension); byte[] content = Encoding.UTF8.GetBytes("persistent bytes " + extension);
+                string path = Path.Combine(root, "offline" + extension); byte[] content = extension == ".png" ? Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=") : Encoding.UTF8.GetBytes("persistent bytes " + extension);
                 await File.WriteAllBytesAsync(path, content); await sender.Files.AddDraftAsync(p, path);
                 var state = sender.Store.GetClassroomDraftState(p);
                 sender.Store.SaveClassroomDraft(p, "caption", state.Epoch, state.Revision + 1);
