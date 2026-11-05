@@ -161,6 +161,8 @@ public partial class ChatWindow
         try { await FlushForExitCoreAsync(); }
         finally { _draftSaveGate.Release(); }
     }
+    // Synchronous OnExit cannot wait for an autosave continuation on the exiting Dispatcher.
+    internal Task FlushForDispatcherExitAsync() => FlushForExitCoreAsync();
     private Task FlushForExitCoreAsync()
     {
         if (_runtime is null) return HasUnsavedDrafts ? Task.FromException(new InvalidOperationException("Draft storage is unavailable.")) : Task.CompletedTask;

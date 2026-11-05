@@ -420,7 +420,7 @@ public partial class App : Application
         if (chatRuntime is not null)
         {
             if (!closingApp)
-            { closingApp = true; chat.BeginClosing(); chatRuntime.StopReceivingAsync().GetAwaiter().GetResult(); chatRuntime.DrainNetworkAsync().GetAwaiter().GetResult(); try { chat.FlushForExitAsync().GetAwaiter().GetResult(); } catch { } }
+            { closingApp = true; chat.BeginClosing(); chatRuntime.StopReceivingAsync().GetAwaiter().GetResult(); chatRuntime.DrainNetworkAsync().GetAwaiter().GetResult(); try { chat.FlushForDispatcherExitAsync().GetAwaiter().GetResult(); } catch { } }
             chatRuntime.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
         instanceGate?.Dispose();
