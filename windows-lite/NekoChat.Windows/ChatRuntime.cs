@@ -42,6 +42,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal VisibleReadSession Reads { get; }
     internal ClassroomOutbox? Outbox { get; private set; }
     internal string? OutboxFailure { get; private set; }
+    private IReadOnlyDictionary<string, OutboxItem> _outboxSnapshot = new Dictionary<string, OutboxItem>();
+    private void RefreshOutboxSnapshot() => Volatile.Write(ref _outboxSnapshot, _store.ListOutbox().ToDictionary(row => row.MessageId, StringComparer.Ordinal));
     internal DirectLanListener Listener { get; }
     internal PresenceService? Presence { get; }
     internal ReadReceiptService? Receipts { get; }
@@ -162,11 +164,12 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal Task<DraftState> QueueMessageAsync(ClassroomPrincipalKey principal, DraftWriteSnapshot sent, int port, bool attachment) => Worker.Run(_ => {
         if (attachment) _store.EnqueueAttachment(principal, sent.Text, sent.Epoch, sent.Revision, port);
         else _store.EnqueueClassroomMessage(principal, sent.Text, sent.Epoch, sent.Revision, port);
+        RefreshOutboxSnapshot();
         return _store.GetClassroomDraftState(principal);
     });
     internal Task<bool> RetryStoredAsync(ClassroomPrincipalKey principal, string id, int port) => Worker.Run(_ => _store.RequeueClassroomAttempt(principal, id, port));
     internal string? QueuedStatus(string id) {
-        var item = _store.ListOutbox().SingleOrDefault(x => x.MessageId == id);
+        Volatile.Read(ref _outboxSnapshot).TryGetValue(id, out var item);
         return item?.State switch {
             "queued" => "等待傳送；連線恢復後會自動續送。",
             "sending" => "傳送中，等待對方儲存確認。",
@@ -175,7 +178,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             _ => null
         };
     }
-    internal bool IsQueuedMessage(string id) => _store.ListOutbox().Any(x => x.MessageId == id);
+    internal bool IsQueuedMessage(string id) => Volatile.Read(ref _outboxSnapshot).ContainsKey(id);
     internal static string ResolveLocalEndpointIp(string targetIp, int port) =>
         LocalEndpointResolver.Resolve(targetIp, port);
     internal static string RootDirectory(Settings source, bool isolated) => UiTestOptions.ResolveRootDirectory(source, isolated);
@@ -200,7 +203,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal void Start(bool sharedNetwork = false) { Listener.Start(); if (Attachments is not null) Attachments.Port = Listener.Port;
         if (!ArchivedIdentityFixture && Outbox is null) {
             Outbox = new(_store, ClassroomSender, Attachments, ResolveLocalEndpointIp);
-            Outbox.Changed += () => DataChanged?.Invoke();
+            Outbox.Changed += () => { try { RefreshOutboxSnapshot(); } catch (Exception error) { OutboxFailure = "待送儲存暫停：" + error.Message; } DataChanged?.Invoke(); };
             Outbox.Failed += error => { OutboxFailure = "待送儲存暫停：" + error.Message; DataChanged?.Invoke(); };
             Outbox.Recovered += () => { OutboxFailure = null; DataChanged?.Invoke(); };
         } if (!IsolatedData || sharedNetwork) ClassroomFiles?.Start(); Presence?.Start(); Receipts?.Start(); ClassroomReceipts?.Start(); }
@@ -264,7 +267,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (!ArchivedIdentityFixture && _store.ListOutbox().Any(x => x.MessageId == messageId && x.State is "queued" or "sending" or "failed")) return true;
+            if (!ArchivedIdentityFixture && Volatile.Read(ref _outboxSnapshot).TryGetValue(messageId, out var queued) && queued.State is "queued" or "sending" or "failed") return true;
             if (_classroomSends.CanCancel(messageId, tryCount)) return true;
             return _manualSends.TryGetValue((messageId, tryCount), out var operation) && operation.CanCancel;
         }
