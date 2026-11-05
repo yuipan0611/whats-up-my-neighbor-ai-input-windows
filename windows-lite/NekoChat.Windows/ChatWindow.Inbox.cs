@@ -246,29 +246,36 @@ public partial class ChatWindow
         if (CurrentDraft() is { Clearing: false } buffer) { try { buffer.Edit(Draft.Text); _saveTimer.Stop(); _saveTimer.Start(); } catch (Exception ex) { ShowStorageError(ex); } }
         UpdateComposer();
     }
+    private readonly SemaphoreSlim _draftSaveGate = new(1, 1);
     internal async Task FlushDraftsAsync()
     {
-        if (_runtime is null) return;
-        foreach (var pair in _drafts.Where(p => p.Value.Dirty && !p.Value.Clearing).ToArray())
+        await _draftSaveGate.WaitAsync();
+        try
         {
-            var ticket = pair.Value.Capture();
-            try
+            if (_runtime is not { } runtime) return;
+            foreach (var pair in _drafts.Where(p => p.Value.Dirty && !p.Value.Clearing).ToArray())
             {
-                var result = await _runtime.Worker.Run(s => {
-                    if (!_runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(pair.Key, out var principal))
-                    {
-                        var cr = s.SaveClassroomDraft(principal, ticket.Text, ticket.Epoch, ticket.Revision);
-                        return new DraftSaveResult(cr.Saved, cr.Reason, cr.CurrentEpoch, cr.CurrentRevision);
-                    }
-                    return ticket.Persist(s, pair.Key);
-                });
-                pair.Value.CompleteWrite(ticket, result);
-                if (!result.Saved && pair.Value.IsCurrent(ticket) && pair.Value.Dirty)
-                    StorageStatus.Text = result.Reason == "draft-too-large" ? "草稿太長無法保存，請縮短。" : "草稿尚未儲存，請重新讀取或保留目前文字後重試。";
+                var ticket = pair.Value.Capture();
+                try
+                {
+                    var result = await runtime.Worker.Run(s => {
+                        if (!runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(pair.Key, out var principal))
+                        {
+                            var cr = s.SaveClassroomDraft(principal, ticket.Text, ticket.Epoch, ticket.Revision);
+                            return new DraftSaveResult(cr.Saved, cr.Reason, cr.CurrentEpoch, cr.CurrentRevision);
+                        }
+                        return ticket.Persist(s, pair.Key);
+                    });
+                    if (SmokeBeforeDraftWriteCompletion is { } beforeCompletion) await beforeCompletion();
+                    pair.Value.CompleteWrite(ticket, result);
+                    if (!result.Saved && pair.Value.IsCurrent(ticket) && pair.Value.Dirty)
+                        StorageStatus.Text = result.Reason == "draft-too-large" ? "草稿太長無法保存，請縮短。" : "草稿尚未儲存，請重新讀取或保留目前文字後重試。";
+                }
+                catch (Exception ex) { ShowStorageError(ex); }
             }
-            catch (Exception ex) { ShowStorageError(ex); }
+            UpdateComposer();
         }
-        UpdateComposer();
+        finally { _draftSaveGate.Release(); }
     }
     private void UpdateComposer()
     {

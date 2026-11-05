@@ -7,6 +7,7 @@ public partial class ChatWindow
     // These helpers select/load the real view and inspect its state. They never inject history or acknowledgements.
     internal InboxEntry? SmokeSelectedEntry => _selected;
     internal bool SmokeSendIdle => _activeSend.IsCompleted && !_sending;
+    internal Func<Task>? SmokeBeforeDraftWriteCompletion { get; set; }
     internal void SmokeUsePeerPort(int port) => _peerPort = port;
     internal async Task SmokeOpenEntryAsync(Func<InboxEntry, bool> matches)
     {
