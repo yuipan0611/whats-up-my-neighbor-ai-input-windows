@@ -13,6 +13,7 @@ namespace NekoChat.Windows;
 internal sealed class MessageView(string key, string rawText, bool outgoing, bool legacy, long sequence, string utc, string delivery, ImageSource? peerAvatar = null) : INotifyPropertyChanged
 {
     public string Key { get; } = key;
+    public string? MessageId { get; init; }
     public string RawText { get; } = rawText;
     public bool Outgoing { get; } = outgoing;
     public bool Legacy { get; } = legacy;

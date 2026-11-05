@@ -371,7 +371,7 @@ public partial class ChatWindow
             var attachmentRows = _runtime.Attachments is { } attachments ? await attachments.HistoryAsync(entry.ConversationId ?? "") : [];
             if (selection != _selectionRequest || entry.Id != _selected?.Id) return;
             var crRows = page.Classroom?.Items.Select(m => new MessageView("cr:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
-                m.Direction == "outgoing" ? (m.DeliveryLabel ?? (m.RemoteReadAt is not null ? "已讀" : m.RemoteStoredAt is not null ? "對方已儲存" : "")) : (m.LocalReadAt is not null ? "本機已讀" : ""), peerAvatar)) ?? [];
+                m.Direction == "outgoing" ? (m.DeliveryLabel ?? (m.RemoteReadAt is not null ? "已讀" : m.RemoteStoredAt is not null ? "對方已儲存" : "")) : (m.LocalReadAt is not null ? "本機已讀" : ""), peerAvatar) { MessageId = m.MessageId }) ?? [];
             crRows = crRows.Select(row => { row.Attachment = attachmentRows.FirstOrDefault(a => a.LocalSeq == row.Sequence); if (row.Attachment is { } storedAttachment) row.Attachment = _runtime.AttachmentView(storedAttachment); if (row.Attachment is { } info) row.Delivery = info.StateText; row.AttachmentAction = AttachmentActionAsync; row.AttachmentPath = row.Attachment is { } a && _runtime.Attachments is { } service && service.Vault.Exists(a.File) ? service.Vault.PathFor(a.File.BlobId) : null; return row; });
             var rows = page.Message?.Items.Select(m => new MessageView("v2:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
                 m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "", peerAvatar)) ?? [];

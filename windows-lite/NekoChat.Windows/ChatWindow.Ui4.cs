@@ -164,6 +164,12 @@ public partial class ChatWindow
     private void SyncAttemptRow(PendingSendSummary? attempt, string utc, long sequence)
     {
         if (attempt is null || _selected is null || _showTeacherFiles) return;
+        // History can be newer than the inbox snapshot. A delivered row owns this message ID.
+        if (History.Rows.Any(row => row.Outgoing && !row.Legacy && row.AttemptId is null && row.MessageId == attempt.MessageId))
+        {
+            foreach (var stale in History.Rows.Where(row => row.AttemptId == attempt.MessageId).ToArray()) History.Rows.Remove(stale);
+            return;
+        }
         bool cancelling = _runtime?.IsAttemptCancellationRequested(attempt.MessageId, attempt.TryCount) == true;
         var entry = _selected;
         var row = History.Rows.FirstOrDefault(x => x.AttemptId == attempt.MessageId);
