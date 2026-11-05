@@ -1,6 +1,6 @@
 # 統一錯誤分類與本機診斷
 
-使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `6cc7679`（含草稿保存／Send互斥、同步離開與訊息ID去重）；診斷保持 draft，未安裝或發布。
+使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `3f28940`（含草稿保存／Send互斥、同步離開、按鈕readiness與訊息ID去重）；診斷保持 draft，未安裝或發布。
 
 ## 範圍與守門條件
 
@@ -40,3 +40,7 @@ peer gate修正473116a：autosave、Send與exit保存共用async gate，涵蓋�
 同步exit consumer已對齊：正常關閉await async gate；App.OnExit同步fallback改走worker-only FlushForDispatcherExitAsync，不等待UI CompleteWrite。交錯fixture在gate持有時同步呼叫該fallback，確認不阻塞且DB保存完整文字，恢復套件19→20。保持原嚴格CAS拒絕與例外契約。
 
 負對照腳本只在build私有候選移除Inbox autosave／Send gate；tracked產品及full/package輸出不變。只有候選成功建置、前4項前置斷言通過，且JSON精確在autosave／Send交錯斷言失敗，才算有效紅燈；逾時、編譯錯誤或其他crash不算。之後必須未改原產品的20項通過。PS腳本與候選建置已本機檢視／交叉建置；真正Windows負對照與30+20項正向結果以focused CI為準。
+
+Windows 5f05186 focused gate已核對JSON：diagnostics30=true、recovery20=true；scratch無gate候選先通過4項，精確在autosave／Send交錯斷言InvalidOperationException失敗，negative-control.expectedFailureVerified=true。不是編譯失敗或逾時紅燈，原產品未修改。
+
+最後readiness consumer整合b6c97fb：按鈕與Send入口都以_activeSend完成判斷可接受下一次輸入，完成後回Dispatcher重算composer。診斷保留SendBoundary與Deferred記錄，也記錄排程／重畫例外；沒有繞過admission或負對照保護。WPF重建0警告0錯誤；此最終整合完整CI結果在PR checks核對。
