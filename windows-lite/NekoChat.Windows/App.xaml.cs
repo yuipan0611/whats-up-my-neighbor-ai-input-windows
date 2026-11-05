@@ -465,7 +465,7 @@ public partial class App : Application
             chat.SetStatus(chatRuntime is { CanSend: true } ? "本機資料已就緒。" : "本機資料已就緒；教室傳送服務尚未就緒。");
         }
         catch (Exception ex)
-        { chat.DetachRuntime(); chat.ShowDataFailure(ex is StoreException ? ex.Message : "無法開啟本機資料，請重新讀取。"); chat.SetReceiverState(false, startupPort, "本機資料尚未就緒"); }
+        { chat.DetachRuntime(); chat.ShowDataFailure(ex); chat.SetReceiverState(false, startupPort, "本機資料尚未就緒"); }
         finally { if (candidate is not null) await candidate.DisposeAsync(); startingData = false; }
     }
 

@@ -58,6 +58,7 @@ public partial class ChatWindow
             await RefreshInboxAsync(); var transmission = runtime.SendAsync(prepared, endpoint, _peerPort, conversation, buffer, sent);
             UpdateComposer(); var outcome = await transmission;
             if (outcome.Completion is Confirmed { DraftCleared: true } && _selected?.ConversationId == conversation) SetDraftText(buffer.Text);
+            if (outcome.Completion is Confirmed or AlreadyConfirmed) ClearRecoveredDiagnostic(DiagnosticStage.SendPrepare, writeConfirmed: true);
             SetStatus(outcome.Code == "ok" ? "已驗證對方的儲存確認。" : outcome.Code switch {
                 "unpaired_sender" or "identity_conflict" or "hello_key_mismatch" => "身分或配對不符，請重新核對；未確認送達。",
                 "cancelled" => "已取消當次網路操作；取消不會清除草稿，對方可能已收到。不會自動重送。",
@@ -210,6 +211,7 @@ public partial class ChatWindow
             await RefreshInboxAsync();
             return;
         }
+        if (outcome.Success) ClearRecoveredDiagnostic(DiagnosticStage.SendPrepare, writeConfirmed: true);
         var outcomeDecision = ClassroomSendUiPolicy.DecideOutcome(outcome);
         if (outcomeDecision.DraftCleared && _selected?.ConversationId == conversation) SetDraftText(buffer.Text);
         SetStatus(outcomeDecision.StatusText);

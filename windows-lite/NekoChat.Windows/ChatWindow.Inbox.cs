@@ -95,7 +95,7 @@ public partial class ChatWindow
     }
     internal async Task AttachRuntimeAsync(ChatRuntime runtime, int peerPort)
     {
-        _runtime = runtime; SetDiagnosticsDirectory(Path.Combine(Path.GetDirectoryName(runtime.DataDirectory)!, "diagnostics")); ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
+        _visibleDiagnosticFailure = null; _runtime = runtime; SetDiagnosticsDirectory(Path.Combine(Path.GetDirectoryName(runtime.DataDirectory)!, "diagnostics")); ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
         var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy());
         if (!runtime.ArchivedIdentityFixture && !policy.Enabled && policy.Generation == 0)
         {
@@ -107,6 +107,7 @@ public partial class ChatWindow
         await BootstrapClassRosterAsync();
         await RefreshInboxAsync();
     }
+    internal void ShowDataFailure(Exception error) => ShowDataFailure(DiagnosticMessage(DiagnosticFault.FromException(error)));
     internal void ShowDataFailure(string message)
     { StorageStatus.Text = message; ReloadData.Visibility = Visibility.Visible; UpdateComposer(); }
     internal void DetachRuntime() { ++_teacherFilesRequest; _pairingWindow?.CloseSafely(); _pairingSelection = null; if (_runtime?.Presence is { } presence) presence.StateChanged -= PresenceChanged; _runtime = null; ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = Visibility.Collapsed; _receiverRunning = false; ReceiverStatus.Text = "接收暫停，等待本機資料就緒。"; RefreshPairingControls(); UpdateComposer(); }
@@ -150,6 +151,7 @@ public partial class ChatWindow
                 if (_showTeacherFiles) await LoadTeacherFilesAsync(false);
                 UpdateComposer();
             } while (_refreshAgain && !_stopping);
+            ClearRecoveredDiagnostic(DiagnosticStage.UiRefresh);
             _runtime.Diagnostics.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Succeeded, count: _snapshot?.Entries.Count ?? 0, elapsedMs: (long)Stopwatch.GetElapsedTime(diagnosticStart).TotalMilliseconds);
         }
         catch (Exception ex) { ShowStorageError(ex); }
@@ -440,6 +442,7 @@ public partial class ChatWindow
                     marked += (await _runtime.Worker.Run(_ => StillCurrent() ? _runtime.Reads.Mark(conv, readGeneration, signed) : new(0, 0, "stale-view"))).Marked;
             }
             if (entry.LegacyScope is { } scope && legacy.Length > 0) marked += (await _runtime.Worker.Run(s => s.MarkLegacyVisibleRead(scope, legacy, context with { ActiveConversationId = scope.ContextId }, StillCurrent))).Marked;
+            if (StillCurrent()) ClearRecoveredDiagnostic(DiagnosticStage.UiRead);
             _runtime.Diagnostics.Record(DiagnosticStage.UiRead, StillCurrent() ? DiagnosticOutcome.Succeeded : DiagnosticOutcome.Stale, StillCurrent() ? DiagnosticCode.None : DiagnosticCode.StaleView, count: marked);
             if (marked > 0) { _runtime.Receipts?.Pulse(); _runtime.ClassroomReceipts?.Pulse(); await RefreshInboxAsync(); }
         }
@@ -657,9 +660,10 @@ public partial class ChatWindow
     private void ShowStorageError(Exception exception, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
         if (_closingRequested && exception is OperationCanceledException) return;
-        var stage = caller == nameof(MarkViewportAsync) ? DiagnosticStage.UiRead : caller is nameof(RefreshInboxAsync) or nameof(LoadHistoryAsync) ? DiagnosticStage.UiRefresh : DiagnosticStage.UiAction;
+        var stage = caller == nameof(MarkViewportAsync) ? DiagnosticStage.UiRead : caller is nameof(RefreshInboxAsync) or nameof(LoadHistoryAsync) ? DiagnosticStage.UiRefresh : caller is nameof(SendCoreAsync) or nameof(SendBoundaryAsync) or nameof(SendClassroomCoreAsync) ? DiagnosticStage.SendPrepare : caller == nameof(FlushDraftsAsync) ? DiagnosticStage.StorageWrite : DiagnosticStage.UiAction;
         var fault = DiagnosticFault.FromException(exception, exception is OperationCanceledException && _closingRequested);
         _runtime?.Diagnostics.Record(stage, DiagnosticOutcome.Failed, error: exception);
+        _visibleDiagnosticFailure = (stage, fault);
         StorageStatus.Text = DiagnosticMessage(fault);
         ReloadData.Visibility = Visibility.Visible;
     }

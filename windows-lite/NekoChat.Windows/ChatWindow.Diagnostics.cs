@@ -8,7 +8,19 @@ namespace NekoChat.Windows;
 public partial class ChatWindow
 {
     private string? _diagnosticsDirectory;
+    private (DiagnosticStage Stage, DiagnosticFault Fault)? _visibleDiagnosticFailure;
     private bool _exportingDiagnostics;
+    private void ClearRecoveredDiagnostic(DiagnosticStage stage, bool writeConfirmed = false)
+    {
+        if (_visibleDiagnosticFailure is not { } failure || failure.Fault.StopDataOperations) return;
+        bool sameFlow = failure.Stage == stage;
+        bool recoveredWrite = writeConfirmed && failure.Stage == DiagnosticStage.StorageWrite &&
+            failure.Fault.Code is DiagnosticCode.StorageBusy or DiagnosticCode.QueueFull or DiagnosticCode.DiskFull or DiagnosticCode.ReadOnly or DiagnosticCode.StorageIo;
+        if (!sameFlow && !recoveredWrite) return;
+        _visibleDiagnosticFailure = null; StorageStatus.Text = _runtime?.StartupWarning ?? "";
+        ReloadData.Visibility = Visibility.Collapsed;
+        _runtime?.Diagnostics.Record(stage, DiagnosticOutcome.Recovered);
+    }
     internal void SetDiagnosticsDirectory(string directory)
     {
         _diagnosticsDirectory = directory; ExportDiagnosticsButton.IsEnabled = !_closingRequested && !_exportingDiagnostics;
@@ -30,7 +42,7 @@ public partial class ChatWindow
             var journal = _runtime?.Diagnostics ?? (temporary = new DiagnosticJournal(_diagnosticsDirectory, ChatRuntime.DiagnosticVersion));
             var result = await journal.ExportAsync(destination);
             journal.Record(DiagnosticStage.Journal, result.Success ? DiagnosticOutcome.Succeeded : DiagnosticOutcome.Failed, result.Code);
-            DiagnosticsStatus.Text = result.Success ? "診斷已匯出。請自行選擇是否分享給開發者。" : "診斷匯出未完成，請重試。（NCD-" + result.Code + "）";
+            DiagnosticsStatus.Text = result.Success ? journal.PersistentAvailable ? "診斷已匯出。請自行選擇是否分享給開發者。" : "近期診斷已匯出；本機記錄空間無法使用，較早事件可能未保留。" : "診斷匯出未完成，請重試。（NCD-" + result.Code + "）";
             return result;
         }
         catch (Exception error) when (DiagnosticFault.Catchable(error))

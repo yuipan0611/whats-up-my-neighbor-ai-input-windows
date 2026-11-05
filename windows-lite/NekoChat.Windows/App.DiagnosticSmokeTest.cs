@@ -80,6 +80,8 @@ public partial class App
             window.DataChanged();
             await Until(() => window.InboxList.Items.Count == 2 && window.SmokeRefreshIdle, "refresh recovers and displays actual new SQLite row");
 
+            Check(!window.StorageStatus.Text.Contains("NCD-QueueFull"), "successful refresh clears its recovered queue error");
+
             // A second SQLite writer owns the real write lock until the product's bounded timeout expires.
             using (var locked = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(runtime.DataDirectory, "nekochat.db"), Mode = SqliteOpenMode.ReadWrite, Pooling = false }.ToString()))
             {
@@ -95,6 +97,7 @@ public partial class App
             window.SendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Until(() => window.SmokeSendIdle && window.Draft.Text.Length == 0, "send succeeds after SQLite lock is released");
             Check(await peer.Worker.Run(store => store.ListClassroomMessages(principal).Items.Count == 2), "recovery does not duplicate earlier deliveries");
+            Check(!window.StorageStatus.Text.Contains("NCD-StorageBusy"), "confirmed send clears recovered SQLite busy warning");
             string directoryTarget = Path.Combine(output, "not-a-zip"); Directory.CreateDirectory(directoryTarget);
             Check(!(await window.ExportDiagnosticsAsync(directoryTarget)).Success && window.ExportDiagnosticsButton.IsEnabled, "failed export restores its button");
             string archive = Path.Combine(output, "diagnostics.zip");

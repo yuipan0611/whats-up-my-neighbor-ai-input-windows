@@ -7,7 +7,7 @@ namespace NekoChat.Core.Diagnostics;
 
 public enum DiagnosticStage { Startup, SendPrepare, SendHello, SendTransmit, SendConfirm, ReceiveValidate, ReceiveRespond, ReceiveCommit, ReceiveNotify, ReceiveReceipt, StorageRead, StorageWrite, StorageQueue, Attachment, UiRefresh, UiRead, UiAction, Shutdown, Journal }
 public enum DiagnosticOrigin { Local, RemoteResponse }
-public enum DiagnosticOutcome { Started, Succeeded, Failed, Unconfirmed, Cancelled, Rejected, Stale, Deferred }
+public enum DiagnosticOutcome { Started, Succeeded, Failed, Unconfirmed, Cancelled, Rejected, Stale, Deferred, Recovered }
 public enum DiagnosticCategory { None, Network, Timeout, Cancellation, Validation, Remote, DeliveryUnconfirmed, StorageBusy, StorageFull, Permission, StorageIo, DataIntegrity, Capacity, State, Unexpected }
 public enum DiagnosticCode { None, NetworkUnavailable, Timeout, Cancelled, InvalidPayload, RemoteRejected, Unconfirmed, StorageBusy, DiskFull, ReadOnly, StorageIo, CorruptData, UnsupportedData, IntegrityMismatch, CapacityExceeded, QueueFull, StaleView, Duplicate, NotificationFailed, Unexpected, LoggerUnavailable }
 public enum DiagnosticSeverity { Information, Warning, Error, Critical }
