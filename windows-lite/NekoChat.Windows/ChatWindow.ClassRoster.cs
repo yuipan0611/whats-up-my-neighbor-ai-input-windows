@@ -69,10 +69,10 @@ public partial class ChatWindow
 
     private async void RenameNicknameClick(object sender, RoutedEventArgs e)
     {
-        if (_runtime is null || sender is not MenuItem { CommandParameter: InboxRowView view } || view.Entry.RosterId is not { } id) return;
+        if (_runtime is not { } runtime || sender is not MenuItem { CommandParameter: InboxRowView view } || view.Entry.RosterId is not { } id) return;
         try
         {
-            var rows = await _runtime.Worker.Run(s => s.GetRosterSnapshot());
+            var rows = await runtime.Worker.Run(s => s.GetRosterSnapshot());
             var entry = rows.FirstOrDefault(r => r.Entry.Id == id)?.Entry;
             if (entry is null) { SetStatus("這位好友已移除。"); return; }
             var input = new TextBox { Text = entry.DisplayName, MaxLength = 64, Margin = new(0, 8, 0, 12) };
@@ -93,9 +93,11 @@ public partial class ChatWindow
             };
             dialog.Loaded += (_, _) => { input.Focus(); input.SelectAll(); };
             if (dialog.ShowDialog() != true) return;
+            if (!ReferenceEquals(runtime, _runtime) || _closingRequested) return;
+            string nickname = input.Text.Trim();
             var token = RosterImportPreview.ComputeSnapshotToken(rows);
-            var result = await _runtime.Worker.Run(s => s.SaveManualRosterEntry(id,
-                new RosterEdit(input.Text.Trim(), entry.StudentNumber, entry.IsTeacher, entry.Endpoint), token));
+            var result = await runtime.Worker.Run(s => s.SaveManualRosterEntry(id,
+                new RosterEdit(nickname, entry.StudentNumber, entry.IsTeacher, entry.Endpoint), token));
             if (!result.Changed && result.Reason != "unchanged") { SetStatus(RosterFailure(result.Reason)); return; }
             await RefreshInboxAsync(); SetStatus("綽號已儲存在這台電腦。");
         }
