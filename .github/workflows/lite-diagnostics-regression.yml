@@ -4,6 +4,7 @@ on:
     paths:
       - 'windows-lite/**'
       - '.github/workflows/lite-diagnostics-regression.yml'
+      - 'scripts/test-lite-draft-negative-control.ps1'
 permissions:
   contents: read
 concurrency:
@@ -40,6 +41,9 @@ jobs:
           path: build/diagnostics-native/
           if-no-files-found: error
           retention-days: 14
+      - name: Prove the autosave handoff regression catches the unprotected candidate
+        shell: pwsh
+        run: ./scripts/test-lite-draft-negative-control.ps1 -OutputDirectory "$env:GITHUB_WORKSPACE/build/draft-handoff-negative"
       - name: Native queued recovery, ordering, deletion and nickname regression
         shell: pwsh
         run: |
@@ -52,5 +56,14 @@ jobs:
         with:
           name: lite-message-recovery-native
           path: build/message-recovery-native/
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: lite-draft-handoff-negative-control
+          path: |
+            build/draft-handoff-negative/negative-result.json
+            build/draft-handoff-negative/negative-control.json
           if-no-files-found: warn
           retention-days: 14
