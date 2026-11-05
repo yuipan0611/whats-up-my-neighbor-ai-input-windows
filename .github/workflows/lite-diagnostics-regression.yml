@@ -40,3 +40,17 @@ jobs:
           path: build/diagnostics-native/
           if-no-files-found: error
           retention-days: 14
+      - name: Native queued recovery, ordering, deletion and nickname regression
+        shell: pwsh
+        run: |
+          dotnet run --project windows-lite/NekoChat.Windows -c Release --no-build -- --message-recovery-smoke-test "$env:GITHUB_WORKSPACE/build/message-recovery-native"
+          $code = $LASTEXITCODE
+          Get-Content build/message-recovery-native/message-recovery-result.json
+          exit $code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: lite-message-recovery-native
+          path: build/message-recovery-native/
+          if-no-files-found: warn
+          retention-days: 14

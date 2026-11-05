@@ -1,6 +1,6 @@
 # 統一錯誤分類與本機診斷
 
-使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `f857620`（含 #24 `272c1c0`）；診斷保持 draft，未安裝或發布。
+使用者授權傳送、接收、儲存、畫面更新的診斷與故障測試。整合基準為 PR #26 `ee813bc`（含共用快照等待與實際送達等待修正）；診斷保持 draft，未安裝或發布。
 
 ## 範圍與守門條件
 
@@ -28,3 +28,5 @@ SQLite contention 保持聊天前景：可視讀、Send flush、autosave可能�
 完整CI `42053805683` 在安裝後 archived reaction fixture失敗：SmokeOpenEntryAsync遇到coalesced refresh會先返回，隨即讀舊名單快照。新增有限期等待真實refresh完成再選對象，保留角色／收件人斷言，不跳gate。並同步最新版A失敗／B先送達／A重試排序fixture。最後整合CI仍需核對，先前通過的單項不代替完整綠燈。
 
 兩台Windows、真實教室、IME與實體DPI仍需現場驗收。跨平台建置不作原生證據；WPF RenderTargetBitmap截圖不作實體DPI證據。操作、容量與隱私說明見 `windows-lite/DIAGNOSTICS.md`。
+
+共用recovery等待再修正：eafb6b3 的package18全過，但portable在第二則Count==2過早斷言。現已同步peer先等待接收SQLite原文、再等待自己的正常history row；第一則與人工重試也使用正向正常row證據，保留原Count／ID／無殘留卡斷言。focused診斷workflow額外跑既有18項native recovery並獨立上傳JSON，較早發現這類錯誤；完整套件gate保持不變。
