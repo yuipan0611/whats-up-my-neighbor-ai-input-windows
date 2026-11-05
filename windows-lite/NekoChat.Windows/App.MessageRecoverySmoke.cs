@@ -128,7 +128,7 @@ public partial class App
                 s.CompleteClassroomAttempt(begun.MessageId, new FailedOutcome("offline"), null, begun.TryCount);
                 return begun;
             });
-            window.DataChanged();
+            await window.SmokeOpenEntryAsync(e => e.ConversationId == principal.Value);
             await Wait(() => window.History.Rows.Any(row => row.AttemptId == historic.MessageId));
             window.SmokeUsePeerPort(peer.Listener.Port);
             const string newerDelivered = "前一則仍失敗時，較新的訊息先送達";
