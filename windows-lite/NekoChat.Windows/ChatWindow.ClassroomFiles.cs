@@ -45,10 +45,24 @@ public partial class ChatWindow
         if(_runtime?.ClassroomFiles is null||_uploadCancellation is not null)return;
         var pick=new Microsoft.Win32.OpenFileDialog{Title="分享檔案給全班",Multiselect=false,Filter="所有檔案|*.*"};
         if(pick.ShowDialog(this)!=true)return;
-        _uploadPath=pick.FileName;await UploadClassroomFileAsync();
+        await AddClassroomUploadPathsAsync(new[] { pick.FileName });
+    }
+    private bool CanDropClassroomFile() => _showTeacherFiles && !_stopping && !_closingRequested && _runtime?.ClassroomFiles is not null && _uploadCancellation is null && _uploadPath is null;
+    private async Task AddClassroomUploadPathsAsync(string[] paths)
+    {
+        if (!CanDropClassroomFile()) return;
+        if (paths.Length != 1)
+        {
+            ShareUploadPanel.Visibility = Visibility.Visible;
+            ShareUploadState.Text = "課堂檔案一次只能分享一個檔案，請重新拖入。";
+            RetryClassroomUpload.Visibility = Visibility.Collapsed;
+            return;
+        }
+        _uploadPath = paths[0];
+        await UploadClassroomFileAsync();
     }
     private async void RetryClassroomUploadClick(object sender,RoutedEventArgs e)=>await UploadClassroomFileAsync();
-    private void CancelClassroomUploadClick(object sender,RoutedEventArgs e){if(_uploadCancellation is not null)_uploadCancellation.Cancel();else{_uploadPath=null;ShareUploadPanel.Visibility=Visibility.Collapsed;}}
+    private void CancelClassroomUploadClick(object sender,RoutedEventArgs e){if(_uploadCancellation is not null)_uploadCancellation.Cancel();else{_uploadPath=null;ShareUploadPanel.Visibility=Visibility.Collapsed;UploadClassroomFileButton.IsEnabled=true;}}
     private async Task UploadClassroomFileAsync()
     {
         if(_runtime?.ClassroomFiles is not {} service||_uploadPath is null||_uploadCancellation is not null)return;
@@ -56,7 +70,7 @@ public partial class ChatWindow
         ShareUploadPanel.Visibility=Visibility.Visible;ShareUploadState.Text=Path.GetFileName(_uploadPath)+" · 準備分享中…";RetryClassroomUpload.Visibility=Visibility.Collapsed;UploadClassroomFileButton.IsEnabled=false;
         try{await service.ShareAsync(_uploadPath,cancellation:_uploadCancellation.Token);_uploadPath=null;ShareUploadPanel.Visibility=Visibility.Collapsed;await LoadSharedFilesAsync(false);}
         catch(Exception ex){ShareUploadState.Text=Path.GetFileName(_uploadPath)+" · "+AttachmentException.Describe(ex);RetryClassroomUpload.Visibility=Visibility.Visible;}
-        finally{_uploadCancellation.Dispose();_uploadCancellation=null;UploadClassroomFileButton.IsEnabled=true;}
+        finally{_uploadCancellation.Dispose();_uploadCancellation=null;UploadClassroomFileButton.IsEnabled=_uploadPath is null;}
     }
     private async Task SharedFileActionAsync(string id,string action)
     {

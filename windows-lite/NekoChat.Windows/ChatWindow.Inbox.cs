@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using NekoChat.Core;
+using NekoChat.Core.Attachments;
 using NekoChat.Core.Presentation;
 using NekoChat.Core.Roster;
 using NekoChat.Core.Storage;
@@ -564,44 +565,47 @@ public partial class ChatWindow
     }
     private void ComposerDragOver(object sender, DragEventArgs e)
     {
-        if (CanAddAttachment() && _attachmentDraft is null && e.Data.GetDataPresent(DataFormats.FileDrop))
+        bool files;
+        try { files = e.Data.GetDataPresent(DataFormats.FileDrop); }
+        catch (System.Runtime.InteropServices.COMException) { files = false; }
+        bool destinationReady = _showTeacherFiles ? CanDropClassroomFile() : CanAddAttachment() && _attachmentDraft is null;
+        e.Effects = files && destinationReady && (e.AllowedEffects & DragDropEffects.Copy) != 0 ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+        if (e.Effects != DragDropEffects.Copy) return;
+        if (_showTeacherFiles)
         {
-            e.Effects = DragDropEffects.Copy;
-            e.Handled = true;
-            if (ComposerBorder is not null)
-            {
-                ComposerBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(40, 89, 197));
-                ComposerBorder.Background = new SolidColorBrush(Color.FromRgb(243, 246, 250));
-            }
+            TeacherFilesPane.Background = new SolidColorBrush(Color.FromRgb(243, 246, 250));
+            ClassroomHostState.Text = "放開即分享給全班 · 一次一個檔案";
         }
-        else
+        else if (ComposerBorder is not null)
         {
-            e.Effects = DragDropEffects.None; e.Handled = true;
+            ComposerBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(40, 89, 197));
+            ComposerBorder.Background = new SolidColorBrush(Color.FromRgb(243, 246, 250));
         }
     }
-    private void ComposerDragLeave(object sender, DragEventArgs e)
+    private void ResetFileDropHighlight()
     {
         if (ComposerBorder is not null)
         {
             ComposerBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(220, 227, 236));
             ComposerBorder.Background = Brushes.Transparent;
         }
+        TeacherFilesPane.Background = new SolidColorBrush(Color.FromRgb(252, 253, 255));
+        if (_showTeacherFiles && _runtime?.ClassroomFiles is { } shares) ClassroomHostState.Text = shares.HostStatus;
     }
+    private void ComposerDragLeave(object sender, DragEventArgs e) => ResetFileDropHighlight();
     private async void ComposerDrop(object sender, DragEventArgs e)
     {
-        if (ComposerBorder is not null)
+        ResetFileDropHighlight();
+        // Both destinations own file drops, including rejected drops: never let TextBox insert a filename.
+        e.Handled = true;
+        try
         {
-            ComposerBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(220, 227, 236));
-            ComposerBorder.Background = Brushes.Transparent;
+            if (!e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
+            if (_showTeacherFiles) await AddClassroomUploadPathsAsync(files);
+            else await AddAttachmentPathsAsync(files);
         }
-        if (e.Data.GetDataPresent(DataFormats.FileDrop))
-        {
-            if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
-            {
-                e.Handled = true;
-                await AddAttachmentPathsAsync(files);
-            }
-        }
+        catch (Exception error) { SetStatus(AttachmentException.Describe(error)); }
     }
     private void InsertCodeClick(object sender, RoutedEventArgs e)
     {
