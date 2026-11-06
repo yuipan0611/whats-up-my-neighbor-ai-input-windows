@@ -135,6 +135,20 @@ public partial class App
                 Check(combined.Contains("StorageBusy") && combined.Contains("QueueFull") && combined.Contains("NetworkUnavailable"), "native export retains independent failures for bug diagnosis");
             }
             Check(File.ReadAllText(Path.Combine(root, "diagnostics")) == "keep-blocked-log-location", "logger never deletes the conflicting external file");
+            // Exercise the actual no-runtime export entrypoint with every retained generation populated.
+            string history = Path.Combine(root, "retained-history");
+            for (int generation = 0; generation < 4; generation++)
+            {
+                await using var journal = new DiagnosticJournal(history, ChatRuntime.DiagnosticVersion);
+                journal.Record(DiagnosticStage.UiAction, DiagnosticOutcome.Failed, messageId: Guid.NewGuid().ToString("D"));
+            }
+            var retained = Directory.GetFiles(history).ToDictionary(path => Path.GetFileName(path)!, File.ReadAllBytes);
+            Check(retained.Count == 5 && retained.ContainsKey("diagnostics-3.jsonl"), "native read-only export fixture has all four retained generations");
+            window.DetachRuntime(); window.SetDiagnosticsDirectory(history);
+            Check((await window.ExportDiagnosticsAsync(Path.Combine(output, "no-runtime-1.zip"))).Success, "actual no-runtime window exports retained diagnostic history");
+            Check((await window.ExportDiagnosticsAsync(Path.Combine(output, "no-runtime-2.zip"))).Success, "actual no-runtime window exports repeatedly without starting a writer");
+            var afterExport = Directory.GetFiles(history).ToDictionary(path => Path.GetFileName(path)!, File.ReadAllBytes);
+            Check(afterExport.Count == retained.Count && retained.All(pair => afterExport.TryGetValue(pair.Key, out var bytes) && bytes.SequenceEqual(pair.Value)), "native export does not rotate, delete or write retained diagnostic files");
             Capture(window, Path.Combine(output, "diagnostics-recovered.png"));
         }
         catch (Exception error)

@@ -20,9 +20,10 @@
 - 預設 4 份 JSONL，每份不超過 512 KiB；輪替時移除最舊的診斷。另有一個零內容 writer lock。
 - 最多 256 筆背景寫入工作、256 筆最近記憶體事件；佇列滿時丟棄診斷並計數，不等待 I/O。
 - 相同階段／結果／代碼／訊息／次數／計數／程式位置在 2 秒內重複時合併計數，使用單調時鐘，不受系統時間調整影響。
-- 檔案無法建立或寫入時，本次 journal 降為記憶體；`writeFailures`／`droppedEvents`／`suppressedEvents` 在摘要中可見。修復位置後重啟 App 才重新嘗試持久記錄。
+- 檔案無法建立或寫入時，本次 session 不再重試磁碟寫入，只保留最近 256 筆記憶體事件；`writeFailures`／`droppedEvents`／`suppressedEvents` 在摘要中可見。修復位置後重啟 App 才重新嘗試持久記錄。
 - 匯出有 5 秒等待上限，停止時等待 journal 最多 2 秒。失敗、突然斷電或程序被強制終止時，最後的背景事件可能尚未落盤，不能把沒有事件當成沒有錯誤。
 - 同一個目錄同時只允許一個 writer；另一個 journal 保留記憶體事件。診斷路徑／固定檔名拒絕符號連結或 reparse point。
+- runtime 尚未啟動或無法啟動時，使用只讀匯出，不建立 writer／lock／來源目錄、不輪替或刪除任何既有診斷。匯出仍只讀固定檔名並遵守原有大小上限。
 
 ## 傳送與接收語意
 
@@ -30,7 +31,7 @@
 
 接收端交易提交後才回 ACK；畫面通知失敗不撤銷已提交的訊息。這類通知例外另記 ReceiveNotify／NotificationFailed。未讀仍以前景實際可視的最後一則推進閱讀位置，涵蓋此前未載入訊息；畫面後方的新訊息維持未讀。診斷不能繞過世代檢查。
 
-UI 操作的 finally／外層傳送邊界恢復 busy 狀態；同一流程成功後清除暫時錯誤，確認本機寫入恢復後清除草稿儲存的暫時錯誤，保留 runtime 的持續性開機及待送儲存警告並記 Recovered 事件。分類提示與匯出按鈕可繼續操作。一般網路、儲存與介面操作失敗可以隔離；不對作業系統終止、原生程序損壞或記憶體耗盡宣稱能繼續運作。
+UI 操作的 finally／外層傳送邊界只恢復 busy 狀態，不改寫 attempt 或推定「未送出」；提示使用固定文字與 NCD 代碼。Core `DiagnosticRecoveryPolicy` 以階段＋代碼保存尚未恢復的失敗集合，不讓暫時錯誤覆寫持續故障。畫面依序優先顯示資料完整性停止、持續寫入問題、其餘嚴重程度；同級用固定順序。恢復只移除對應流程的失敗，磁碟滿／唯讀與寫入 I/O 錯誤需確認寫入成功，讀取 I/O 則可由該讀取流程成功恢復；一般成功不能清除 CorruptData／UnsupportedData。集合實際減少才記 Recovered，保留 runtime 的開機及待送儲存警告。分類提示與匯出按鈕可繼續操作。一般網路、儲存與介面操作失敗可以隔離；不對作業系統終止、原生程序損壞或記憶體耗盡宣稱能繼續運作。
 
 ## 故障回歸
 
@@ -38,7 +39,10 @@ UI 操作的 finally／外層傳送邊界恢復 busy 狀態；同一流程成功
 dotnet run --project windows-lite/NekoChat.Tests -c Release -- --diagnostics
 dotnet run --project windows-lite/NekoChat.Tests -c Release -- --attachments
 dotnet run --project windows-lite/NekoChat.Tests -c Release -- --outbox
+dotnet run --project windows-lite/NekoChat.Tests -c Release -- --diag-independent
 ```
+
+macOS 執行 `--outbox` 或 `--classroom-all` 前，必須把 `TMPDIR` 設成工作樹內實際存在且本身與祖先都不是符號連結的路徑。例如在真實工作樹目錄執行 `mkdir -p build/tmp`，再用 `TMPDIR="$PWD/build/tmp" dotnet run --project windows-lite/NekoChat.Tests -c Release -- --classroom-all`。macOS 預設暫存路徑可能經過符號連結，會被 AttachmentVault 判為 `unsafe_path`，未處理的例外可能使測試以 exit 134 中止；這不是測試通過。
 
 Windows 原生：
 

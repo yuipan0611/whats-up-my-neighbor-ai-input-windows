@@ -8,18 +8,26 @@ namespace NekoChat.Windows;
 public partial class ChatWindow
 {
     private string? _diagnosticsDirectory;
-    private (DiagnosticStage Stage, DiagnosticFault Fault)? _visibleDiagnosticFailure;
+    private IReadOnlyList<DiagnosticFailure> _diagnosticFailures = [];
     private bool _exportingDiagnostics;
     private void ClearRecoveredDiagnostic(DiagnosticStage stage, bool writeConfirmed = false)
     {
-        if (_visibleDiagnosticFailure is not { } failure || failure.Fault.StopDataOperations) return;
-        bool sameFlow = failure.Stage == stage;
-        bool recoveredWrite = writeConfirmed && failure.Stage == DiagnosticStage.StorageWrite &&
-            failure.Fault.Code is DiagnosticCode.StorageBusy or DiagnosticCode.QueueFull or DiagnosticCode.DiskFull or DiagnosticCode.ReadOnly or DiagnosticCode.StorageIo;
-        if (!sameFlow && !recoveredWrite) return;
-        _visibleDiagnosticFailure = null; StorageStatus.Text = _runtime?.OutboxFailure ?? _runtime?.StartupWarning ?? "";
-        ReloadData.Visibility = Visibility.Collapsed;
+        var remaining = DiagnosticRecoveryPolicy.Recover(_diagnosticFailures, stage, writeConfirmed);
+        if (remaining.Count == _diagnosticFailures.Count) return;
+        _diagnosticFailures = remaining;
+        RefreshDiagnosticStatus();
         _runtime?.Diagnostics.Record(stage, DiagnosticOutcome.Recovered);
+    }
+    private void RefreshDiagnosticStatus()
+    {
+        var visible = DiagnosticRecoveryPolicy.Visible(_diagnosticFailures);
+        StorageStatus.Text = visible is not null ? DiagnosticMessage(visible.Fault) : _runtime?.OutboxFailure ?? _runtime?.StartupWarning ?? "";
+        ReloadData.Visibility = visible is not null ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private void SetStorageNotice(string message)
+    {
+        if (_diagnosticFailures.Count > 0) RefreshDiagnosticStatus();
+        else StorageStatus.Text = message;
     }
     internal void SetDiagnosticsDirectory(string directory)
     {
@@ -39,7 +47,7 @@ public partial class ChatWindow
         DiagnosticJournal? temporary = null;
         try
         {
-            var journal = _runtime?.Diagnostics ?? (temporary = new DiagnosticJournal(_diagnosticsDirectory, ChatRuntime.DiagnosticVersion));
+            var journal = _runtime?.Diagnostics ?? (temporary = DiagnosticJournal.OpenReadOnly(_diagnosticsDirectory, ChatRuntime.DiagnosticVersion));
             var result = await journal.ExportAsync(destination);
             journal.Record(DiagnosticStage.Journal, result.Success ? DiagnosticOutcome.Succeeded : DiagnosticOutcome.Failed, result.Code);
             DiagnosticsStatus.Text = result.Success ? journal.PersistentAvailable ? "診斷已匯出。請自行選擇是否分享給開發者。" : "近期診斷已匯出；本機記錄空間無法使用，較早事件可能未保留。" : "診斷匯出未完成，請重試。（NCD-" + result.Code + "）";

@@ -95,7 +95,7 @@ public partial class ChatWindow
     }
     internal async Task AttachRuntimeAsync(ChatRuntime runtime, int peerPort)
     {
-        _visibleDiagnosticFailure = null; _runtime = runtime; SetDiagnosticsDirectory(Path.Combine(Path.GetDirectoryName(runtime.DataDirectory)!, "diagnostics")); ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
+        _diagnosticFailures = []; _runtime = runtime; SetDiagnosticsDirectory(Path.Combine(Path.GetDirectoryName(runtime.DataDirectory)!, "diagnostics")); ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
         var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy());
         if (!runtime.ArchivedIdentityFixture && !policy.Enabled && policy.Generation == 0)
         {
@@ -117,8 +117,7 @@ public partial class ChatWindow
     {
         if (_runtime is null || _stopping) return;
         if (_refreshing) { _refreshAgain = true; return; }
-        if (_runtime.OutboxFailure is { } failure) StorageStatus.Text = failure;
-        else if (StorageStatus.Text.StartsWith("待送儲存暫停：", StringComparison.Ordinal)) StorageStatus.Text = _runtime.StartupWarning ?? "";
+        if (_diagnosticFailures.Count > 0 || _runtime.OutboxFailure is not null || StorageStatus.Text.StartsWith("待送儲存暫停：", StringComparison.Ordinal)) RefreshDiagnosticStatus();
         _refreshing = true;
         long diagnosticStart = Stopwatch.GetTimestamp();
         _runtime.Diagnostics.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Started);
@@ -277,7 +276,7 @@ public partial class ChatWindow
                     pair.Value.CompleteWrite(ticket, result);
                     if (!result.Saved) runtime.Diagnostics.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(result.Reason).Code);
                     if (!result.Saved && pair.Value.IsCurrent(ticket) && pair.Value.Dirty)
-                        StorageStatus.Text = result.Reason == "draft-too-large" ? "草稿太長無法保存，請縮短。" : "草稿尚未儲存，請重新讀取或保留目前文字後重試。";
+                        SetStorageNotice(result.Reason == "draft-too-large" ? "草稿太長無法保存，請縮短。" : "草稿尚未儲存，請重新讀取或保留目前文字後重試。");
                 }
                 catch (Exception ex) { ShowStorageError(ex); }
             }
@@ -533,7 +532,7 @@ public partial class ChatWindow
             var rows = loaded.Rows;
             if (generation != _manualFormGeneration) return;
             var row = rosterId is null ? null : rows.FirstOrDefault(r => r.Entry.Id == rosterId);
-            if (rosterId is not null && row is null) { StorageStatus.Text = "這筆名單已移除，請重新開啟設定。"; return; }
+            if (rosterId is not null && row is null) { SetStorageNotice("這筆名單已移除，請重新開啟設定。"); return; }
             _manualFormSnapshot = RosterImportPreview.ComputeSnapshotToken(rows); ContactName.Text = row?.Entry.DisplayName ?? ""; StudentNumberBox.Text = row?.Entry.StudentNumber ?? ""; RecipientIp.Text = row?.Entry.Endpoint ?? ""; TeacherLabel.IsChecked = row?.Entry.IsTeacher == true;
             SaveContactButton.IsEnabled = true; DeleteContactButton.IsEnabled = row is not null; _pairingSelection = loaded.Target; RefreshPairingControls();
         }
@@ -565,7 +564,7 @@ public partial class ChatWindow
             {
                 SaveContactFeedback.Foreground = System.Windows.Media.Brushes.Firebrick;
                 SaveContactFeedback.Text = "❌ " + RosterFailure(result.Reason);
-                StorageStatus.Text = RosterFailure(result.Reason);
+                SetStorageNotice(RosterFailure(result.Reason));
             }
         }
         catch (Exception ex) { ShowStorageError(ex); }
@@ -576,11 +575,11 @@ public partial class ChatWindow
         try
         {
             var preview = await _runtime.Worker.Run(s => s.PreviewRosterDelete(id));
-            if (!preview.CanDelete) { StorageStatus.Text = RosterFailure(preview.Reason); return; }
+            if (!preview.CanDelete) { SetStorageNotice(RosterFailure(preview.Reason)); return; }
             if (MessageBox.Show(this, preview.Notice, "移除名單標籤", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
             await _runtime.InvalidatePairingAsync("roster_delete");
             var result = await _runtime.Worker.Run(s => s.DeleteRosterEntry(id, preview.SnapshotToken, preview.ToConfirmation()));
-            if (!result.Changed) { StorageStatus.Text = RosterFailure(result.Reason); return; }
+            if (!result.Changed) { SetStorageNotice(RosterFailure(result.Reason)); return; }
             await LoadManualFormAsync(null); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync(true); SetStatus("名單標籤已移除，對話仍保留。");
         }
         catch (Exception ex) { ShowStorageError(ex); }
@@ -679,9 +678,8 @@ public partial class ChatWindow
         var stage = caller == nameof(MarkViewportAsync) ? DiagnosticStage.UiRead : caller is nameof(RefreshInboxAsync) or nameof(LoadHistoryAsync) ? DiagnosticStage.UiRefresh : caller is nameof(SendCoreAsync) or nameof(SendBoundaryAsync) or nameof(SendClassroomCoreAsync) or nameof(QueueCurrentMessageAsync) ? DiagnosticStage.SendPrepare : caller == nameof(FlushDraftsAsync) ? DiagnosticStage.StorageWrite : DiagnosticStage.UiAction;
         var fault = DiagnosticFault.FromException(exception, exception is OperationCanceledException && _closingRequested);
         _runtime?.Diagnostics.Record(stage, DiagnosticOutcome.Failed, error: exception);
-        _visibleDiagnosticFailure = (stage, fault);
-        StorageStatus.Text = DiagnosticMessage(fault);
-        ReloadData.Visibility = Visibility.Visible;
+        _diagnosticFailures = DiagnosticRecoveryPolicy.Report(_diagnosticFailures, stage, fault);
+        RefreshDiagnosticStatus();
     }
     private static string DiagnosticMessage(DiagnosticFault fault) => (fault.Code switch {
         DiagnosticCode.StorageBusy or DiagnosticCode.QueueFull => "本機資料忙碌，這次操作未完成，請稍後重試。",

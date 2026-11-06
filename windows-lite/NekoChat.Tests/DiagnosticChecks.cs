@@ -14,6 +14,7 @@ namespace NekoChat.Tests;
 
 internal static class DiagnosticChecks
 {
+    private sealed class PrivateDetailException(string message) : Exception(message);
     private sealed class AckFaultHandler : DelegatingHandler
     {
         internal string? Fault;
@@ -64,6 +65,7 @@ internal static class DiagnosticChecks
             Check(new[] { DiagnosticCode.OperationBusy, DiagnosticCode.UiNotReady, DiagnosticCode.DraftNotSaved }.All(code => DiagnosticFault.For(code).Category == DiagnosticCategory.State), "send admission guards are fixed state categories rather than network failures");
             Check(DiagnosticFault.FromReason("stale-revision").Code == DiagnosticCode.StaleView && DiagnosticFault.FromReason("stale-epoch").Code == DiagnosticCode.StaleView, "strict draft rejection maps to bounded state metadata");
             Check(DiagnosticFault.FromReason("draft-too-large").Code == DiagnosticCode.InvalidPayload && DiagnosticFault.FromReason("not-found").Code == DiagnosticCode.StaleView, "non-exception draft rejections retain fixed actionable categories");
+            await ExportPreservesHistoryAsync(root, Check);
             string folder = Path.Combine(root, "normal");
             await using (var journal = new DiagnosticJournal(folder, "0.1.0-beta.10"))
             {
@@ -72,6 +74,9 @@ internal static class DiagnosticChecks
                 catch (Exception error) { sensitive = error; }
                 string id = Guid.NewGuid().ToString("D");
                 journal.Record(DiagnosticStage.UiAction, DiagnosticOutcome.Failed, error: sensitive, messageId: "SENSITIVE-user-input");
+                journal.Record(DiagnosticStage.UiAction, DiagnosticOutcome.Failed,
+                    error: new PrivateDetailException("SENSITIVE 10.20.30.40 Bearer alice.txt"));
+                Check(journal.Recent.Last().ExceptionType == "OtherException", "unknown custom exception exports fixed OtherException rather than its private message or type");
                 journal.Record(DiagnosticStage.SendConfirm, DiagnosticOutcome.Unconfirmed, DiagnosticCode.Unconfirmed, messageId: id, attempt: 2);
                 journal.Record(DiagnosticStage.SendAdmission, DiagnosticOutcome.Deferred, DiagnosticCode.UiNotReady);
                 for (int i = 0; i < 20; i++) journal.Record(DiagnosticStage.UiRead, DiagnosticOutcome.Deferred);
@@ -129,6 +134,36 @@ internal static class DiagnosticChecks
         return checks;
     }
     private static void ThrowSensitive() => throw new InvalidOperationException("SENSITIVE Bearer token 10.20.30.40 alice.txt SELECT rawText FROM Message", new IOException("SENSITIVE C:\\Users\\private"));
+    private static async Task ExportPreservesHistoryAsync(string root, Action<bool, string> check)
+    {
+        string directory = Path.Combine(root, "read-only-export");
+        // Fill every retained generation using real journals. Starting another writer would delete generation 3.
+        for (int generation = 0; generation < 4; generation++)
+        {
+            await using var journal = new DiagnosticJournal(directory, "1.0.0");
+            journal.Record(DiagnosticStage.UiAction, DiagnosticOutcome.Failed, messageId: Guid.NewGuid().ToString("D"));
+        }
+        var before = Directory.GetFiles(directory).ToDictionary(path => Path.GetFileName(path)!, File.ReadAllBytes);
+        check(before.Count == 5 && before.ContainsKey("diagnostics-3.jsonl"), "export fixture retains four complete generations and writer lock");
+        for (int pass = 0; pass < 2; pass++)
+        {
+            await using var journal = DiagnosticJournal.OpenReadOnly(directory, "1.0.0");
+            journal.Record(DiagnosticStage.Journal, DiagnosticOutcome.Succeeded);
+            string destination = Path.Combine(root, "read-only-" + pass + ".zip");
+            check((await journal.ExportAsync(destination)).Success, "read-only export succeeds repeatedly");
+            using var zip = ZipFile.OpenRead(destination);
+            foreach (var pair in before.Where(pair => pair.Key!.EndsWith(".jsonl", StringComparison.Ordinal)))
+            {
+                using var entry = zip.GetEntry(pair.Key!)!.Open(); using var bytes = new MemoryStream(); entry.CopyTo(bytes);
+                check(bytes.ToArray().SequenceEqual(pair.Value), "read-only archive includes unchanged retained generation " + pair.Key);
+            }
+        }
+        var after = Directory.GetFiles(directory).ToDictionary(path => Path.GetFileName(path)!, File.ReadAllBytes);
+        check(after.Count == before.Count && before.All(pair => after.TryGetValue(pair.Key, out var bytes) && pair.Value.SequenceEqual(bytes)), "read-only export neither rotates, deletes nor writes diagnostic files");
+        string missing = Path.Combine(root, "missing-read-only");
+        await using var absent = DiagnosticJournal.OpenReadOnly(missing, "1.0.0");
+        check((await absent.ExportAsync(Path.Combine(root, "missing.zip"))).Success && !Directory.Exists(missing), "read-only export does not create a missing source directory");
+    }
     private static string ReadZip(string path)
     {
         using var zip = ZipFile.OpenRead(path); var text = new StringBuilder();

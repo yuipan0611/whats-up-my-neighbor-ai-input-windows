@@ -34,6 +34,7 @@ public sealed class DiagnosticJournal : IAsyncDisposable
     private readonly Dictionary<(DiagnosticStage, DiagnosticOutcome, DiagnosticCode, string?, int, string?, long), long> _repeat = new();
     private readonly object _gate = new();
     private readonly Task _writer;
+    private readonly bool _readOnly;
     private long _sequence, _dropped, _writeFailures, _suppressed;
     private int _stopping, _persistent;
     public long DroppedEvents => Interlocked.Read(ref _dropped);
@@ -43,7 +44,11 @@ public sealed class DiagnosticJournal : IAsyncDisposable
     public DiagnosticEvent[] Recent { get { lock (_gate) return _recent.ToArray(); } }
 
     public DiagnosticJournal(string directory, string version, DiagnosticJournalOptions? options = null)
+        : this(directory, version, options, readOnly: false) { }
+
+    private DiagnosticJournal(string directory, string version, DiagnosticJournalOptions? options, bool readOnly)
     {
+        _readOnly = readOnly;
         _directory = Path.GetFullPath(directory); _options = options ?? new();
         if (_options.FileBytes is < 16384 or > 1048576 || _options.FileCount is < 1 or > 8 ||
             _options.QueueCapacity is < 1 or > 4096 || _options.RecentCapacity is < 1 or > 1024)
@@ -51,12 +56,14 @@ public sealed class DiagnosticJournal : IAsyncDisposable
         _version = version.Length is > 0 and <= 96 && version.All(c => char.IsAsciiDigit(c) || c is '.' or '-' or '+' || c is >= 'a' and <= 'z') ? version : "unknown";
         _pending = Channel.CreateBounded<Work>(new BoundedChannelOptions(_options.QueueCapacity) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
         _writer = Task.Run(WriteLoopAsync);
-        Record(DiagnosticStage.Journal, DiagnosticOutcome.Started);
+        if (!readOnly) Record(DiagnosticStage.Journal, DiagnosticOutcome.Started);
     }
+    /// <summary>Exports retained files without creating a writer, lock or directory, or rotating history.</summary>
+    public static DiagnosticJournal OpenReadOnly(string directory, string version) => new(directory, version, null, readOnly: true);
     public void Record(DiagnosticStage stage, DiagnosticOutcome outcome, DiagnosticCode code = DiagnosticCode.None,
         Exception? error = null, string? messageId = null, int attempt = 0, long? elapsedMs = null, long count = 0, bool cancellationRequested = false, DiagnosticOrigin origin = DiagnosticOrigin.Local)
     {
-        if (Volatile.Read(ref _stopping) != 0) return;
+        if (_readOnly || Volatile.Read(ref _stopping) != 0) return;
         try
         {
             var fault = code != DiagnosticCode.None ? DiagnosticFault.For(code) : error is null ? DiagnosticFault.For(code) : DiagnosticFault.FromException(error, cancellationRequested, stage);
@@ -110,11 +117,20 @@ public sealed class DiagnosticJournal : IAsyncDisposable
         {
             try
             {
-                RejectLink(_directory); Directory.CreateDirectory(_directory); RejectLink(Path.Combine(_directory, "writer.lock"));
-                if (!Owners.TryAdd(_directory, 0)) throw new IOException("Diagnostic writer already active.");
-                registered = true;
-                owner = new(Path.Combine(_directory, "writer.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-                Rotate(); disk = true;
+                RejectLink(_directory);
+                if (_readOnly)
+                {
+                    disk = Directory.Exists(_directory);
+                    Volatile.Write(ref _persistent, disk ? 1 : 0);
+                }
+                else
+                {
+                    Directory.CreateDirectory(_directory); RejectLink(Path.Combine(_directory, "writer.lock"));
+                    if (!Owners.TryAdd(_directory, 0)) throw new IOException("Diagnostic writer already active.");
+                    registered = true;
+                    owner = new(Path.Combine(_directory, "writer.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                    Rotate(); disk = true;
+                }
             }
             catch (Exception error) when (DiagnosticFault.Catchable(error)) { Interlocked.Increment(ref _writeFailures); }
             await foreach (var work in _pending.Reader.ReadAllAsync().ConfigureAwait(false))
@@ -202,8 +218,6 @@ public sealed class DiagnosticJournal : IAsyncDisposable
             foreach (var frame in new StackTrace(error, false).GetFrames())
             {
                 MethodBase? method = frame.GetMethod();
-                string? assembly = method?.Module.Assembly.GetName().Name;
-                if (assembly is not ("NekoChat.Core" or "NekoChat.Windows" or "NekoChat.Tests")) continue;
                 Type? declaring = method?.DeclaringType;
                 string? type = (declaring?.IsGenericType == true ? declaring.GetGenericTypeDefinition() : declaring)?.FullName;
                 if (type is null || !type.StartsWith("NekoChat.", StringComparison.Ordinal)) continue;
