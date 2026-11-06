@@ -25,11 +25,12 @@ internal static class DiagnosticIndependentChecks
         public void AfterCommit(string op) { }
     }
 
-    private static async Task Wait(Func<bool> predicate, string what)
+    /// <summary>Waits up to 20 s; a timeout is reported as a failed check by the caller (never as a crash).</summary>
+    private static async Task<bool> WaitFor(Func<bool> predicate)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-        try { while (!predicate()) await Task.Delay(20, timeout.Token); }
-        catch (OperationCanceledException) { throw new TimeoutException("timed out waiting for: " + what); }
+        try { while (!predicate()) await Task.Delay(20, timeout.Token); return true; }
+        catch (OperationCanceledException) { return false; }
     }
 
     private sealed class Receiver : IAsyncDisposable
@@ -78,18 +79,18 @@ internal static class DiagnosticIndependentChecks
                 string first = Queue("REC first (finalization will fail)");
                 await using var queue = new ClassroomOutbox(store, new(store), null, (_, _) => "127.0.0.1", journal);
                 int failed = 0, recovered = 0; queue.Failed += _ => Interlocked.Increment(ref failed); queue.Recovered += () => Interlocked.Increment(ref recovered);
-                await Wait(() => Volatile.Read(ref failed) > 0, "first failure");
+                Check(await WaitFor(() => Volatile.Read(ref failed) > 0), "WAIT first failure");
                 Check(Volatile.Read(ref recovered) == 0 && Recoveries() == 0, "REC while finalization keeps failing nothing is announced as recovered");
                 fault.Block = false;
-                await Wait(() => store.ListOutbox().Single(x => x.MessageId == first).State == "complete", "first message completes after repair");
-                await Wait(() => Volatile.Read(ref recovered) > 0, "first recovery announced");
+                Check(await WaitFor(() => store.ListOutbox().Single(x => x.MessageId == first).State == "complete"), "WAIT first message completes after repair");
+                Check(await WaitFor(() => Volatile.Read(ref recovered) > 0), "WAIT first recovery announced");
                 await Task.Delay(300);
                 int afterFirst = Volatile.Read(ref recovered); long journalAfterFirst = Recoveries();
                 Check(afterFirst == 1 && journalAfterFirst >= 1, "REC the first recovery is announced exactly once to the UI", $"events={afterFirst} journal={journalAfterFirst}");
 
                 // ordinary successes after the recovery stay silent: the failure flag was cleared by the recovery
                 string second = Queue("REC second (healthy)"), third = Queue("REC third (healthy)");
-                await Wait(() => store.ListOutbox().Where(x => x.MessageId == second || x.MessageId == third).All(x => x.State == "complete"), "two healthy messages complete");
+                Check(await WaitFor(() => store.ListOutbox().Where(x => x.MessageId == second || x.MessageId == third).All(x => x.State == "complete")), "WAIT two healthy messages complete");
                 await Task.Delay(300);
                 Check(Volatile.Read(ref recovered) == afterFirst, "REC later healthy sends do not announce a recovery again (the flag was cleared)", $"events={Volatile.Read(ref recovered)} expected={afterFirst}");
                 Check(Recoveries() == journalAfterFirst, "REC the journal records no further Recovered events after the flag was cleared", $"journal={Recoveries()} expected={journalAfterFirst}");
@@ -97,10 +98,10 @@ internal static class DiagnosticIndependentChecks
                 // a NEW failure episode arms it again, and its recovery is announced again
                 fault.Block = true; int failedBefore = Volatile.Read(ref failed);
                 string fourth = Queue("REC fourth (finalization fails again)");
-                await Wait(() => Volatile.Read(ref failed) > failedBefore, "second failure");
+                Check(await WaitFor(() => Volatile.Read(ref failed) > failedBefore), "WAIT second failure");
                 fault.Block = false;
-                await Wait(() => store.ListOutbox().Single(x => x.MessageId == fourth).State == "complete", "fourth completes after repair");
-                await Wait(() => Volatile.Read(ref recovered) > afterFirst, "second recovery announced");
+                Check(await WaitFor(() => store.ListOutbox().Single(x => x.MessageId == fourth).State == "complete"), "WAIT fourth completes after repair");
+                Check(await WaitFor(() => Volatile.Read(ref recovered) > afterFirst), "WAIT second recovery announced");
                 await Task.Delay(300);
                 Check(Volatile.Read(ref recovered) == afterFirst + 1, "REC a new failure episode is recovered and announced exactly once more", $"events={Volatile.Read(ref recovered)} expected={afterFirst + 1}");
                 Check(receiver.Store.ListClassroomMessages(p).Items.Count == 4, "REC every queued message reached the receiver exactly once", "stored=" + receiver.Store.ListClassroomMessages(p).Items.Count);
@@ -112,26 +113,24 @@ internal static class DiagnosticIndependentChecks
             await using (var receiverJournal = new DiagnosticJournal(blockedDir + "-receiver", "1.0.0"))
             {
                 File.WriteAllText(blockedDir + "-receiver", "also blocked");
-                await Wait(() => senderJournal.WriteFailures > 0 && receiverJournal.WriteFailures > 0, "both journals report that they cannot write");
+                Check(await WaitFor(() => senderJournal.WriteFailures > 0 && receiverJournal.WriteFailures > 0), "WAIT both journals report that they cannot write");
                 Check(!senderJournal.PersistentAvailable && !receiverJournal.PersistentAvailable, "FLOW both journals are in memory-only mode before the flows start");
                 await using var receiver = new Receiver(Path.Combine(root, "flow-receiver"), receiverJournal);
                 using var senderStore = ChatStore.Open(new(Path.Combine(root, "flow-sender")) { Diagnostics = senderJournal });
                 var sender = new ClassroomSender(senderStore, diagnostics: senderJournal);
                 for (int i = 1; i <= 3; i++)
+                try
                 {
                     string text = "FLOW message " + i;
                     var draft = senderStore.GetClassroomDraftState(p);
                     senderStore.SaveClassroomDraft(p, text, draft.Epoch, draft.Revision + 1);
                     var begin = (AttemptStarted)senderStore.BeginClassroomSend(p, text, draft.Epoch, draft.Revision + 1);
                     var prepared = senderStore.GetClassroomPreparedSend(begin.MessageId)!;
-                    try
-                    {
-                        var result = await sender.SendPreparedAsync(prepared, receiver.Listener.Port, "127.0.0.1", () => true);
-                        Check(result.Success && result.Completion is Confirmed, $"FLOW message {i}: the send is confirmed although neither journal can write", $"success={result.Success} code={result.Code}");
-                    }
-                    catch (Exception e) when (e is not OutOfMemoryException)
-                    { Check(false, $"FLOW message {i}: the send does not throw because of a diagnostics failure", e.GetType().Name + ": " + e.Message); }
+                    var result = await sender.SendPreparedAsync(prepared, receiver.Listener.Port, "127.0.0.1", () => true);
+                    Check(result.Success && result.Completion is Confirmed, $"FLOW message {i}: the send is confirmed although neither journal can write", $"success={result.Success} code={result.Code}");
                 }
+                catch (Exception e) when (e is not OutOfMemoryException)
+                { Check(false, $"FLOW message {i}: no exception comes out of the send path because of a diagnostics failure", e.GetType().Name + ": " + e.Message); }
                 var stored = receiver.Store.ListClassroomMessages(p).Items;
                 Check(stored.Count == 3 && stored.Select(m => m.RawText).SequenceEqual(new[] { "FLOW message 1", "FLOW message 2", "FLOW message 3" }), "FLOW the receiver stored all three messages exactly once and in order", "stored=" + stored.Count);
                 Check(senderJournal.Recent.Count(e => e.Stage == DiagnosticStage.SendConfirm && e.Outcome == DiagnosticOutcome.Succeeded) == 3, "FLOW the sender's memory journal still traces the three confirmations");
