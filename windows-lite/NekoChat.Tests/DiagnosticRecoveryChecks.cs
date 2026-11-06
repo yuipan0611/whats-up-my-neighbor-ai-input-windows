@@ -48,6 +48,11 @@ internal static class DiagnosticRecoveryChecks
         Check(DiagnosticRecoveryPolicy.Recover(warnings, DiagnosticStage.UiRead).Count == 0, "matching UI flow clears its transient warning");
         IReadOnlyList<DiagnosticFailure> readIo = [new(DiagnosticStage.UiRefresh, DiagnosticFault.For(DiagnosticCode.StorageIo))];
         Check(DiagnosticRecoveryPolicy.Recover(readIo, DiagnosticStage.UiRefresh).Count == 0, "successful read refresh recovers its own read I/O failure without requiring a send");
+        foreach (var code in new[] { DiagnosticCode.ReadOnly, DiagnosticCode.DiskFull })
+        {
+            IReadOnlyList<DiagnosticFailure> readFailure = [new(DiagnosticStage.UiRefresh, DiagnosticFault.For(code))];
+            Check(DiagnosticRecoveryPolicy.Recover(readFailure, DiagnosticStage.UiRefresh).Count == 0, "matching read flow recovers its own " + code + " without requiring a send");
+        }
         IReadOnlyList<DiagnosticFailure> ranked = [new(DiagnosticStage.UiRead, busy), new(DiagnosticStage.UiAction, DiagnosticFault.For(DiagnosticCode.Unexpected))];
         Check(DiagnosticRecoveryPolicy.Visible(ranked)?.Fault.Code == DiagnosticCode.Unexpected, "error outranks temporary warning");
         Check(DiagnosticRecoveryPolicy.Visible(ranked.Reverse().ToArray()) == DiagnosticRecoveryPolicy.Visible(ranked), "visible choice is independent of arrival order");

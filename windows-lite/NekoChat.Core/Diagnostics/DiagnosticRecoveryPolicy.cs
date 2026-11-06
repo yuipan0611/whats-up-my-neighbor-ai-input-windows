@@ -14,7 +14,7 @@ public static class DiagnosticRecoveryPolicy
     // Enum keys give equally severe failures a stable order independent of event arrival.
     public static DiagnosticFailure? Visible(IReadOnlyList<DiagnosticFailure> failures) => failures
         .OrderByDescending(failure => failure.Fault.StopDataOperations)
-        .ThenByDescending(NeedsWriteConfirmation)
+        .ThenByDescending(failure => failure.Fault.Code is DiagnosticCode.DiskFull or DiagnosticCode.ReadOnly || NeedsWriteConfirmation(failure))
         .ThenByDescending(failure => failure.Fault.Severity)
         .ThenBy(failure => failure.Stage).ThenBy(failure => failure.Fault.Code).FirstOrDefault();
 
@@ -32,6 +32,6 @@ public static class DiagnosticRecoveryPolicy
     }
 
     private static bool NeedsWriteConfirmation(DiagnosticFailure failure) =>
-        failure.Fault.Code is DiagnosticCode.DiskFull or DiagnosticCode.ReadOnly ||
-        failure.Fault.Code == DiagnosticCode.StorageIo && failure.Stage is DiagnosticStage.StorageWrite or DiagnosticStage.SendPrepare;
+        failure.Stage is DiagnosticStage.StorageWrite or DiagnosticStage.SendPrepare &&
+        failure.Fault.Code is DiagnosticCode.DiskFull or DiagnosticCode.ReadOnly or DiagnosticCode.StorageIo;
 }

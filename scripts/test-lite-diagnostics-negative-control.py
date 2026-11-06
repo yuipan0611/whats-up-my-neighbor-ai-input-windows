@@ -63,7 +63,7 @@ def main():
         ("M2-clear-unrelated", policy, ".Where(failure => !CanRecover(failure, stage, writeConfirmed)).ToArray();",
          ".Where(_ => false).ToArray();", "diagnostic-recovery", "M1 transient recovery removes only the matching failure"),
         ("M3-hide-severe", policy,
-         "=> failures\n        .OrderByDescending(failure => failure.Fault.StopDataOperations)\n        .ThenByDescending(NeedsWriteConfirmation)\n        .ThenByDescending(failure => failure.Fault.Severity)\n        .ThenBy(failure => failure.Stage).ThenBy(failure => failure.Fault.Code).FirstOrDefault();",
+         "=> failures\n        .OrderByDescending(failure => failure.Fault.StopDataOperations)\n        .ThenByDescending(failure => failure.Fault.Code is DiagnosticCode.DiskFull or DiagnosticCode.ReadOnly || NeedsWriteConfirmation(failure))\n        .ThenByDescending(failure => failure.Fault.Severity)\n        .ThenBy(failure => failure.Stage).ThenBy(failure => failure.Fault.Code).FirstOrDefault();",
          "=> failures.LastOrDefault();", "diagnostic-recovery", "persistent storage failure stays visible over transient failure"),
         ("M4-export-starts-writer", diagnostic,
          "new(directory, version, null, readOnly: true);", "new(directory, version, null, readOnly: false);",
