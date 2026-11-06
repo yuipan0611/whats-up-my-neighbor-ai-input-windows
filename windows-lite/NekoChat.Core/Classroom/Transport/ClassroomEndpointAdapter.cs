@@ -1,3 +1,4 @@
+using NekoChat.Core.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using NekoChat.Core.Classroom.Wire;
@@ -26,6 +27,7 @@ public interface IClassroomTransportSink
 public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
 {
     private readonly ClassroomSessionTable _sessions;
+    private readonly DiagnosticJournal? _diagnostics;
     private readonly IClassroomTransportSink? _sink;
     private readonly IReadOnlyList<string> _capabilities;
     private int _ready;
@@ -33,9 +35,9 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
     public bool Ready => Volatile.Read(ref _ready) == 1;
     public ClassroomSessionTable SessionTable => _sessions;
 
-    public ClassroomEndpointAdapter(IClassroomTransportSink? sink = null, ClassroomSessionTable? sessionTable = null, IReadOnlyList<string>? capabilities = null)
+    public ClassroomEndpointAdapter(IClassroomTransportSink? sink = null, ClassroomSessionTable? sessionTable = null, IReadOnlyList<string>? capabilities = null, DiagnosticJournal? diagnostics = null)
     {
-        _sink = sink;
+        _diagnostics = diagnostics; _sink = sink;
         _sessions = sessionTable ?? new ClassroomSessionTable();
         _capabilities = capabilities ?? new[] { "receipts" };
     }
@@ -54,6 +56,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         var result = ClassroomHead.Check(header.Span);
         if (!result.Ok)
         {
+            _diagnostics?.Record(DiagnosticStage.ReceiveValidate, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(result.Code).Code);
             return new ClassroomHeadDecision(result.Code);
         }
 
@@ -90,6 +93,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
 
     public ClassroomTransportResponse Error(string code)
     {
+        _diagnostics?.Record(DiagnosticStage.ReceiveRespond, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(code).Code);
         if (ClassroomWire.TryErrorStatus(code, out int status))
         {
             var (_, body) = ClassroomPacketWriter.Error(code);
@@ -161,6 +165,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         var v = ClassroomRequestValidator.Validate(ClassroomRequestKind.Hello, body, localIp, sourceIp, _sessions);
         if (!v.Ok)
         {
+            _diagnostics?.Record(DiagnosticStage.ReceiveValidate, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(v.Code).Code);
             return Error(v.Code);
         }
 
@@ -179,6 +184,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         var v = ClassroomRequestValidator.Validate(ClassroomRequestKind.Message, body.Span, localIp, sourceIp, _sessions);
         if (!v.Ok)
         {
+            _diagnostics?.Record(DiagnosticStage.ReceiveValidate, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(v.Code).Code);
             return Error(v.Code);
         }
 
@@ -205,6 +211,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _diagnostics?.Record(DiagnosticStage.ReceiveCommit, DiagnosticOutcome.Failed, error: ex, messageId: req.MessageId);
             return Error(ClassroomCodes.StorageUnavailable);
         }
     }
@@ -219,6 +226,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         var v = ClassroomRequestValidator.Validate(ClassroomRequestKind.Receipt, body.Span, localIp, sourceIp, _sessions);
         if (!v.Ok)
         {
+            _diagnostics?.Record(DiagnosticStage.ReceiveValidate, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(v.Code).Code);
             return Error(v.Code);
         }
 
@@ -245,6 +253,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _diagnostics?.Record(DiagnosticStage.ReceiveReceipt, DiagnosticOutcome.Failed, error: ex, messageId: req.MessageId);
             return Error(ClassroomCodes.StorageUnavailable);
         }
     }
@@ -276,6 +285,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _diagnostics?.Record(DiagnosticStage.ReceiveCommit, DiagnosticOutcome.Failed, error: ex);
             return Error(ClassroomCodes.StorageUnavailable);
         }
     }

@@ -1,0 +1,71 @@
+name: Lite diagnostics regression
+on:
+  pull_request:
+    paths:
+      - 'windows-lite/**'
+      - '.github/workflows/lite-diagnostics-regression.yml'
+      - 'scripts/test-lite-draft-negative-control.ps1'
+permissions:
+  contents: read
+concurrency:
+  group: lite-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  diagnostics:
+    name: Native diagnostics and failure recovery
+    runs-on: windows-2025
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify bounded diagnostics, privacy, SQLite and TCP faults
+        run: |
+          dotnet run --project windows-lite/NekoChat.Tests -c Release -- --diagnostics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet run --project windows-lite/NekoChat.Tests -c Release -- --outbox
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet run --project windows-lite/NekoChat.Tests -c Release -- --diag-independent
+      - name: Native WPF send, storage, refresh and export failure recovery
+        shell: pwsh
+        run: |
+          dotnet run --project windows-lite/NekoChat.Windows -c Release -- --diagnostics-smoke-test "$env:GITHUB_WORKSPACE/build/diagnostics-native"
+          $code = $LASTEXITCODE
+          Get-Content build/diagnostics-native/diagnostics-result.json
+          exit $code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: lite-diagnostics-native
+          path: build/diagnostics-native/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Prove the autosave handoff regression catches the unprotected candidate
+        shell: pwsh
+        run: ./scripts/test-lite-draft-negative-control.ps1 -OutputDirectory "$env:GITHUB_WORKSPACE/build/draft-handoff-negative"
+      - name: Native queued recovery, ordering, deletion and nickname regression
+        shell: pwsh
+        run: |
+          dotnet run --project windows-lite/NekoChat.Windows -c Release --no-build -- --message-recovery-smoke-test "$env:GITHUB_WORKSPACE/build/message-recovery-native"
+          $code = $LASTEXITCODE
+          Get-Content build/message-recovery-native/message-recovery-result.json
+          exit $code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: lite-message-recovery-native
+          path: build/message-recovery-native/
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: lite-draft-handoff-negative-control
+          path: |
+            build/draft-handoff-negative/negative-result.json
+            build/draft-handoff-negative/negative-control.json
+          if-no-files-found: warn
+          retention-days: 14

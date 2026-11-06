@@ -1,4 +1,5 @@
 using System.Globalization;
+using NekoChat.Core.Diagnostics;
 using Microsoft.Data.Sqlite;
 
 namespace NekoChat.Core.Storage;
@@ -55,8 +56,9 @@ public sealed partial class ChatStore : IChatStore
                 store.AbortInitialize();
                 Thread.Sleep(50 * (attempt + 1));
             }
-            catch
+            catch (Exception error)
             {
+                options.Diagnostics?.Record(DiagnosticStage.Startup, DiagnosticOutcome.Failed, error: error);
                 store.AbortInitialize();
                 throw;
             }
@@ -295,8 +297,9 @@ public sealed partial class ChatStore : IChatStore
                 }
                 return value;
             }
-            catch (SqliteException e) { throw StoreErrors.Map(e); }
-            catch (Exception e) when (e is DllNotFoundException or TypeInitializationException) { throw StoreErrors.NativeMissing(e); }
+            catch (SqliteException e) { var mapped = StoreErrors.Map(e); _options.Diagnostics?.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Failed, error: mapped); throw mapped; }
+            catch (Exception e) when (e is DllNotFoundException or TypeInitializationException) { var mapped = StoreErrors.NativeMissing(e); _options.Diagnostics?.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Failed, error: mapped); throw mapped; }
+            catch (Exception e) when (DiagnosticFault.Catchable(e)) { _options.Diagnostics?.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Failed, error: e); throw; }
         }
     }
 
@@ -304,7 +307,7 @@ public sealed partial class ChatStore : IChatStore
     private T Read<T>(Func<SqliteConnection, T> body, [System.Runtime.CompilerServices.CallerMemberName] string operation = "")
     {
         ThrowIfDisposed();
-        return Guard(() =>
+        try { return Guard(() =>
         {
             using var c = NewConnection(create: false);
             ApplyPragmas(c);
@@ -312,7 +315,8 @@ public sealed partial class ChatStore : IChatStore
             T result = body(c);
             _options.Faults?.AfterRead(operation);
             return result;
-        });
+        }); }
+        catch (Exception error) when (DiagnosticFault.Catchable(error)) { _options.Diagnostics?.Record(DiagnosticStage.StorageRead, DiagnosticOutcome.Failed, error: error); throw; }
     }
 
     private void CheckWalSize(string where)

@@ -63,6 +63,7 @@ jobs:
           dotnet publish windows-lite/NekoChat.Windows -c Release -r win-x64 --self-contained true -o build/windows-lite-package
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Copy-Item windows-lite/README.md build/windows-lite-package/README.md
+          Copy-Item windows-lite/DIAGNOSTICS.md build/windows-lite-package/DIAGNOSTICS.md
           Copy-Item windows-lite/DELIVERY.md build/windows-lite-package/DELIVERY.md
           Copy-Item windows-lite/ATTACHMENTS.md build/windows-lite-package/ATTACHMENTS.md
           Copy-Item windows-lite/SEND-CANCELLATION.md build/windows-lite-package/SEND-CANCELLATION.md
@@ -71,6 +72,17 @@ jobs:
           Copy-Item windows-lite/THIRD-PARTY.md build/windows-lite-package/THIRD-PARTY.md
           New-Item -ItemType Directory -Force build/windows-lite-package/tools | Out-Null
           Copy-Item windows-lite/tools/README.md build/windows-lite-package/tools/README.md
+      - name: Verify native diagnostics and failure recovery in package and portable apps
+        shell: pwsh
+        run: |
+          foreach ($app in @('build/windows-lite-package/NekoChat.Windows.exe', 'build/windows-lite-portable/NekoChat-Lite.exe')) {
+            $kind = if ($app -like '*portable*') { 'portable' } else { 'package' }
+            $proof = Join-Path $env:GITHUB_WORKSPACE "build/windows-lite-smoke/diagnostics-$kind"
+            $probe = Start-Process -FilePath (Resolve-Path $app).Path -ArgumentList @('--diagnostics-smoke-test', "`"$proof`"") -PassThru
+            if (-not $probe.WaitForExit(120000)) { $probe.Kill(); throw "Diagnostics smoke timed out: $kind" }
+            Get-Content "$proof/diagnostics-result.json"
+            if ($probe.ExitCode -ne 0) { throw "Diagnostics smoke failed: $kind" }
+          }
       - name: Verify visible chat clears unread badges in native WPF
         shell: pwsh
         run: |

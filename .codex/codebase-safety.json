@@ -5,7 +5,7 @@
     "name": "NekoChat Windows Lite",
     "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",
     "repo_root": ".",
-    "last_reviewed": "2026-11-05"
+    "last_reviewed": "2026-11-06"
   },
   "instructions": {
     "files": [
@@ -31,7 +31,8 @@
   "commands": {
     "install": [],
     "test": [
-      "dotnet run --project windows-lite/NekoChat.Tests -c Release -- --classroom-all"
+      "dotnet run --project windows-lite/NekoChat.Tests -c Release -- --classroom-all",
+      "dotnet run --project windows-lite/NekoChat.Tests -c Release -- --diagnostics"
     ],
     "lint": [],
     "typecheck": [],
@@ -49,7 +50,9 @@
       "windows-lite/NekoChat.Core/Classroom",
       "windows-lite/NekoChat.Core/Storage"
     ],
-    "shared_modules": [],
+    "shared_modules": [
+      "windows-lite/NekoChat.Core/Diagnostics: closed fault taxonomy, bounded metadata journal and user-initiated diagnostic-only ZIP export"
+    ],
     "state_and_data": [
       "ChatStore partials serialize immediate SQLite transactions; SchemaGuard verifies normalized DDL; versioned migrations preserve frozen SchemaV1.sql.",
       "Accepted socket source owns classroom principal; draftEpoch prevents stale clear results.",
@@ -60,9 +63,12 @@
       "ClassroomFileEndpoint adds classroom-files.v1 on the existing listener. Teacher-preferred roster-only anti-entropy; all nodes accept valid operations during teacher absence. Uses AttachmentService vault, file/serve/download gates and listener quota.",
       "WPF file drops route by active pane: private chat stages AttachmentDraft; shared pane uses the same single-file upload path as its picker. Both own rejected FileDrop events to prevent filename fallback.",
       "Known attachment filesystem initialization errors degrade to text/receipt-only runtime with persistent warning and no attachment capability. SQLite/schema failures remain fatal; pending attachment metadata and loading gates prevent silent plaintext sends.",
-      "Viewport reads use the existing foreground/open-pane/geometry and view-generation guards. A newer viewport request that fires while a SQLite read is in flight stays queued; stale writes remain rejected.",
       "Migration13 adds durable ClassroomOutbox. Only explicit new Send or manual Retry opts content in; background retries never consult live drafts. Per-recipient claims and existing tombstones guard cancellation/deletion. SchemaGuard validates exact V13 DDL.",
-      "Classroom visible reads advance a merged classroom/legacy timeline cursor through unloaded pages; local marks and opt-in receipts commit atomically under the existing view generation guard."
+      "Viewport reads use the existing foreground/open-pane/geometry and view-generation guards. A newer viewport request that fires while a SQLite read is in flight stays queued; stale writes remain rejected.",
+      "Runtime owns a per-profile diagnostic journal separate from SQLite. Typed optional journal parameters connect sender, receiver, storage and attachments; metadata recording never waits for file I/O. UI uses localized codes and a bounded manual export.",
+      "Classroom visible reads advance a merged classroom/legacy timeline cursor through unloaded pages; local marks and opt-in receipts commit atomically under the existing view generation guard.",
+      "Normal classroom viewport reads skip transactions when the current inbox snapshot has no unread messages; incoming updates refresh the snapshot and retain view-generation guards.",
+      "DiagnosticRecoveryPolicy keeps unresolved stage/code failures separate, chooses the most urgent warning and removes only recovered flows. No-runtime diagnostic export uses OpenReadOnly and never starts a writer or rotates history."
     ],
     "external_integrations": []
   },
@@ -75,7 +81,9 @@
     "error_handling": [
       "StoreException maps SQLite errors; transport uses reason codes and UI uses localized text"
     ],
-    "logging": [],
+    "logging": [
+      "Diagnostics exclude payloads, IP, credentials, filenames, exception messages and source paths; allow only enum metadata, normalized UUIDs, known exception types and project method frames. Fixed file/queue/ring bounds and memory fallback preserve data-operation outcomes."
+    ],
     "tests": [],
     "notes": ""
   },
@@ -100,6 +108,16 @@
       "invariants": [
         "Do not modify."
       ]
+    },
+    {
+      "path_or_symbol": "windows-lite/NekoChat.Core/Diagnostics",
+      "reason": "Diagnostic files and export must not expose chat or credentials or change ACK/SQLite outcomes",
+      "invariants": [
+        "No raw exception/message/HTTP/SQL/peer inputs in events",
+        "No synchronous file I/O on Record or store callbacks",
+        "Bound disk, queue and memory retention; logging failure remains isolated",
+        "Export only fixed diagnostic files and metadata; no profile archive"
+      ]
     }
   ],
   "change_policy": {
@@ -114,7 +132,9 @@
       "focused tests for changed behavior",
       "consumer regression checks for shared changes",
       "final diff and git status review",
-      "For visible-read or inbox changes: Windows native --unread-smoke-test with isolated SQLite, including busy-worker viewport invalidation, hidden/reopen, receipt-off, offscreen unread and restart checks."
+      "For visible-read or inbox changes: Windows native --unread-smoke-test with isolated SQLite, including busy-worker viewport invalidation, hidden/reopen, receipt-off, offscreen unread and restart checks.",
+      "Diagnostic changes: --diagnostics, --attachments and Windows --diagnostics-smoke-test, including memory-only log, real SQLite contention, UI refresh queue recovery and diagnostic-only export.",
+      "Draft handoff: focused Windows gate must prove the isolated unprotected candidate fails at the exact autosave/Send assertion, then the original product passes the native handoff and synchronous-exit cases."
     ],
     "manual_checks": [],
     "notes": ""
@@ -169,10 +189,6 @@
       "source": "windows-lite/NekoChat.Windows/App.AttachmentStartupSmoke.cs; docs/classroom-ux/STARTUP-ISOLATION.md"
     },
     {
-      "fact": "Native WPF unread regression exercises actual list selection and pet reopen paths; a blocked real worker plus resize reproduces a dropped viewport read. Busy reads requeue the latest visible view without bypassing storage guards.",
-      "source": "windows-lite/NekoChat.Windows/ChatWindow.Inbox.cs#MarkViewportAsync; windows-lite/NekoChat.Windows/App.UnreadSmokeTest.cs; .github/workflows/lite-unread-regression.yml"
-    },
-    {
       "fact": "Local per-message deletion uses scoped transactions and existing ClassroomCleared tombstones; exact pending draft deletion also checks epoch/revision/text and staged attachment absence.",
       "source": "windows-lite/NekoChat.Core/Storage/ChatStore.MessageDeletion.cs; windows-lite/NekoChat.Tests/MessageRecoveryChecks.cs"
     },
@@ -181,8 +197,20 @@
       "source": "windows-lite/NekoChat.Tests/OutboxChecks.cs; docs/bugfixes/20261105-chat-lifecycle.md"
     },
     {
+      "fact": "Native WPF unread regression exercises actual list selection and pet reopen paths; a blocked real worker plus resize reproduces a dropped viewport read. Busy reads requeue the latest visible view without bypassing storage guards.",
+      "source": "windows-lite/NekoChat.Windows/ChatWindow.Inbox.cs#MarkViewportAsync; windows-lite/NekoChat.Windows/App.UnreadSmokeTest.cs; .github/workflows/lite-unread-regression.yml"
+    },
+    {
+      "fact": "Unified typed failures preserve root-cause frames without exception messages; bounded writer/file rotation and memory fallback are exercised with privacy and ownership tests. UI errors and real TCP/SQLite failures share the same journal.",
+      "source": "windows-lite/NekoChat.Core/Diagnostics; windows-lite/NekoChat.Tests/DiagnosticChecks.cs; windows-lite/NekoChat.Windows/App.DiagnosticSmokeTest.cs"
+    },
+    {
       "fact": "Read-through tests cover more than 200 rows, merged streams, receipt-off, timestamp ties, pre-COMMIT stale rollback, scopes and restart.",
       "source": "windows-lite/NekoChat.Core/Storage/ChatStore.ReadThrough.cs; windows-lite/NekoChat.Tests/ReadThroughChecks.cs"
+    },
+    {
+      "fact": "Pure recovery regression covers overlapping persistent/transient failures; read-only export preserves all four generations byte for byte, and unknown custom exception messages map to OtherException.",
+      "source": "windows-lite/NekoChat.Core/Diagnostics/DiagnosticRecoveryPolicy.cs; windows-lite/NekoChat.Tests/DiagnosticRecoveryChecks.cs; windows-lite/NekoChat.Tests/DiagnosticChecks.cs"
     }
   ]
 }

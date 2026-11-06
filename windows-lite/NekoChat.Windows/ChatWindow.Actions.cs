@@ -1,3 +1,4 @@
+using NekoChat.Core.Diagnostics;
 using System.Windows;
 using NekoChat.Core.Classroom.Transport;
 using NekoChat.Core.Presentation;
@@ -10,16 +11,37 @@ public partial class ChatWindow
     private Task _activeSend = Task.CompletedTask;
     private Task SendCurrentAsync(bool retry, PendingSendSummary? retryAttempt = null)
     {
-        if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) return Task.CompletedTask;
-        var send = _activeSend = SendCoreAsync(retry, retryAttempt);
+        if (_showTeacherFiles || _closingRequested || !_activeSend.IsCompleted) {
+            _runtime?.Diagnostics.Record(DiagnosticStage.SendAdmission, DiagnosticOutcome.Deferred, !_activeSend.IsCompleted ? DiagnosticCode.OperationBusy : DiagnosticCode.StaleView);
+            return Task.CompletedTask;
+        }
+        var send = _activeSend = SendBoundaryAsync(retry, retryAttempt);
         _ = send.ContinueWith(_ => {
-            if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(new Action(UpdateComposer));
+            try {
+                if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(new Action(() => {
+                    try { UpdateComposer(); }
+                    catch (Exception error) when (DiagnosticFault.Catchable(error)) { ShowStorageError(error); }
+                }));
+            }
+            catch (Exception error) when (DiagnosticFault.Catchable(error)) {
+                _runtime?.Diagnostics.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, error);
+            }
         }, TaskScheduler.Default);
         return send;
     }
+    private async Task SendBoundaryAsync(bool retry, PendingSendSummary? retryAttempt)
+    {
+        try { await SendCoreAsync(retry, retryAttempt); }
+        catch (Exception error) when (DiagnosticFault.Catchable(error))
+        { ShowStorageError(error); SetSending(false); }
+
+    }
     private async Task SendCoreAsync(bool retry, PendingSendSummary? retryAttempt)
     {
-        if (_attachmentDraftLoading || _runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) return;
+        if (_attachmentDraftLoading || _runtime is null || !_runtime.CanSend || _sending || _selected is not { ConversationId: { } conversation } entry || CurrentDraft() is not { Clearing: false } buffer) {
+            _runtime?.Diagnostics.Record(DiagnosticStage.SendAdmission, DiagnosticOutcome.Deferred, _sending ? DiagnosticCode.OperationBusy : DiagnosticCode.UiNotReady);
+            return;
+        }
         var runtime = _runtime; var sent = buffer.Capture();
         if (!runtime.ArchivedIdentityFixture) { await QueueCurrentMessageAsync(runtime, entry, buffer); return; }
         if (_attachmentDraft is not null) { await SendAttachmentCoreAsync(runtime, entry, buffer, sent); return; }
@@ -58,6 +80,7 @@ public partial class ChatWindow
             await RefreshInboxAsync(); var transmission = runtime.SendAsync(prepared, endpoint, _peerPort, conversation, buffer, sent);
             UpdateComposer(); var outcome = await transmission;
             if (outcome.Completion is Confirmed { DraftCleared: true } && _selected?.ConversationId == conversation) SetDraftText(buffer.Text);
+            if (outcome.Completion is Confirmed or AlreadyConfirmed) ClearRecoveredDiagnostic(DiagnosticStage.SendPrepare, writeConfirmed: true);
             SetStatus(outcome.Code == "ok" ? "已驗證對方的儲存確認。" : outcome.Code switch {
                 "unpaired_sender" or "identity_conflict" or "hello_key_mismatch" => "身分或配對不符，請重新核對；未確認送達。",
                 "cancelled" => "已取消當次網路操作；取消不會清除草稿，對方可能已收到。不會自動重送。",
@@ -74,12 +97,16 @@ public partial class ChatWindow
         SetSending(true); DraftClearTicket? ticket = null;
         try {
             await FlushDraftsAsync();
-            if (buffer.Dirty || buffer.Clearing || _selected?.Id != entry.Id || !ReferenceEquals(runtime, _runtime)) return;
+            if (buffer.Dirty || buffer.Clearing || _selected?.Id != entry.Id || !ReferenceEquals(runtime, _runtime)) {
+                runtime.Diagnostics.Record(DiagnosticStage.SendAdmission, DiagnosticOutcome.Deferred, buffer.Dirty ? DiagnosticCode.DraftNotSaved : buffer.Clearing ? DiagnosticCode.OperationBusy : DiagnosticCode.StaleView);
+                return;
+            }
             var sent = buffer.Capture(); bool attachment = _attachmentDraft is not null;
             if (!attachment && string.IsNullOrWhiteSpace(sent.Text)) return;
             ticket = buffer.BeginClear(); UpdateComposer();
             var fresh = await runtime.QueueMessageAsync(principal, sent, _peerPort, attachment);
             buffer.CompleteClear(ticket, fresh.Draft); ticket = null;
+            ClearRecoveredDiagnostic(DiagnosticStage.SendPrepare, writeConfirmed: true);
             if (_selected?.Id == entry.Id) SetDraftText(buffer.Text);
             SetStatus("訊息已保存在本機待送；暫時斷線會自動續送。");
         }
@@ -165,6 +192,7 @@ public partial class ChatWindow
             {
                 saved = write.Ticket.Persist(s, write.Key);
             }
+            if (!saved.Saved) runtime.Diagnostics.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(saved.Reason).Code);
             write.Buffer.CompleteWrite(write.Ticket, saved);
             if (!saved.Saved && write.Buffer.IsCurrent(write.Ticket) && write.Buffer.Dirty && saved.Reason != "draft-too-large")
                 throw new InvalidOperationException("Draft could not be saved before exit.");
@@ -203,6 +231,7 @@ public partial class ChatWindow
         }
         catch (Exception ex)
         {
+            runtime.Diagnostics.Record(DiagnosticStage.SendConfirm, DiagnosticOutcome.Failed, error: ex, messageId: started.MessageId, attempt: started.TryCount);
             var decision = ClassroomSendUiPolicy.DecideException(ex);
             if (decision.Action == AttemptActionKind.MarkFailed)
             {
@@ -217,6 +246,7 @@ public partial class ChatWindow
             await RefreshInboxAsync();
             return;
         }
+        if (outcome.Success) ClearRecoveredDiagnostic(DiagnosticStage.SendPrepare, writeConfirmed: true);
         var outcomeDecision = ClassroomSendUiPolicy.DecideOutcome(outcome);
         if (outcomeDecision.DraftCleared && _selected?.ConversationId == conversation) SetDraftText(buffer.Text);
         SetStatus(outcomeDecision.StatusText);

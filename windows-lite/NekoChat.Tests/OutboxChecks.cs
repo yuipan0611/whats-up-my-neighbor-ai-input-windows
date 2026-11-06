@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using NekoChat.Core.Attachments;
+using NekoChat.Core.Diagnostics;
 using NekoChat.Core.Classroom.Transport;
 using NekoChat.Core.Classroom.Wire;
 using NekoChat.Core.Storage;
@@ -198,23 +199,29 @@ internal static class OutboxChecks
             }
             await using (var receiver = new Node(Path.Combine(root, "fault-receiver")))
             {
+                await using var journal = new DiagnosticJournal(Path.Combine(root, "outbox-diagnostics"), "test");
                 var fault = new FinishFault { Block = true };
                 using var store = ChatStore.Open(new(Path.Combine(root, "fault-sender")) { Faults = fault });
                 string id = Queue(store, "收尾儲存失敗", receiver.Listener.Port);
-                await using var queue = new ClassroomOutbox(store, new(store), null, (_, _) => "127.0.0.1");
+                await using var queue = new ClassroomOutbox(store, new(store), null, (_, _) => "127.0.0.1", journal);
                 int failures = 0, recovered = 0; queue.Failed += _ => Interlocked.Increment(ref failures); queue.Recovered += () => Interlocked.Increment(ref recovered);
                 await Wait(() => Volatile.Read(ref failures) > 0);
                 Check(store.ListOutbox().Single().State == "sending", "failed finalization retains durable work instead of pretending success");
+                Check(journal.Recent.Any(e => e.Stage == DiagnosticStage.OutboxAttempt && e.Outcome == DiagnosticOutcome.Failed && e.Code == DiagnosticCode.StorageIo && e.MessageId == id && e.ExceptionType is not null), "finalization root cause retains typed failure and original UUID");
+                Check(!journal.Recent.Any(e => e.Stage == DiagnosticStage.OutboxRecovery && e.Outcome == DiagnosticOutcome.Recovered), "failed bookkeeping cannot emit recovery");
                 fault.Block = false;
                 await Wait(() => store.ListOutbox().Single().State == "complete");
                 Check(receiver.Store.ListClassroomMessages(p).Items.Count == 1, "storage recovery drains orphaned send without duplicate");
                 await Wait(() => Volatile.Read(ref recovered) > 0);
                 Check(Volatile.Read(ref recovered) > 0, "successful durable recovery emits explicit Recovered event");
+                Check(journal.Recent.Any(e => e.Stage == DiagnosticStage.OutboxRecovery && e.Outcome == DiagnosticOutcome.Recovered), "durable recovery is recorded after repair");
+                Check(journal.Recent.Any(e => e.Stage == DiagnosticStage.OutboxRecovery && e.Outcome == DiagnosticOutcome.Recovered && e.MessageId == id), "orphan recovery retains UUID without fabricating a completed Finish call");
                 fault.Block = true;
                 string cancel = Queue(store, "收尾失敗仍可取消", receiver.Listener.Port);
                 int previous = Volatile.Read(ref failures);
                 await Wait(() => Volatile.Read(ref failures) > previous);
                 queue.Cancel(cancel); fault.Block = false;
+                Check(journal.Recent.Any(e => e.Stage == DiagnosticStage.OutboxCancel && e.Outcome == DiagnosticOutcome.Cancelled && e.MessageId == cancel), "cancel is diagnosable by original UUID");
                 await Task.Delay(600);
                 Check(store.ListOutbox().Single(x => x.MessageId == cancel).State == "cancelled", "orphan recovery never reactivates cancelled work");
             }

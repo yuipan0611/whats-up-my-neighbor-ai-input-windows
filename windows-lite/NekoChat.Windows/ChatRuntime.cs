@@ -1,4 +1,6 @@
 using System.IO;
+using System.Reflection;
+using NekoChat.Core.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -39,6 +41,8 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal bool IsolatedData { get; }
     private long _wireGeneration;
     internal ChatStoreWorker Worker { get; }
+    internal DiagnosticJournal Diagnostics { get; }
+    internal static string DiagnosticVersion => typeof(App).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown";
     internal VisibleReadSession Reads { get; }
     internal ClassroomOutbox? Outbox { get; private set; }
     internal string? OutboxFailure { get; private set; }
@@ -68,10 +72,10 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal Task<AttachmentDraft?> ReadAttachmentDraftAsync(ClassroomPrincipalKey principal) => Worker.Run(_ => _store.GetAttachmentDraft(principal));
     internal Task<bool> RemoveAttachmentDraftMetadataAsync(ClassroomPrincipalKey principal, string blob) => Worker.Run(_ => { _store.RemoveAttachmentDraft(principal, blob); return true; });
     internal long WireGeneration => Volatile.Read(ref _wireGeneration);
-    private ChatRuntime(ChatStore store, string dataDirectory, string identityDirectory, int port, ChatWireConfiguration? configuration, ChatPairingConfiguration? pairingConfiguration, bool isolated, string? warning, bool loopbackOnly)
+    private ChatRuntime(ChatStore store, string dataDirectory, string identityDirectory, int port, ChatWireConfiguration? configuration, ChatPairingConfiguration? pairingConfiguration, bool isolated, string? warning, bool loopbackOnly, DiagnosticJournal diagnostics)
     {
-        _store = store; IsolatedData = isolated; DataDirectory = dataDirectory; StartupWarning = warning; Reads = new(store);
-        ClassroomSender = new ClassroomSender(store);
+        Diagnostics = diagnostics; _store = store; IsolatedData = isolated; DataDirectory = dataDirectory; StartupWarning = warning; Reads = new(store);
+        ClassroomSender = new ClassroomSender(store, diagnostics: diagnostics);
         ArchivedIdentityFixture = isolated && (configuration is not null || pairingConfiguration is not null);
         if (!isolated && (configuration is not null || pairingConfiguration is not null))
             throw new InvalidOperationException("Historical signed identity configuration requires an isolated fixture.");
@@ -108,10 +112,11 @@ internal sealed class ChatRuntime : IAsyncDisposable
         }
         else
         {
-            var sink = new ClassroomStoreSink(store);
-            try { Attachments = new AttachmentService(store, Path.Combine(dataDirectory, "attachments"), port); }
+            var sink = new ClassroomStoreSink(store, diagnostics);
+            try { Attachments = new AttachmentService(store, Path.Combine(dataDirectory, "attachments"), port, diagnostics: diagnostics); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException || error is AttachmentException { Code: "unsafe_path" })
             {
+                diagnostics.Record(DiagnosticStage.Attachment, DiagnosticOutcome.Failed, error: error);
                 store.RecoverAttachments();
                 AttachmentWarning = "附件儲存暫時無法使用；文字聊天仍可用。請檢查附件資料夾權限、磁碟空間或被鎖住的檔案，修復後重新啟動。";
                 StartupWarning = string.Join("\n", new[] { warning, AttachmentWarning }.Where(value => !string.IsNullOrEmpty(value)));
@@ -142,7 +147,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
                 ClassroomFiles.Changed += () => DataChanged?.Invoke();
                 ClassroomFiles.Progress += (id,done,total) => ShareProgress?.Invoke(id,done,total);
             }
-            var textEndpoint = new ClassroomEndpointAdapter(sink, capabilities: Attachments is null
+            var textEndpoint = new ClassroomEndpointAdapter(sink, diagnostics: diagnostics, capabilities: Attachments is null
                 ? new[] { "msg.plain", "receipt.read" }
                 : new[] { "msg.plain", "receipt.read", AttachmentLimits.Capability, ShareProtocol.Capability });
             IClassroomRequestEndpoint endpoint = textEndpoint;
@@ -153,9 +158,11 @@ internal sealed class ChatRuntime : IAsyncDisposable
             sink.ReceiptStored += (_, _) => DataChanged?.Invoke();
             Listener = new DirectLanListener(classroomListener, sink, Attachments);
         }
-        Worker = new(store, lifetime: _lifetime.Token);
+        Worker = new(store, lifetime: _lifetime.Token, diagnostics: diagnostics);
+        Listener.Diagnostic += code => diagnostics.Record(DiagnosticStage.ReceiveValidate, DiagnosticOutcome.Failed, DiagnosticFault.FromReason(code).Code);
         int receiptPort = port > 0 ? port : DirectLanMessaging.DefaultPort;
         ClassroomReceipts = new ClassroomReceiptService(store, ClassroomSender, receiptPort, ownIpResolver: target => ResolveLocalEndpointIp(target, receiptPort));
+        ClassroomReceipts.Diagnostic += code => diagnostics.Record(DiagnosticStage.SendConfirm, DiagnosticOutcome.Failed, DiagnosticFault.FromReason(code).Code);
         ClassroomReceipts.ReceiptsChanged += () => DataChanged?.Invoke();
         _maintenance = Task.Run(MaintainBackups);
     }
@@ -163,11 +170,17 @@ internal sealed class ChatRuntime : IAsyncDisposable
         Worker.Run(_ => _store.MarkClassroomReadThrough(principal, legacy, sequence, isLegacy, context, current));
     internal void RegisterAttachmentDownload(AttachmentRecord row) { _store.EnqueueAttachmentDownload(row); _store.RetryOutbox("download:" + row.LocalSeq); }
     internal bool RetryAttachment(AttachmentRecord row) => _store.RequeueAttachment(row);
-    internal Task<QueuedMessageReceipt> QueueMessageAsync(ClassroomPrincipalKey principal, DraftWriteSnapshot sent, int port, bool attachment) => Worker.Run(_ =>
-        attachment ? _store.EnqueueAttachmentWithDraft(principal, sent.Text, sent.Epoch, sent.Revision, port).Receipt
-            : _store.EnqueueClassroomMessageWithDraft(principal, sent.Text, sent.Epoch, sent.Revision, port));
+    internal Task<QueuedMessageReceipt> QueueMessageAsync(ClassroomPrincipalKey principal, DraftWriteSnapshot sent, int port, bool attachment) => Worker.Run(_ => {
+        var receipt = attachment ? _store.EnqueueAttachmentWithDraft(principal, sent.Text, sent.Epoch, sent.Revision, port).Receipt
+            : _store.EnqueueClassroomMessageWithDraft(principal, sent.Text, sent.Epoch, sent.Revision, port);
+        Diagnostics.Record(DiagnosticStage.OutboxEnqueue, DiagnosticOutcome.Succeeded, messageId: receipt.MessageId);
+        return receipt;
+    });
     internal async Task<bool> CancelQueuedAsync(string id) {
-        bool queued = await Worker.Run(_ => { bool exists = _store.ListOutbox().Any(row => row.MessageId == id); if (exists) _store.CancelOutbox(id); return exists; }, CancellationToken.None).ConfigureAwait(false);
+        bool queued = await Worker.Run(_ => { bool exists = _store.ListOutbox().Any(row => row.MessageId == id); if (exists) {
+            bool cancelled = _store.CancelOutbox(id);
+            Diagnostics.Record(DiagnosticStage.OutboxCancel, cancelled ? DiagnosticOutcome.Cancelled : DiagnosticOutcome.Stale, cancelled ? DiagnosticCode.Cancelled : DiagnosticCode.StaleView, messageId: id);
+        } return exists; }, CancellationToken.None).ConfigureAwait(false);
         if (queued) await Task.Run(() => Outbox?.CancelIo(id)).ConfigureAwait(false);
         return queued;
     }
@@ -191,29 +204,33 @@ internal sealed class ChatRuntime : IAsyncDisposable
     internal static string ResolveLocalEndpointIp(string targetIp, int port) =>
         LocalEndpointResolver.Resolve(targetIp, port);
     internal static string RootDirectory(Settings source, bool isolated) => UiTestOptions.ResolveRootDirectory(source, isolated);
-    internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null, ChatPairingConfiguration? pairingConfiguration = null, bool loopbackOnly = false) => Task.Run(() => {
+    internal static Task<ChatRuntime> OpenAsync(SettingsLoadResult source, bool isolated, int port, ChatWireConfiguration? configuration = null, ChatPairingConfiguration? pairingConfiguration = null, bool loopbackOnly = false) => Task.Run(async () => {
         if (!isolated && (configuration is not null || pairingConfiguration is not null))
             throw new InvalidOperationException("Historical signed identity configuration requires an isolated fixture.");
         string root = RootDirectory(source.Value, isolated);
         string data = Path.Combine(root, "data"); ChatStore? store = null;
+        string version = typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown";
+        DiagnosticJournal? diagnostics = new(Path.Combine(root, "diagnostics"), DiagnosticVersion);
         try
         {
             store = ChatStore.Open(new(data) {
                 RosterExcludedEndpoints = () => LanInvitation.LocalAddresses().ToArray(),
                 TextValidator = text => V2Text.Check(text, configuration?.MaximumTextBytes ?? V2Text.ProductMaxUtf8Bytes) == V2TextProblem.None,
-                AppVersion = typeof(App).Assembly.GetName().Version?.ToString() ?? ""
+                AppVersion = version, Diagnostics = diagnostics
             });
             var imported = source.CanImportLegacyRoster && source.Value.Contacts.Count <= NekoChat.Core.Roster.RosterCsv.MaxRows ? source.ImportLegacyRoster(store) : null;
             string? warning = !source.CanImportLegacyRoster ? "設定檔無法讀取；原檔保留，未從這份設定匯入名單。" : source.Value.Contacts.Count > NekoChat.Core.Roster.RosterCsv.MaxRows ? "舊名單超過單次載入上限，尚未載入；請聯絡班級包提供者協助。" : imported is { Skipped: > 0 } ? $"舊名單已匯入；略過 {imported.Skipped} 筆無效或重複資料。" : null;
-            var runtime = new ChatRuntime(store, data, Path.Combine(root, "identity"), port, configuration, pairingConfiguration, isolated, warning, loopbackOnly); store = null; return runtime;
+            var runtime = new ChatRuntime(store, data, Path.Combine(root, "identity"), port, configuration, pairingConfiguration, isolated, warning, loopbackOnly, diagnostics);
+            diagnostics.Record(DiagnosticStage.Startup, DiagnosticOutcome.Succeeded); store = null; diagnostics = null; return runtime;
         }
-        finally { store?.Dispose(); }
+        catch (Exception error) when (DiagnosticFault.Catchable(error)) { diagnostics?.Record(DiagnosticStage.Startup, DiagnosticOutcome.Failed, error: error); throw; }
+        finally { store?.Dispose(); if (diagnostics is not null) await diagnostics.DisposeAsync().ConfigureAwait(false); }
     });
     internal void Start(bool sharedNetwork = false) { Listener.Start(); if (Attachments is not null) Attachments.Port = Listener.Port;
         if (!ArchivedIdentityFixture && Outbox is null) {
-            Outbox = new(_store, ClassroomSender, Attachments, ResolveLocalEndpointIp);
-            Outbox.Changed += () => { try { RefreshOutboxSnapshot(); } catch (Exception error) { OutboxFailure = "待送儲存暫停：" + error.Message; } DataChanged?.Invoke(); };
-            Outbox.Failed += error => { OutboxFailure = "待送儲存暫停：" + error.Message; DataChanged?.Invoke(); };
+            Outbox = new(_store, ClassroomSender, Attachments, ResolveLocalEndpointIp, Diagnostics);
+            Outbox.Changed += () => { try { RefreshOutboxSnapshot(); } catch (Exception error) { OutboxFailure = "待送儲存暫停：請稍後重試或匯出診斷。（" + DiagnosticFault.FromException(error).DisplayCode + "）"; Diagnostics.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Failed, error: error); } DataChanged?.Invoke(); };
+            Outbox.Failed += error => { OutboxFailure = "待送儲存暫停：請稍後重試或匯出診斷。（" + DiagnosticFault.FromException(error).DisplayCode + "）"; Diagnostics.Record(DiagnosticStage.OutboxRecovery, DiagnosticOutcome.Failed, error: error); DataChanged?.Invoke(); };
             Outbox.Recovered += () => { OutboxFailure = null; DataChanged?.Invoke(); };
         } if (!IsolatedData || sharedNetwork) ClassroomFiles?.Start(); Presence?.Start(); Receipts?.Start(); ClassroomReceipts?.Start(); }
     internal Task<V2SendResult> SendAsync(PreparedSend send, string endpoint, int port, string conversation, DraftEditBuffer buffer, DraftWriteSnapshot sent)
@@ -353,6 +370,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
     }
     private async Task Stop()
     {
+        Diagnostics.Record(DiagnosticStage.Shutdown, DiagnosticOutcome.Started);
         try
         {
             try { await StopReceivingAsync().ConfigureAwait(false); } finally { await DrainNetworkAsync().ConfigureAwait(false); }
@@ -360,7 +378,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
         finally
         {
             try { await Worker.DisposeAsync().ConfigureAwait(false); }
-            finally { try { if (Pairing is not null) await Pairing.DisposeAsync().ConfigureAwait(false); await _pairingDrain.ConfigureAwait(false); } finally { _pairingIdentity?.Dispose(); _client?.Dispose(); _writer?.Dispose(); _store.Dispose(); _lifetime.Dispose(); } }
+            finally { try { if (Pairing is not null) await Pairing.DisposeAsync().ConfigureAwait(false); await _pairingDrain.ConfigureAwait(false); } finally { _pairingIdentity?.Dispose(); _client?.Dispose(); _writer?.Dispose(); try { _store.Dispose(); Diagnostics.Record(DiagnosticStage.Shutdown, DiagnosticOutcome.Succeeded); } finally { _lifetime.Dispose(); await Diagnostics.DisposeAsync().ConfigureAwait(false); } } }
         }
     }
     private async Task MaintainBackups()
@@ -372,7 +390,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             while (await timer.WaitForNextTickAsync(_lifetime.Token).ConfigureAwait(false))
             {
                 long now = TimeProvider.System.GetTimestamp(); if (TimeProvider.System.GetElapsedTime(last, now) < delay) continue;
-                try { _store.MaintainBackups(); delay = TimeSpan.FromDays(1); } catch (Exception e) when (e is StoreException or IOException or UnauthorizedAccessException) { delay = TimeSpan.FromMinutes(1); }
+                try { _store.MaintainBackups(); delay = TimeSpan.FromDays(1); } catch (Exception e) when (e is StoreException or IOException or UnauthorizedAccessException) { Diagnostics.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Failed, error: e); delay = TimeSpan.FromMinutes(1); }
                 last = now;
             }
         }

@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using NekoChat.Core.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Windows;
@@ -93,7 +95,7 @@ public partial class ChatWindow
     }
     internal async Task AttachRuntimeAsync(ChatRuntime runtime, int peerPort)
     {
-        _runtime = runtime; ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
+        _diagnosticFailures = []; _runtime = runtime; SetDiagnosticsDirectory(Path.Combine(Path.GetDirectoryName(runtime.DataDirectory)!, "diagnostics")); ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
         var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy());
         if (!runtime.ArchivedIdentityFixture && !policy.Enabled && policy.Generation == 0)
         {
@@ -105,6 +107,7 @@ public partial class ChatWindow
         await BootstrapClassRosterAsync();
         await RefreshInboxAsync();
     }
+    internal void ShowDataFailure(Exception error) => ShowDataFailure(DiagnosticMessage(DiagnosticFault.FromException(error)));
     internal void ShowDataFailure(string message)
     { StorageStatus.Text = message; ReloadData.Visibility = Visibility.Visible; UpdateComposer(); }
     internal void DetachRuntime() { ++_teacherFilesRequest; _pairingWindow?.CloseSafely(); _pairingSelection = null; if (_runtime?.Presence is { } presence) presence.StateChanged -= PresenceChanged; _runtime = null; ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = Visibility.Collapsed; _receiverRunning = false; ReceiverStatus.Text = "接收暫停，等待本機資料就緒。"; RefreshPairingControls(); UpdateComposer(); }
@@ -114,9 +117,10 @@ public partial class ChatWindow
     {
         if (_runtime is null || _stopping) return;
         if (_refreshing) { _refreshAgain = true; return; }
-        if (_runtime.OutboxFailure is { } failure) StorageStatus.Text = failure;
-        else if (StorageStatus.Text.StartsWith("待送儲存暫停：", StringComparison.Ordinal)) StorageStatus.Text = _runtime.StartupWarning ?? "";
+        if (_diagnosticFailures.Count > 0 || _runtime.OutboxFailure is not null || StorageStatus.Text.StartsWith("待送儲存暫停：", StringComparison.Ordinal)) RefreshDiagnosticStatus();
         _refreshing = true;
+        long diagnosticStart = Stopwatch.GetTimestamp();
+        _runtime.Diagnostics.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Started);
         try
         {
             do
@@ -146,6 +150,8 @@ public partial class ChatWindow
                 if (_showTeacherFiles) await LoadTeacherFilesAsync(false);
                 UpdateComposer();
             } while (_refreshAgain && !_stopping);
+            ClearRecoveredDiagnostic(DiagnosticStage.UiRefresh);
+            _runtime.Diagnostics.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Succeeded, count: _snapshot?.Entries.Count ?? 0, elapsedMs: (long)Stopwatch.GetElapsedTime(diagnosticStart).TotalMilliseconds);
         }
         catch (Exception ex) { ShowStorageError(ex); }
         finally { _refreshing = false; }
@@ -268,8 +274,9 @@ public partial class ChatWindow
                     });
                     if (SmokeBeforeDraftWriteCompletion is { } beforeCompletion) await beforeCompletion();
                     pair.Value.CompleteWrite(ticket, result);
+                    if (!result.Saved) runtime.Diagnostics.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Rejected, DiagnosticFault.FromReason(result.Reason).Code);
                     if (!result.Saved && pair.Value.IsCurrent(ticket) && pair.Value.Dirty)
-                        StorageStatus.Text = result.Reason == "draft-too-large" ? "草稿太長無法保存，請縮短。" : "草稿尚未儲存，請重新讀取或保留目前文字後重試。";
+                        SetStorageNotice(result.Reason == "draft-too-large" ? "草稿太長無法保存，請縮短。" : "草稿尚未儲存，請重新讀取或保留目前文字後重試。");
                 }
                 catch (Exception ex) { ShowStorageError(ex); }
             }
@@ -417,7 +424,7 @@ public partial class ChatWindow
         // No unread messages means there is no read position or receipt work to commit.
         if (!_runtime.ArchivedIdentityFixture && entry.TotalUnread == 0) return;
         // A viewport change can invalidate the in-flight read while SQLite is busy. Keep the latest view queued.
-        if (_readBusy) { QueueViewportRead(); return; }
+        if (_readBusy) { _runtime.Diagnostics.Record(DiagnosticStage.UiRead, DiagnosticOutcome.Deferred); QueueViewportRead(); return; }
         _readBusy = true; long generation = Volatile.Read(ref _viewGeneration); var visible = new List<MessageView>();
         try
         {
@@ -427,10 +434,10 @@ public partial class ChatWindow
                 if (History.ItemContainerGenerator.ContainerFromItem(row) is not FrameworkElement container || container.ActualHeight <= 0) continue;
                 var bounds = container.TransformToAncestor(History).TransformBounds(new Rect(container.RenderSize)); var intersection = Rect.Intersect(viewport, bounds);
                 if (intersection.IsEmpty) continue;
-                // Rect.Intersect subtracts translated coordinates; roundoff can exceed a fully visible row's height.
                 double visibleHeight = Math.Min(intersection.Height, Math.Min(bounds.Height, viewport.Height));
                 if (ReadVisibility.IsVisible(bounds.Height, visibleHeight, 18, viewport.Height)) visible.Add(row);
             }
+            _runtime.Diagnostics.Record(DiagnosticStage.UiRead, DiagnosticOutcome.Started, count: visible.Count);
             var signed = visible.Where(r => !r.Legacy && !r.Outgoing && r.Sequence > 0).Select(r => r.Sequence).Take(200).ToArray();
             var legacy = visible.Where(r => r.Legacy && r.Sequence > 0).Select(r => r.Sequence).Take(200).ToArray();
             var context = VisibleContext(entry.ConversationId); long readGeneration = _runtime.Reads.Update(context);
@@ -450,6 +457,8 @@ public partial class ChatWindow
                 if (entry.LegacyScope is { } scope && legacy.Length > 0)
                     marked += (await _runtime.Worker.Run(s => s.MarkLegacyVisibleRead(scope, legacy, context with { ActiveConversationId = scope.ContextId }, StillCurrent))).Marked;
             }
+            if (StillCurrent()) ClearRecoveredDiagnostic(DiagnosticStage.UiRead);
+            _runtime.Diagnostics.Record(DiagnosticStage.UiRead, StillCurrent() ? DiagnosticOutcome.Succeeded : DiagnosticOutcome.Stale, StillCurrent() ? DiagnosticCode.None : DiagnosticCode.StaleView, count: marked);
             if (marked > 0) { _runtime.Receipts?.Pulse(); _runtime.ClassroomReceipts?.Pulse(); await RefreshInboxAsync(); }
         }
         catch (Exception ex) { ShowStorageError(ex); }
@@ -523,7 +532,7 @@ public partial class ChatWindow
             var rows = loaded.Rows;
             if (generation != _manualFormGeneration) return;
             var row = rosterId is null ? null : rows.FirstOrDefault(r => r.Entry.Id == rosterId);
-            if (rosterId is not null && row is null) { StorageStatus.Text = "這筆名單已移除，請重新開啟設定。"; return; }
+            if (rosterId is not null && row is null) { SetStorageNotice("這筆名單已移除，請重新開啟設定。"); return; }
             _manualFormSnapshot = RosterImportPreview.ComputeSnapshotToken(rows); ContactName.Text = row?.Entry.DisplayName ?? ""; StudentNumberBox.Text = row?.Entry.StudentNumber ?? ""; RecipientIp.Text = row?.Entry.Endpoint ?? ""; TeacherLabel.IsChecked = row?.Entry.IsTeacher == true;
             SaveContactButton.IsEnabled = true; DeleteContactButton.IsEnabled = row is not null; _pairingSelection = loaded.Target; RefreshPairingControls();
         }
@@ -555,7 +564,7 @@ public partial class ChatWindow
             {
                 SaveContactFeedback.Foreground = System.Windows.Media.Brushes.Firebrick;
                 SaveContactFeedback.Text = "❌ " + RosterFailure(result.Reason);
-                StorageStatus.Text = RosterFailure(result.Reason);
+                SetStorageNotice(RosterFailure(result.Reason));
             }
         }
         catch (Exception ex) { ShowStorageError(ex); }
@@ -566,11 +575,11 @@ public partial class ChatWindow
         try
         {
             var preview = await _runtime.Worker.Run(s => s.PreviewRosterDelete(id));
-            if (!preview.CanDelete) { StorageStatus.Text = RosterFailure(preview.Reason); return; }
+            if (!preview.CanDelete) { SetStorageNotice(RosterFailure(preview.Reason)); return; }
             if (MessageBox.Show(this, preview.Notice, "移除名單標籤", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
             await _runtime.InvalidatePairingAsync("roster_delete");
             var result = await _runtime.Worker.Run(s => s.DeleteRosterEntry(id, preview.SnapshotToken, preview.ToConfirmation()));
-            if (!result.Changed) { StorageStatus.Text = RosterFailure(result.Reason); return; }
+            if (!result.Changed) { SetStorageNotice(RosterFailure(result.Reason)); return; }
             await LoadManualFormAsync(null); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync(true); SetStatus("名單標籤已移除，對話仍保留。");
         }
         catch (Exception ex) { ShowStorageError(ex); }
@@ -663,12 +672,24 @@ public partial class ChatWindow
         try { long edit = ++_readPolicyEdit; var policy = await _runtime.Worker.Run(s => s.GetReadReceiptPolicy()); if (edit == _readPolicyEdit) { ReadReceiptToggle.IsChecked = policy.Enabled; ReadReceiptToggle.IsEnabled = true; } await FlushDraftsAsync(); _historyLoaded = false; await RefreshInboxAsync(true); }
         catch (Exception ex) { ShowStorageError(ex); }
     }
-    private void ShowStorageError(Exception exception)
+    private void ShowStorageError(Exception exception, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
         if (_closingRequested && exception is OperationCanceledException) return;
-        StorageStatus.Text = exception is StoreException store ? store.Message : exception is ArgumentException ? "資料格式不正確，請檢查輸入後重試。" : "本機資料無法讀取或儲存，請重試。";
-        ReloadData.Visibility = Visibility.Visible;
+        var stage = caller == nameof(MarkViewportAsync) ? DiagnosticStage.UiRead : caller is nameof(RefreshInboxAsync) or nameof(LoadHistoryAsync) ? DiagnosticStage.UiRefresh : caller is nameof(SendCoreAsync) or nameof(SendBoundaryAsync) or nameof(SendClassroomCoreAsync) or nameof(QueueCurrentMessageAsync) ? DiagnosticStage.SendPrepare : caller == nameof(FlushDraftsAsync) ? DiagnosticStage.StorageWrite : DiagnosticStage.UiAction;
+        var fault = DiagnosticFault.FromException(exception, exception is OperationCanceledException && _closingRequested);
+        _runtime?.Diagnostics.Record(stage, DiagnosticOutcome.Failed, error: exception);
+        _diagnosticFailures = DiagnosticRecoveryPolicy.Report(_diagnosticFailures, stage, fault);
+        RefreshDiagnosticStatus();
     }
+    private static string DiagnosticMessage(DiagnosticFault fault) => (fault.Code switch {
+        DiagnosticCode.StorageBusy or DiagnosticCode.QueueFull => "本機資料忙碌，這次操作未完成，請稍後重試。",
+        DiagnosticCode.DiskFull => "磁碟空間不足，請釋放空間後重試；請保留目前草稿。",
+        DiagnosticCode.ReadOnly => "本機資料無法寫入，請檢查資料夾權限後重試。",
+        DiagnosticCode.CorruptData or DiagnosticCode.UnsupportedData => "本機資料需要檢查，請保留原檔並匯出診斷；不要刪除資料庫。",
+        DiagnosticCode.NetworkUnavailable or DiagnosticCode.Timeout => "連線未完成，請確認對方已開啟程式；已入列訊息會依待送狀態續送。",
+        DiagnosticCode.InvalidPayload => "資料格式不正確，請檢查輸入後重試。",
+        _ => "這次操作未完成，請重試；若持續發生，請從設定匯出診斷。"
+    }) + "（" + fault.DisplayCode + "）";
     private static T? FindVisual<T>(DependencyObject root) where T : DependencyObject
     { for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) { var child = VisualTreeHelper.GetChild(root, i); if (child is T found) return found; if (FindVisual<T>(child) is { } nested) return nested; } return null; }
     internal string LegacyNotificationName(NekoChat.Core.LegacyDeliveryNotice notice) => _snapshot?.Entries.FirstOrDefault(e => e.LegacyScope == notice.Scope)?.NotificationName ?? "未驗證來源";
