@@ -124,8 +124,13 @@ internal static class DiagnosticIndependentChecks
                     senderStore.SaveClassroomDraft(p, text, draft.Epoch, draft.Revision + 1);
                     var begin = (AttemptStarted)senderStore.BeginClassroomSend(p, text, draft.Epoch, draft.Revision + 1);
                     var prepared = senderStore.GetClassroomPreparedSend(begin.MessageId)!;
-                    var result = await sender.SendPreparedAsync(prepared, receiver.Listener.Port, "127.0.0.1", () => true);
-                    Check(result.Success && result.Completion is Confirmed, $"FLOW message {i}: the send is confirmed although neither journal can write", $"success={result.Success} code={result.Code}");
+                    try
+                    {
+                        var result = await sender.SendPreparedAsync(prepared, receiver.Listener.Port, "127.0.0.1", () => true);
+                        Check(result.Success && result.Completion is Confirmed, $"FLOW message {i}: the send is confirmed although neither journal can write", $"success={result.Success} code={result.Code}");
+                    }
+                    catch (Exception e) when (e is not OutOfMemoryException)
+                    { Check(false, $"FLOW message {i}: the send does not throw because of a diagnostics failure", e.GetType().Name + ": " + e.Message); }
                 }
                 var stored = receiver.Store.ListClassroomMessages(p).Items;
                 Check(stored.Count == 3 && stored.Select(m => m.RawText).SequenceEqual(new[] { "FLOW message 1", "FLOW message 2", "FLOW message 3" }), "FLOW the receiver stored all three messages exactly once and in order", "stored=" + stored.Count);
