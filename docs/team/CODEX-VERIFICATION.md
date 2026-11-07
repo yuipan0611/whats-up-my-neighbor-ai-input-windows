@@ -205,7 +205,7 @@ Local commits for this follow-up: f968b52 (Tom 3f35778 preserved verbatim), fc7f
 
 Evidence: build/b1-followup/d30-final-results.json and d30-final-*.log. TMPDIR was this worktree's real build/tmp. Earlier failing diagnostic attempt is retained as a resolved regression in d30-diagnostics-repair.log; **no DiagnosticChecks assertions were changed**. Earlier version-14 fixture failure is resolved by the explicitly approved Take(14), not by weakening the version/backup check.
 
-Additional changed behavior / review anchors (current line numbers):
+Additional changed behavior / review anchors (acecc54 snapshot; newer Ben-fix anchors below supersede current-file line numbers):
 
 | Area | File:line |
 |---|---|
@@ -221,3 +221,63 @@ Additional changed behavior / review anchors (current line numbers):
 | Approved constant-14 upgrade fixture | NekoChat.Tests/AttachmentChecks.cs:111–112 |
 
 All paths in this anchor table are under windows-lite/. git diff --check and safety config strict validation passed. No Wire codec, SchemaV1 or artwork changed. WPF runtime, native Windows CI, physical Windows, two-machine LAN/classroom, IME/DPI, native clipboard remain **未執行**. No push, PR, merge, release, install or deployment. Next gate belongs to PM: Ben reviews v15/D-30 and Tom runs blocking mutants; this report does not claim their review is complete.
+
+
+## Ben 最終修正 F1–F5（b42a2a4 後）
+
+- F1: Actions:84 / ClassroomSendUiPolicy:74 success says 「已送出。」; cancel outcome :210 says 「已送出（無法再取消）。」. Classroom queued/manual waiting banners use 「接收回應」; storage-unavailable failure text no longer calls it a remote storage confirmation. Attempt/outbox states, evidence fields and ACK validators are unchanged.
+- F2: App.xaml.cs:448/459 now calls NotifyAfterBlockCheckAsync (:478). The block query runs through the runtime Worker, then Dispatcher handles the notification with closing/runtime/listener reference guards. Query failure suppresses notification and records identifier-free fixed diagnostics. The synchronous ChatRuntime helper was removed. Signed/v2 notification callback is unchanged. Native dispatcher behavior remains unexecuted on macOS; source audit and cross-build are the available evidence.
+- F3: Inspection confirmed the prior filtered lookup prevented relaying cached blocked-author bytes. Storage's internal GetClassroomFileForServing (:48) ignores only local author hiding. ClassroomFileService:228/246/249 uses it only for outward status/chunk; local list/Get/Download continue to hide the author. Existing caller-source, grant/IP binding, size/range, ready/cache and withdrawal checks remain. New BK-03 F3 scenario serves exact staged bytes to another permitted node, verifies local hiding, wrong-token rejection, blocked-source rejection and signed withdrawal invalidation of an old grant.
+- F4: blocking.md explicitly accepts diagnostic fail-closed with no UUID/IP when block state cannot be read. Existing D-30 failure privacy scenarios remain unchanged and continue to prove both blocked and unknown-state failures.
+- F5: BK-08 F5 wraps the actual Migration.V15.Apply inside its existing transaction, executes real table creation + partial row/data changes, then injects failure. A canonical read-only snapshot compares user_version, schema and every table value (including sqlite_sequence) before/after. Valid v14 re-open, backup retention and successful next normal v15 upgrade are checked. No new product fault hook or migration format was added.
+
+### Old test adjustments — D-30 文案變更
+
+| File:line | Old assertion | New assertion | Basis | Migration contract? |
+|---|---|---|---|---|
+| ClassroomSendUiPolicyChecks.cs:68 | Confirmed cancel text contains 已送達 | Exact 已送出（無法再取消）。 | D-30 文案變更; Ben F1 | No: UI wording only; stronger exact check |
+| ClassroomSendUiPolicyChecks.cs:74 | AlreadyConfirmed cancel text contains 已送達 | Exact 已送出（無法再取消）。 | D-30 文案變更; Ben F1 | No: UI wording only; stronger exact check |
+| ClassroomSendUiPolicyChecks.cs:300 | Exact 已驗證對方的儲存確認。 | Exact 已送出。 | D-30 文案變更; Ben F1 | No: all DraftCleared/attempt/state assertions retained |
+
+No old assertions were removed; the policy suite still has 133 checks. No signed/v2 wire, schema or vectors changed. Actions.cs:84 is actually in the archived signed/v2 branch, but this one status line was explicitly listed by PM F1 and therefore follows the requested new wording; the frozen protocol/persisted ACK semantics and v2 history/smoke expectations are retained.
+
+### Whole-project wording search and retained matches
+
+Command: rg -n --hidden (excluding .git, build, bin, obj) '已儲存|儲存確認|已確認儲存' . . Full output: build/b1-followup/ben-final-storage-wording-rg.txt. This scans the worktree, not only the three identified lines.
+
+| Retained source match | Reason |
+|---|---|
+| ChatWindow.Inbox.cs:383; App.MessagingSmokeTest.cs:121 | Signed/v2 persisted-message history and its exact native smoke expectation; D-30 classroom shadow ACK does not alter this frozen protocol path |
+| ChatWindow.Actions.cs:79,88 | Signed/v2-only waiting text and local failure to save a received confirmation; neither asserts classroom remote persistence. Its success line :84 follows explicit F1 |
+| ChatWindow.Inbox.cs:337–338; ChatWindow.xaml:220; ChatWindow.ProtocolHints.cs:32 | Explicit negative explanation that legacy confirmation does NOT mean stored/read |
+| ChatWindow.Inbox.cs:552,555; ChatWindow.ClassRoster.cs:105; ChatWindow.Pairing.cs:22; ChatWindow.xaml:274 | Local roster/nickname persistence, not a remote-delivery claim |
+| PairingDialogPresentation.cs:15; preview/pairing-dialog.html | Pairing confirmation persistence is separate from classroom message delivery and its warning remains valid |
+| Historical/spec/verification Markdown quoting old strings | Audit trail and the requested old/new assertion table; not active product text |
+
+Active classroom success/cancel/waiting/error paths no longer use the three searched storage-confirmation phrases. No blanket replacement of signed/v2, local-data or negative safety text was performed.
+
+
+### 第 1 批最終修正完成 — 驗證結果
+
+Product/test commits: 7a3041b (F1/F2), edd53ae (F3/F5 plus F4 spec). The final evidence commit changes docs/config only. WPF was cross-built immediately after F1/F2 (ben-final-ui-build.log), then again after all Core changes (ben-final-win-x64-build.log); both exit 0, zero warnings/errors.
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release test build | 0 | 10.5 |
+| blocking | 65 assertions (54 retained + F5 5 + F3 6) | 0 | 1.47 |
+| contacts | 169 assertions | 0 | 1.13 |
+| classroom-ui-policy | 133 original checks retained | 0 | 0.07 |
+| classroom-files | 53 real TCP/SQLite/share regression checks | 0 | 12.03 |
+| classroom-all | Prelude + all 15 suites including attachments 70 | 0 | 44.52 |
+| outbox | 63 checks | 0 | 5.7 |
+| diagnostics | recovery 24 + journal 77 | 0 | 0.58 |
+| diagnostic-journal | 77 checks | 0 | 0.54 |
+| diagnostic-recovery | 24 checks | 0 | 0.06 |
+| diag-independent | 32 checks | 0 | 3.04 |
+| win-x64-build | cross-build; 0 warnings/errors | 0 | 27.36 |
+
+Evidence: build/b1-followup/ben-final-results.json, ben-final-*.log and ben-final-storage-wording-rg.txt. TMPDIR = this worktree's real build/tmp. git diff --check and safety config strict validation pass; the two existing physical/native unknowns remain. V15 migration body, schema version and frozen wire/schema/artwork are unchanged; only the test wraps v15 for failure injection.
+
+Current regression anchors: BlockingChecks.cs:67 snapshot, :86 V15FailureRollback, :112 BlockedAuthorRelay; ClassroomFileService.cs:228/246/249 outward lookup, ChatStore.ClassroomFiles.cs:48 internal relay lookup; App.xaml.cs:478 Worker/Dispatcher helper. Old assertion table above records all three F1 string changes.
+
+No push, PR, merge, release, install or deployment. WPF runtime/Dispatcher visual behavior, native Windows CI, two physical Windows devices/LAN/classroom, IME/DPI and native clipboard remain **未執行**. Product changes are ready for PM/Ben follow-up review; this is not a claim that the new commits have already passed that independent review.
