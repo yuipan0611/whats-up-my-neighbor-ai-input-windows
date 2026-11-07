@@ -236,7 +236,6 @@ public sealed class AttachmentService : IAsyncDisposable
     {
         try
         {
-            if (_store.IsSourceBlocked(sourceIp)) throw new AttachmentException("source_not_allowed");
             if (_cacheClearing || !current() || !LanInvitation.PrivateIPv4(sourceIp)) throw new AttachmentException("receiver_not_ready");
             using var document = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = 4 }); var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() != root.EnumerateObject().Count() ||
@@ -250,7 +249,15 @@ public sealed class AttachmentService : IAsyncDisposable
                 if (!sessions.TryConsume(Get(root, "session"), sourceIp)) throw new AttachmentException("stale_session");
                 int port = root.GetProperty("port").GetInt32(); if (port is < 1 or > 65535) throw new AttachmentException("invalid_payload");
                 var file = new AttachmentFile(Get(root, "blob_id"), Get(root, "name"), root.GetProperty("size").GetInt64(), Get(root, "sha256"));
-                var received = _store.ReceiveAttachmentOffer(sourceIp, port, id, file, Get(root, "caption"), token, current);
+                (AttachmentRecord? Record, bool New) received;
+                try { received = _store.ReceiveAttachmentOffer(sourceIp, port, id, file, Get(root, "caption"), token, current); }
+                catch (AttachmentException error) when (error.Code == "source_not_allowed")
+                {
+                    // D-30: accepted offer, never downloaded/complete. The block check and refusal
+                    // happened in the receiving writer transaction; nothing identifying is retained.
+                    if (!current()) throw new AttachmentException("receiver_not_ready");
+                    return Ack(id, file, "offered");
+                }
                 if (received.Record is not { } record) return Ack(id, file, "cleared");
                 if (received.New)
                 {
@@ -265,6 +272,7 @@ public sealed class AttachmentService : IAsyncDisposable
                 }
                 return Ack(id, file, record.State == "complete" ? "complete" : "offered");
             }
+            if (_store.IsSourceBlocked(sourceIp)) throw new AttachmentException("source_not_allowed");
             var outgoing = _store.ListAttachments().SingleOrDefault(r => r.Direction == "outgoing" && r.MessageId == id && r.PeerIp == sourceIp);
             if (outgoing is null || !CryptographicOperations.FixedTimeEquals(Convert.FromHexString(outgoing.Token), Convert.FromHexString(token)) || !_store.AttachmentCurrent(outgoing)) throw new AttachmentException("unavailable");
             if (operation == "complete")

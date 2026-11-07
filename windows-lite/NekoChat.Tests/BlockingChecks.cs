@@ -1,4 +1,8 @@
 using System.Security.Cryptography;
+using System.Net;
+using System.IO.Compression;
+using System.Text;
+using NekoChat.Core.Diagnostics;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using NekoChat.Core;
@@ -18,15 +22,15 @@ internal static class BlockingChecks
     static void Check(bool v,string m){count++;if(!v)throw new InvalidOperationException(m);}
     sealed class Faults:IStoreFaults
     {
-        internal Action<string>? Before;
-        public void AfterBegin(string op){} public void BeforeCommit(string op)=>Before?.Invoke(op); public void AfterCommit(string op){}
+        internal Action<string>? Before, After, Read;
+        public void AfterBegin(string op)=>After?.Invoke(op); public void AfterRead(string op)=>Read?.Invoke(op); public void BeforeCommit(string op)=>Before?.Invoke(op); public void AfterCommit(string op){}
     }
     sealed class Env:IDisposable
     {
         internal readonly string Root=Path.Combine(Path.GetTempPath(),"neko-block-"+Guid.NewGuid().ToString("N"));
         internal ChatStore Store;
         internal ChatStoreOptions Options;
-        internal Env(int version=15,Faults? faults=null){Options=new(Root){Faults=faults};Store=ChatStore.Open(Options with{Migrations=Migration.Default.Take(version).ToArray()});}
+        internal Env(int version=15,Faults? faults=null,DiagnosticJournal? diagnostics=null){Options=new(Root){Faults=faults,Diagnostics=diagnostics};Store=ChatStore.Open(Options with{Migrations=Migration.Default.Take(version).ToArray()});}
         internal void Reopen(){Store.Dispose();Store=ChatStore.Open(Options);}
         internal long Number(string sql){using var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=Store.DatabasePath,Pooling=false}.ToString());c.Open();using var cmd=c.CreateCommand();cmd.CommandText=sql;return Convert.ToInt64(cmd.ExecuteScalar());}
         public void Dispose(){Store.Dispose();Directory.Delete(Root,true);}
@@ -34,8 +38,187 @@ internal static class BlockingChecks
     static string Token(ChatStore s)=>RosterImportPreview.ComputeSnapshotToken(s.GetRosterSnapshot());
     static string Add(ChatStore s,string ip,bool teacher=false)=>s.SaveManualRosterEntry(null,new("alias "+ip,null,teacher,ip),Token(s)).EntryId!;
     static ClassroomStored Receive(ChatStore s,string ip,string? id=null)=>(ClassroomStored)s.ReceiveClassroomMessage(ip,new(id??Guid.NewGuid().ToString("D"),"body"),()=>true);
-    static string Queue(ChatStore s,ClassroomPrincipalKey p,string text){var d=s.GetClassroomDraftState(p);s.SaveClassroomDraft(p,text,d.Epoch,d.Revision+1);return s.EnqueueClassroomMessage(p,text,d.Epoch,d.Revision+1,8768);}
+    static string Queue(ChatStore s,ClassroomPrincipalKey p,string text,int port=8768){var d=s.GetClassroomDraftState(p);s.SaveClassroomDraft(p,text,d.Epoch,d.Revision+1);return s.EnqueueClassroomMessage(p,text,d.Epoch,d.Revision+1,port);}
     sealed class Secrets:IShareSecrets {public byte[] Protect(byte[] b)=>b.ToArray();public byte[] Unprotect(byte[] b)=>b.ToArray();}
+    sealed class Node : IAsyncDisposable
+    {
+        internal readonly DiagnosticJournal Journal;
+        internal readonly ChatStore Store;
+        internal readonly AttachmentService Files;
+        internal readonly ClassroomTcpListener Listener;
+        internal int Notices, Successes;
+        internal Node(string root)
+        {
+            Journal = new(Path.Combine(root, "diagnostics"), "0.1.0-beta.12");
+            Store = ChatStore.Open(new(Path.Combine(root,"data")){Diagnostics=Journal});
+            Store.ClassroomCommunicationSucceeded += _ => Successes++;
+            var sink = new ClassroomStoreSink(Store, Journal);
+            sink.MessageStored += (_,_,_) => Notices++;
+            sink.LegacyMessageStored += _ => Notices++;
+            sink.ReceiptStored += (_,_) => Notices++;
+            Files = new(Store,Path.Combine(root,"files"),1,diagnostics:Journal);
+            Files.MessageStored += (_,_) => Notices++;
+            var endpoint = new AttachmentEndpoint(new ClassroomEndpointAdapter(sink,capabilities:["msg.plain","receipt.read",AttachmentLimits.Capability],diagnostics:Journal),Files);
+            Listener = new(endpoint,new(){BindAddress=IPAddress.Loopback,Port=0});
+            Listener.Start();Files.Port=Listener.Port;
+        }
+        public async ValueTask DisposeAsync(){await Listener.DisposeAsync();await Files.DisposeAsync();Store.Dispose();await Journal.DisposeAsync();}
+    }
+    static async Task D30FailurePrivacy()
+    {
+        using var root=new Env();
+        await using var journal=new DiagnosticJournal(Path.Combine(root.Root,"diagnostics"),"0.1.0-beta.12");
+        var faults=new Faults();using var e=new Env(faults:faults,diagnostics:journal);
+        e.Store.SetSourceBlocked(A,true);
+        faults.After=op=>{if(op=="classroom-receive")throw new StoreException(StoreErrorKind.DiskFull,"SENSITIVE blocked write");};
+        var sink=new ClassroomStoreSink(e.Store,journal);
+        var request=new ClassroomRequest(ClassroomRequestKind.Message,MessageId:Guid.NewGuid().ToString("D"),Session:ClassroomPacketWriter.NewToken(),Text:"SENSITIVE blocked text");
+        bool failed=false;try{await sink.OnMessageAsync(A,B,request,()=>true,default);}catch(StoreException){failed=true;}
+        Check(failed&&journal.Recent.All(r=>r.MessageId is null)&&e.Number("SELECT count(*) FROM ClassroomMessage")==0,"BK-02 D-30 failed blocked writes retain root cause without identifiers");
+        faults.Read=_=>throw new IOException("SENSITIVE unreadable block state");
+        failed=false;try{await sink.OnMessageAsync(A,B,request,()=>true,default);}catch(StoreException){failed=true;}
+        Check(failed&&journal.Recent.All(r=>r.MessageId is null),"BK-02 D-30 unknown block state omits diagnostic UUID conservatively");
+        faults.After=null;faults.Read=null;
+        Console.WriteLine("PASS BK-02 D-30 blocked/unknown-state failure diagnostics exclude identifiers");
+    }
+    sealed class ReceiptPeer(Action? afterHello) : HttpMessageHandler
+    {
+        internal int Receipts;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation)
+        {
+            request.Options.Set(ClassroomSender.LocalEndpointOptionKey,B);
+            using var input=JsonDocument.Parse(await request.Content!.ReadAsByteArrayAsync(cancellation));var body=input.RootElement;
+            byte[] response;
+            if(request.RequestUri!.AbsolutePath.EndsWith("/hello",StringComparison.Ordinal))
+            {
+                response=ClassroomPacketWriter.HelloOk(body.GetProperty("client_nonce").GetString()!,ClassroomPacketWriter.NewToken(),A,B,["msg.plain","receipt.read"]);
+                afterHello?.Invoke();
+            }
+            else
+            {
+                Receipts++;
+                response=ClassroomPacketWriter.ReceiptAck("ok",body.GetProperty("message_id").GetString()!,body.GetProperty("session").GetString()!,B,A);
+            }
+            return new(HttpStatusCode.OK){Content=new ByteArrayContent(response)};
+        }
+    }
+    static async Task D30ReceiptFence()
+    {
+        using var e=new Env();
+        PendingClassroomReceipt Pending()
+        {
+            var rx=Receive(e.Store,A);
+            e.Store.MarkClassroomVisibleRead(rx.Principal,[rx.LocalSeq],new(rx.Principal.Value,true,true,false,true));
+            return e.Store.ListPendingClassroomReceipts().Single();
+        }
+        var pending=Pending();
+        using(var peer=new ReceiptPeer(()=>e.Store.SetSourceBlocked(A,true)))
+        using(var http=new HttpClient(peer))
+        {
+            var result=await new ClassroomSender(e.Store,http).SendReceiptAsync(pending,8768,B,()=>true);
+            Check(!result.Completed&&result.Status=="stale_policy"&&peer.Receipts==0,"BK-02 D-30 block during hello prevents queued read receipt transmission");
+            Check(e.Store.ListPendingClassroomReceipts().Count==0,"BK-02 D-30 block purges the in-flight candidate's queued record");
+        }
+        e.Store.SetSourceBlocked(A,false);
+        Check(e.Store.ListPendingClassroomReceipts().Count==0,"BK-05 D-30 unblock never revives the cancelled read receipt");
+        pending=Pending();
+        using(var peer=new ReceiptPeer(null))
+        using(var http=new HttpClient(peer))
+        {
+            var result=await new ClassroomSender(e.Store,http).SendReceiptAsync(pending,8768,B,()=>true);
+            Check(result.Completed&&peer.Receipts==1,"BK-02 D-30 positive control sends a new unblocked receipt normally");
+        }
+        Console.WriteLine("PASS BK-02/BK-05 D-30 in-flight receipt fence and unblocked positive control");
+    }
+    static void LoopbackBlockFixture(ChatStore store,bool blocked)
+    {
+        // Product contacts deliberately reject loopback addresses. Keep that guard intact:
+        // only this isolated TCP fixture maps an explicitly-created private-IP block to loopback.
+        // The normal public API and real private addresses are exercised by BK-01..08 above.
+        if(blocked)store.SetSourceBlocked(A,true);
+        using(var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=store.DatabasePath,Pooling=false}.ToString()))
+        {c.Open();using var q=c.CreateCommand();q.CommandText="UPDATE BlockedSource SET ip=@to WHERE ip=@from";q.Parameters.AddWithValue("@from",blocked?A:"127.0.0.1");q.Parameters.AddWithValue("@to",blocked?"127.0.0.1":A);q.ExecuteNonQuery();}
+        if(!blocked)store.SetSourceBlocked(A,false);
+    }
+    static long AttemptTries(ChatStore store,string id)
+    {
+        using var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=store.DatabasePath,Pooling=false}.ToString());c.Open();
+        using var q=c.CreateCommand();q.CommandText="SELECT tryCount FROM ClassroomAttempt WHERE messageId=@id";q.Parameters.AddWithValue("@id",id);return Convert.ToInt64(q.ExecuteScalar());
+    }
+    static string RowCounts(ChatStore store)
+    {
+        using var c = new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=store.DatabasePath,Pooling=false}.ToString());c.Open();
+        using var names = c.CreateCommand();names.CommandText="SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
+        var tables=new List<string>();using(var reader=names.ExecuteReader())while(reader.Read())tables.Add(reader.GetString(0));
+        return string.Join(";",tables.Select(table=>{using var q=c.CreateCommand();q.CommandText="SELECT count(*) FROM \""+table.Replace("\"","\"\"")+"\"";return table+":"+q.ExecuteScalar();}));
+    }
+    static async Task D30Transport()
+    {
+        using var root=new Env();
+        await using var receiver=new Node(Path.Combine(root.Root,"receiver"));
+        await using var sender=new Node(Path.Combine(root.Root,"sender"));
+        const string ip="127.0.0.1",secret="BLOCKED-BODY-SENSITIVE";
+        bool localRejected=false;try{receiver.Store.SetSourceBlocked(ip,true);}catch(ArgumentException){localRejected=true;}
+        Check(localRejected,"BK-02 D-30 fixture does not loosen product loopback contact guard");
+        LoopbackBlockFixture(receiver.Store,true);
+        string before=RowCounts(receiver.Store);
+        var sink=new ClassroomStoreSink(receiver.Store,receiver.Journal);int notices=0;
+        sink.MessageStored+=(_,_,_)=>notices++;sink.ReceiptStored+=(_,_)=>notices++;sink.LegacyMessageStored+=_=>notices++;
+        string id=Guid.NewGuid().ToString("D"),session=ClassroomPacketWriter.NewToken();
+        var request=new ClassroomRequest(ClassroomRequestKind.Message,MessageId:id,Session:session,Text:secret,Reaction:"wave");
+        var ack=await sink.OnMessageAsync(ip,ip,request,()=>true,default);
+        Check(ack is{StatusCode:200}&&ack.Body.Span.SequenceEqual(ClassroomPacketWriter.MessageAck("stored",id,session,ip,ip,"wave",secret)),"BK-02 D-30 normal stored ACK with exact content hash/reaction");
+        Check((await sink.OnMessageAsync(ip,ip,request,()=>true,default))!.Body.Span.SequenceEqual(ack!.Body.Span),"BK-02 D-30 repeat remains stored without retained dedup id");
+        Check((await sink.OnMessageAsync(ip,ip,request,()=>false,default))?.StatusCode!=200,"BK-02 D-30 stopped receiver does not synthesize success");
+        var receipt=await sink.OnReceiptAsync(ip,ip,new(ClassroomRequestKind.Receipt,MessageId:id,Session:session),()=>true,default);
+        Check(receipt is{StatusCode:200}&&receipt.Body.Span.SequenceEqual(ClassroomPacketWriter.ReceiptAck("discarded",id,session,ip,ip)),"BK-02 D-30 receipt discarded without event");
+        var legacy=await sink.OnLegacyDirectAsync(ip,new(secret,"wave"),()=>true,default);
+        Check(legacy is{StatusCode:200}&&Encoding.UTF8.GetString(legacy.Body.Span)=="{\"status\":\"delivered\"}","BK-02 D-30 legacy uses frozen success response");
+        Check(RowCounts(receiver.Store)==before&&notices==0,"BK-02 D-30 no table changes after text/repeat/reaction/receipt/legacy");
+        var p=ClassroomPrincipalKey.ForSourceIp(ip);
+        string outgoing=Queue(sender.Store,p,secret,receiver.Listener.Port);
+        // Exercise the real sender ACK validator and durable retry loop, not a fake success callback.
+        await using(var outbox=new ClassroomOutbox(sender.Store,new(sender.Store),sender.Files,(_,_)=>ip))
+        {
+            var until=DateTime.UtcNow.AddSeconds(5);
+            while(sender.Store.ListOutbox().Single(r=>r.MessageId==outgoing).State!="complete"&&DateTime.UtcNow<until)await Task.Delay(25);
+            Check(sender.Store.ListOutbox().Single(r=>r.MessageId==outgoing).State=="complete","BK-02 D-30 A durable queue completes against blocked B over TCP");
+            Check(sender.Store.ListClassroomMessages(p).Items.Single().RemoteStoredAt is not null&&sender.Store.ListClassroomMessages(p).Items.Single().RemoteReadAt is null,"BK-02 D-30 A sees stored, never read");
+            long tries=AttemptTries(sender.Store,outgoing);await Task.Delay(350);
+            Check(AttemptTries(sender.Store,outgoing)==tries&&sender.Store.ListOutbox().Single().State=="complete","BK-02 D-30 ACK stops automatic retries");
+        }
+        var previous=(ClassroomStored)sender.Store.ReceiveClassroomMessage(ip,new(id,"previously received"),()=>true);p=previous.Principal;
+        sender.Store.MarkClassroomVisibleRead(p,[previous.LocalSeq],new(p.Value,true,true,false,true));
+        var pending=sender.Store.ListPendingClassroomReceipts().Single();
+        var senderTransport=new ClassroomSender(sender.Store);
+        var discarded=await senderTransport.SendReceiptAsync(pending,receiver.Listener.Port,ip,()=>true);
+        Check(discarded.Completed&&discarded.Status=="discarded","BK-02 D-30 real receipt sender accepts discarded and stops");
+        byte[] bytes=Encoding.UTF8.GetBytes(secret);
+        await sender.Files.AddDraftAsync(p,new MemoryStream(bytes),"blocked-sensitive.txt");
+        var draft=sender.Store.GetClassroomDraftState(p);sender.Store.SaveClassroomDraft(p,"",draft.Epoch,draft.Revision+1);
+        var queuedFile=sender.Store.EnqueueAttachment(p,"",draft.Epoch,draft.Revision+1,receiver.Listener.Port);
+        await using(var outbox=new ClassroomOutbox(sender.Store,new(sender.Store),sender.Files,(_,_)=>ip))
+        {
+            var until=DateTime.UtcNow.AddSeconds(5);
+            while(sender.Store.ListOutbox().Single(r=>r.MessageId==queuedFile.MessageId).State!="complete"&&DateTime.UtcNow<until)await Task.Delay(25);
+            Check(sender.Store.ListOutbox().Single(r=>r.MessageId==queuedFile.MessageId) is{State:"complete",Failures:0},"BK-02 D-30 offered ACK completes A's durable attachment queue without retry");
+        }
+        var offered=sender.Store.GetAttachment(queuedFile.LocalSeq)!;
+        Check(offered.State=="offered"&&offered.CompletedUtc is null&&offered.StateText=="通知已送出 · 等待收件確認","BK-02 D-30 attachment notification sent, never claims complete");
+        Check(RowCounts(receiver.Store)==before&&receiver.Notices==0&&receiver.Successes==0,"BK-02 D-30 TCP text/receipt/offer create no content/contact/unread/receipt/attachment records or notifications");
+        Check(receiver.Journal.Recent.All(e=>e.MessageId is null),"BK-02 D-30 diagnostics retain no blocked message IDs");
+        string export=Path.Combine(root.Root,"diagnostics.zip");Check((await receiver.Journal.ExportAsync(export)).Success,"BK-02 D-30 real diagnostic export succeeds");
+        using(var zip=ZipFile.OpenRead(export))
+        {
+            string content=string.Join("",zip.Entries.Select(entry=>{using var reader=new StreamReader(entry.Open());return reader.ReadToEnd();}));
+            Check(new[]{ip,A,B,secret,id,outgoing,offered.MessageId,"blocked-sensitive.txt"}.All(value=>!content.Contains(value,StringComparison.Ordinal)),"BK-02 D-30 exported logs exclude source, IDs, filename and body");
+        }
+        LoopbackBlockFixture(receiver.Store,false);
+        Check(receiver.Store.GetClassroomInboxSnapshot().Entries.Count==0,"BK-05 D-30 unblock does not backfill acknowledged discarded traffic");
+        var restored=(ClassroomStored)receiver.Store.ReceiveClassroomMessage(ip,new(id,secret,"wave"),()=>true);
+        Check(receiver.Store.ListClassroomMessages(restored.Principal).Items.Single().MessageId==id,"BK-05 D-30 same id explicit resend after unblock is accepted (isolated loopback ingress)");
+        Console.WriteLine("PASS BK-02/BK-05 D-30 real sender/TCP, offered-only attachment, discarded receipts, no receiver rows/identifiers");
+    }
     public static async Task Run()
     {
         count=0;
@@ -54,7 +237,7 @@ internal static class BlockingChecks
             try{e.Store.ReceiveAttachmentOffer(A,8768,Guid.NewGuid().ToString("D"),file,"",new string('b',64),()=>true);}catch(AttachmentException x){rejected=x.Code=="source_not_allowed";}
             Check(rejected&&!e.Store.ApplyClassroomReceipt(A,"receipt",RemoteReceiptKind.Read).Changed,"offer and receipt refused");
             var response=await sink.OnMessageAsync(A,B,new(ClassroomRequestKind.Message,MessageId:Guid.NewGuid().ToString("D"),Session:ClassroomPacketWriter.NewToken(),Text:"blocked"),()=>true,default);
-            Check(response?.StatusCode==403&&notices==0,"existing error code and no notification");
+            Check(response?.StatusCode==200&&notices==0,"D-30 normal stored ACK and no notification");
             Check(e.Number("SELECT count(*) FROM ClassroomMessage")==0&&e.Number("SELECT count(*) FROM LegacyMessage")==0&&e.Number("SELECT count(*) FROM RosterEntry")==0&&e.Number("SELECT count(*) FROM ClassroomAutoSource")==0,"no content unread or automatic records");
             Console.WriteLine("PASS BK-02 blocked ingress stores and notifies nothing");
         }
@@ -83,9 +266,20 @@ internal static class BlockingChecks
             Console.WriteLine("PASS BK-04 queued work stops without deletion or implicit resume");
         }
         using(var e=new Env()){
-            Add(e.Store,A);var before=Receive(e.Store,A);e.Store.SetSourceBlocked(A,true);e.Store.ReceiveClassroomMessage(A,new("during","rejected"),()=>true);e.Store.SetSourceBlocked(A,false);
-            Check(e.Store.GetClassroomInboxSnapshot().Entries.Single() is{Blocked:false,CanSend:true}&&e.Store.ListClassroomMessages(before.Principal).Items.Count==1,"unblock keeps previous history with no local backfill");
-            Check(Receive(e.Store,A,"after").Principal==before.Principal,"new explicit send allowed after unblock");Console.WriteLine("PASS BK-05 unblock preserves alias/history without backfill");
+            Add(e.Store,A);var before=Receive(e.Store,A);
+            var unread=Receive(e.Store,A);
+            e.Store.MarkClassroomVisibleRead(before.Principal,[before.LocalSeq],new(before.Principal.Value,true,true,false,true));
+            Check(e.Store.ListPendingClassroomReceipts().Count==1,"BK-02 D-30 pre-block read receipt exists");
+            e.Store.SetSourceBlocked(A,true);
+            Check(e.Store.ListPendingClassroomReceipts().Count==0,"BK-02 D-30 block purges unsent read receipts");
+            Check(e.Store.MarkClassroomVisibleRead(unread.Principal,[unread.LocalSeq],new(unread.Principal.Value,true,true,false,true)) is{Marked:1,Queued:0},"BK-02 D-30 blocked history read never queues a receipt");
+            string during=Guid.NewGuid().ToString("D");
+            var ack=await new ClassroomStoreSink(e.Store).OnMessageAsync(A,B,new(ClassroomRequestKind.Message,MessageId:during,Session:ClassroomPacketWriter.NewToken(),Text:"body"),()=>true,default);
+            Check(ack is{StatusCode:200},"BK-05 D-30 blocked private-IP send gets normal success");
+            e.Store.SetSourceBlocked(A,false);
+            Check(e.Store.GetClassroomInboxSnapshot().Entries.Single() is{Blocked:false,CanSend:true}&&e.Store.ListClassroomMessages(before.Principal).Items.Count==2,"unblock keeps previous history with no local backfill");
+            Check(Receive(e.Store,A,during).Principal==before.Principal&&before.Principal.IsRoster,"BK-05 D-30 same acknowledged id explicit resend restores normal CT contact ownership");
+            Console.WriteLine("PASS BK-05 unblock preserves alias/history without backfill");
         }
         using(var e=new Env()){
             string id=Add(e.Store,A);var first=Receive(e.Store,A);var preview=e.Store.PreviewRosterDelete(id);e.Store.DeleteRosterEntry(id,preview.SnapshotToken,preview.ToConfirmation());
@@ -109,6 +303,9 @@ internal static class BlockingChecks
             faults.Before=null;
         }
         Console.WriteLine("PASS BK-08 upgrade backup and cross-connection atomic admission");
+        await D30Transport();
+        await D30ReceiptFence();
+        await D30FailurePrivacy();
         Console.WriteLine($"Blocking: {count} assertions passed; WPF/physical acceptance not run.");
     }
 }

@@ -213,7 +213,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _diagnostics?.Record(DiagnosticStage.ReceiveCommit, DiagnosticOutcome.Failed, error: ex, messageId: req.MessageId);
+            _diagnostics?.Record(DiagnosticStage.ReceiveCommit, DiagnosticOutcome.Failed, error: ex);
             return Error(ClassroomCodes.StorageUnavailable);
         }
     }
@@ -255,7 +255,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _diagnostics?.Record(DiagnosticStage.ReceiveReceipt, DiagnosticOutcome.Failed, error: ex, messageId: req.MessageId);
+            _diagnostics?.Record(DiagnosticStage.ReceiveReceipt, DiagnosticOutcome.Failed, error: ex);
             return Error(ClassroomCodes.StorageUnavailable);
         }
     }

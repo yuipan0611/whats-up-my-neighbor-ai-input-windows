@@ -502,8 +502,9 @@ public sealed class ClassroomSender
     {
         ArgumentNullException.ThrowIfNull(receipt);
         ArgumentNullException.ThrowIfNull(stillCurrent);
+        bool Current() => stillCurrent() && !_store.IsSourceBlocked(receipt.TargetIp);
 
-        if (!stillCurrent())
+        if (!Current())
         {
             return new ClassroomReceiptSendResult(false, "stale_policy");
         }
@@ -590,7 +591,7 @@ public sealed class ClassroomSender
         }
         session = initialProbe.Session;
 
-        if (!stillCurrent())
+        if (!Current())
         {
             return new ClassroomReceiptSendResult(false, "stale_policy");
         }
@@ -598,6 +599,7 @@ public sealed class ClassroomSender
         // 2. Send receipt (with stale_session single retry)
         for (int receiptTry = 0; receiptTry < 2; receiptTry++)
         {
+            if (!Current()) return new ClassroomReceiptSendResult(false, "stale_policy");
             byte[] receiptBytes = ClassroomPacketWriter.ReceiptRequest(receipt.MessageId, session!, targetIp);
 
             try
