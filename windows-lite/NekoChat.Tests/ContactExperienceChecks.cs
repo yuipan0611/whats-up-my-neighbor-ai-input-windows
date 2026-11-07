@@ -231,7 +231,10 @@ internal static class ContactExperienceChecks
             }),
             Sync("TC-02 teacher replacement is atomic and keeps the old student", () => {
                 using var e=new Env(); string a=Add(e.Store,A,"old",true),b=Add(e.Store,B,"new"); Receive(e.Store,A); Receive(e.Store,B);
-                string stale=Token(e.Store); Check(e.Store.SetClassroomTeacher(b,stale).Changed,"replace teacher");
+                string stale=Token(e.Store); long removedBefore=e.Count("SELECT count(*) FROM RosterRemoved");
+                Check(e.Store.SetClassroomTeacher(b,stale).Changed,"replace teacher");
+                var oldEntry=e.Store.GetClassroomInboxSnapshot().Entries.Single(x=>x.RosterEntryId==a);
+                Check(e.Count("SELECT count(*) FROM RosterRemoved")==removedBefore && !oldEntry.Removed && !oldEntry.IsTeacher && oldEntry.CanSend && oldEntry.TotalUnread==1,"replaced teacher is not archived: no removal record, not in the archive, still a sendable student with history");
                 Check(!e.Store.GetRosterSnapshot().Single(r=>r.Entry.Id==a).Entry.IsTeacher && e.Store.GetRosterSnapshot().Count(r=>r.Entry.IsTeacher)==1,"old teacher remains ordinary contact");
                 Check(!e.Store.SetClassroomTeacher(a,stale).Changed && e.Store.GetClassroomTeacherIp()==B,"stale confirmation cannot override newer choice");
             }),
