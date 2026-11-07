@@ -241,6 +241,34 @@ internal static class ContactExperienceChecks
                 Check(entry.Removed && !entry.CanSend && !entry.IsTeacher && entry.TotalUnread==2,"archived read-only preserves both unread streams");
                 Check(e.Store.ListLegacyMessages(new(id,null)).Items.Count==1,"archived legacy remains readable under original owner");
             }),
+            Sync("CT-13 automatic restore clears the archive so the inbox lists the contact once", () => {
+                using var e=new Env(); string id=Add(e.Store,A,"restored"); Receive(e.Store,A,"m1","first");
+                var preview=e.Store.PreviewRosterDelete(id); Check(e.Store.DeleteRosterEntry(id,preview.SnapshotToken,preview.ToConfirmation()).Changed,"confirmed removal");
+                Check(e.Count("SELECT count(*) FROM RosterRemoved")==1 && e.Count("SELECT count(*) FROM ClassroomArchivedContact")==1 && e.Store.GetClassroomInboxSnapshot().Entries.Single().Removed,"removal records the archive and shows one removed row");
+                Receive(e.Store,A,"m2","back");
+                Check(e.Store.GetRosterSnapshot().Single().Entry.Id==id,"the same stranger address restores the same id");
+                Check(e.Count("SELECT count(*) FROM RosterRemoved")==0 && e.Count("SELECT count(*) FROM ClassroomArchivedContact")==0,"restore clears RosterRemoved and the archive record (the precondition of the inbox removed-subject guard)");
+                var entries=e.Store.GetClassroomInboxSnapshot().Entries;
+                Check(entries.Count==1 && entries[0] is {Removed:false,CanSend:true,ClassroomUnread:2} && entries[0].RosterEntryId==id,"restored contact is listed once, active, with both messages");
+            }),
+            Sync("CT-13 inbox never lists a live roster row as removed even if a stale archive row exists", () => {
+                // Defence in depth: no product path leaves RosterRemoved next to a live RosterEntry (see the restore scenario), so this state is forged with raw SQL.
+                using var e=new Env(); string id=Add(e.Store,A,"live"); Receive(e.Store,A);
+                e.Scalar("INSERT INTO RosterRemoved(rosterEntryId,displayName,removedUtc) VALUES('"+id+"','stale ghost','2026-11-01T00:00:00Z')");
+                var entries=e.Store.GetClassroomInboxSnapshot().Entries;
+                Check(entries.Count==1 && entries.Select(x=>x.Principal).Distinct().Count()==1 && entries[0] is {Removed:false,CanSend:true} && entries[0].DisplayName=="live","one active row, no duplicate removed row with the stale name");
+            }),
+            Sync("CT-13 a removed contact's own legacy history never leaks to an unknown source at the same address", () => {
+                var faults=new Faults(); using var e=new Env(faults:faults); string id=Add(e.Store,A,"left");
+                e.Store.ReceiveLegacyMessage(new("legacy of the removed contact",null),e.Store.GetLegacyReceiveContext(A),()=>true);
+                var preview=e.Store.PreviewRosterDelete(id); Check(e.Store.DeleteRosterEntry(id,preview.SnapshotToken,preview.ToConfirmation()).Changed,"confirmed removal");
+                var first=e.Store.GetClassroomInboxSnapshot().Entries;
+                Check(first.Count==1 && first[0] is {Removed:true,LegacyUnread:1} && first[0].RosterEntryId==id,"orphaned row-scoped legacy history creates no unknown-source row");
+                faults.Fail="auto-contact"; Receive(e.Store,A,"stranger","same address, auto-contact fails"); faults.Fail=null;
+                var entries=e.Store.GetClassroomInboxSnapshot().Entries; var ip=entries.Single(x=>x.Principal.Equals(ClassroomPrincipalKey.ForSourceIp(A)));
+                Check(entries.Count==2 && entries.Single(x=>x.RosterEntryId==id) is {Removed:true,LegacyUnread:1,ClassroomUnread:0},"removed row keeps its legacy history alone");
+                Check(!ip.Removed && ip.LegacyUnread==0 && ip.ClassroomUnread==1 && ip.LegacyScope is {RosterEntryId:null},"unknown source at the same address shows only its own classroom message, no borrowed legacy history");
+            }),
             Sync("CT-15 IP edits fence old routes and never infer multihomed identity", () => {
                 using var e=new Env(); string id=Add(e.Store,A,"same person"); var p=P(e.Store,A); string queued=Queue(e.Store,p,"old target");
                 var work=e.Store.ClaimOutbox(queued)!; var prepared=e.Store.GetClassroomPreparedSend(queued)!;
