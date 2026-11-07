@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using NekoChat.Core.Diagnostics;
 using NekoChat.Core.Roster;
 
 namespace NekoChat.Core.Storage;
@@ -11,10 +12,17 @@ public sealed partial class ChatStore
     public void RecordClassroomCommunicationSuccess(string sourceIp)
     {
         if (ClassroomPrincipalKey.ForSource(sourceIp) is null) return;
-        try { if (!IsSourceBlocked(sourceIp)) ClassroomCommunicationSucceeded?.Invoke(sourceIp); } catch { }
+        try { if (!IsSourceBlocked(sourceIp)) ClassroomCommunicationSucceeded?.Invoke(sourceIp); }
+        catch (Exception error) when (DiagnosticFault.Catchable(error))
+        { _options.Diagnostics?.Record(DiagnosticStage.ReceiveNotify, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, error); }
     }
 
-    private void ContactDiagnostic(string code) { try { _options.DiagnosticSink?.Invoke(code); } catch { } }
+    private void ContactDiagnostic(string code)
+    {
+        try { _options.DiagnosticSink?.Invoke(code); }
+        catch (Exception error) when (DiagnosticFault.Catchable(error))
+        { _options.Diagnostics?.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, error); }
+    }
 
     // D-27: the accepted socket address is the only key. No name, key, teacher role or peer binding comes from the sender.
     private ClassroomPrincipalKey AutoContact(WriteContext ctx, string ip)
@@ -38,7 +46,7 @@ public sealed partial class ChatStore
             ctx.Exec("RELEASE auto_contact");
             return ClassroomPrincipalKey.ForRosterEntry(id);
         }
-        catch (Exception e) when (e is InvalidOperationException or IOException || e is SqliteException { SqliteErrorCode: 19 })
+        catch (Exception e) when (e is InvalidOperationException or IOException || e is SqliteException sqlite && sqlite.SqliteErrorCode == 19)
         {
             ctx.Exec("ROLLBACK TO auto_contact"); ctx.Exec("RELEASE auto_contact");
             ContactDiagnostic("auto-contact-failed");

@@ -9,6 +9,7 @@ using NekoChat.Core.Classroom.Transport;
 using NekoChat.Core.Classroom.Wire;
 using NekoChat.Core.Roster;
 using NekoChat.Core.Storage;
+using NekoChat.Core.Diagnostics;
 using ClassroomRoute = NekoChat.Core.Storage.ClassroomRoute;
 
 namespace NekoChat.Tests;
@@ -51,9 +52,9 @@ internal static class ContactExperienceChecks
         internal string Root { get; } = Path.Combine(Path.GetTempPath(), "neko-contacts-" + Guid.NewGuid().ToString("N"));
         internal ChatStore Store { get; private set; }
         internal ChatStoreOptions Options { get; }
-        internal Env(int version = 14, Faults? faults = null, ClassroomOffRosterLimits? limits = null, Action<string>? diagnostic = null)
+        internal Env(int version = 14, Faults? faults = null, ClassroomOffRosterLimits? limits = null, Action<string>? diagnostic = null, DiagnosticJournal? journal = null)
         {
-            Options = new(Root) { Faults = faults, OffRoster = limits ?? new(), DiagnosticSink = diagnostic };
+            Options = new(Root) { Faults = faults, OffRoster = limits ?? new(), DiagnosticSink = diagnostic, Diagnostics = journal };
             Store = ChatStore.Open(Options with { Migrations = Migration.Default.Take(version).ToArray() });
         }
         internal void Upgrade(string? teacher = null) { Store.Dispose(); Store = ChatStore.Open(Options with { LegacyTeacherIp = teacher, Migrations = Migration.Default.Take(14).ToArray() }); }
@@ -186,6 +187,23 @@ internal static class ContactExperienceChecks
                 Check(e.Store.GetClassroomInboxSnapshot().Entries.Single().CanSend && codes.Contains("auto-contact-failed") && codes.All(c => !c.Contains(A)), "fixed code, no source IP diagnostics");
                 faults.Fail = null; var next = Receive(e.Store, A);
                 Check(next.Principal.IsRoster && e.Store.ListClassroomMessages(next.Principal).Items.Count == 2, "next successful admission merges fallback history");
+            }),
+            new("CT-05 diagnostic sink and observer failures never block ingress or recurse", async () => {
+                using var area = new Env(); await using var journal = new DiagnosticJournal(Path.Combine(area.Root,"diagnostics"),"0.1.0-beta.12");
+                var faults = new Faults { Fail="auto-contact" }; int sinkCalls=0, observerCalls=0;
+                using var e = new Env(faults:faults, diagnostic:_=>{sinkCalls++;throw new IOException("sensitive sink detail");},journal:journal);
+                string id=Guid.NewGuid().ToString("D"), body="sensitive incoming body";
+                var first=Receive(e.Store,A,id,body);
+                Check(!first.Principal.IsRoster&&sinkCalls==1,"local admission fallback receives successfully despite one throwing diagnostic sink");
+                Check(e.Store.GetRosterSnapshot().Count==0&&e.Store.ListClassroomMessages(first.Principal).Items.Single().RawText==body,"sink failure preserves body with no partial contact");
+                Check(journal.Recent.Any(r=>r.Stage==DiagnosticStage.StorageWrite&&r.Code==DiagnosticCode.NotificationFailed),"sink failure records fixed journal diagnostics without invoking sink again");
+                e.Store.ClassroomCommunicationSucceeded+=_=>{observerCalls++;throw new IOException("sensitive observer detail");};
+                e.Store.RecordClassroomCommunicationSuccess(A);
+                Check(observerCalls==1&&sinkCalls==1&&journal.Recent.Any(r=>r.Stage==DiagnosticStage.ReceiveNotify&&r.Code==DiagnosticCode.NotificationFailed),"observer exception is isolated and does not recurse to diagnostic sink");
+                faults.Fail=null;var next=Receive(e.Store,A);
+                Check(next.Principal.IsRoster&&e.Store.ListClassroomMessages(next.Principal).Items.Count==2&&sinkCalls==1,"same session continues normal receive and merges preserved fallback");
+                string metadata=JsonSerializer.Serialize(journal.Recent);
+                Check(journal.Recent.All(r=>r.MessageId is null)&&new[]{A,id,body,"sensitive sink detail","sensitive observer detail"}.All(secret=>!metadata.Contains(secret,StringComparison.Ordinal)),"failure metadata excludes IP, UUID, contents and raw exception messages");
             }),
             Sync("CT-05 conflict after partial automatic insert rolls the whole contact back", () => {
                 var codes = new List<string>(); var faults = new Faults();
