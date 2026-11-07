@@ -17,6 +17,9 @@ if (NekoChat.Tests.StorageReadChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageLegacyRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageBackupChecks.RunChild(args)) return;
+if (args.SequenceEqual(new[] { "--contacts" })) { await NekoChat.Tests.ContactExperienceChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--teacher" })) { await NekoChat.Tests.ContactExperienceChecks.Run("TC-"); return; }
+if (args.SequenceEqual(new[] { "--receipts" })) { await NekoChat.Tests.ContactExperienceChecks.Run("RR-"); return; }
 if (args.SequenceEqual(new[] { "--diag-independent" })) { try { await NekoChat.Tests.DiagnosticIndependentChecks.RunAsync(); } catch (InvalidOperationException e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); } return; }
 if (args.SequenceEqual(new[] { "--diagnostic-recovery" })) { NekoChat.Tests.DiagnosticRecoveryChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--diagnostic-journal" })) { await NekoChat.Tests.DiagnosticChecks.RunAsync(); return; }

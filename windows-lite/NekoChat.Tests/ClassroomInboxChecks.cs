@@ -160,7 +160,8 @@ internal static class ClassroomInboxChecks
     {
         internal string Data { get; } = Path.Combine(Path.GetTempPath(), "neko-classroom-inbox-" + Guid.NewGuid().ToString("N"));
         internal string Db => Path.Combine(Data, "nekochat.db");
-        internal ChatStoreOptions Options => new(Data) { UtcNow = () => Clock };
+        // Frozen CM-02/CM-10/D-10 attribution contract, retained on v13; v14 is covered by --contacts.
+        internal ChatStoreOptions Options => new(Data) { Migrations = Migration.Default.Take(13).ToArray(), UtcNow = () => Clock };
         internal Fixture() => Directory.CreateDirectory(Data);
         public void Dispose() => Directory.Delete(Data, true);
     }

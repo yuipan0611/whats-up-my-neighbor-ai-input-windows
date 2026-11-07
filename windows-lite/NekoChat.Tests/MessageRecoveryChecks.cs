@@ -15,7 +15,7 @@ internal static class MessageRecoveryChecks
         string firstId; long survivor;
         try
         {
-            using (var store = ChatStore.Open(new(root)))
+            using (var store = ChatStore.Open(new(root) { Migrations = Migration.Default.Take(13).ToArray() }))
             {
                 Check(store.SaveClassroomDraft(principal, "第一則失敗", 0, 1).Saved, "save first draft");
                 var first = (AttemptStarted)store.BeginClassroomSend(principal, "第一則失敗", 0, 1); firstId = first.MessageId;
@@ -100,7 +100,7 @@ internal static class MessageRecoveryChecks
                 Check(buffer.CompleteWrite(preserved, preserved.PersistClassroom(edits, principal)) && edits.GetClassroomDraftState(principal).RawText == "等待確認時輸入的下一則", "post-ACK edit stays in classroom storage, not signed/v2 storage");
                 Check(edits.BeginClassroomSend(principal, preserved.Text, preserved.Epoch, preserved.Revision) is AttemptStarted, "post-ACK next message remains sendable");
             }
-            using (var store = ChatStore.Open(new(root)))
+            using (var store = ChatStore.Open(new(root) { Migrations = Migration.Default.Take(13).ToArray() }))
             {
                 Check(store.ListClassroomMessages(principal).Items.Count == 0 && store.ListClassroomPendingMessages(principal).Count == 0 && store.GetClassroomDraftState(principal).RawText is null, "deletions survive restart");
                 Check(store.ListLegacyMessages(new(null, "10.0.0.11")).Items.Count == 0 && store.ListClassroomMessages(other).Items.Single().RawText == "另一個對話", "legacy deletion and other history survive restart");

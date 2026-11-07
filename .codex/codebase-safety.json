@@ -5,7 +5,7 @@
     "name": "NekoChat Windows Lite",
     "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",
     "repo_root": ".",
-    "last_reviewed": "2026-11-06"
+    "last_reviewed": "2026-11-07"
   },
   "instructions": {
     "files": [
@@ -68,7 +68,8 @@
       "Runtime owns a per-profile diagnostic journal separate from SQLite. Typed optional journal parameters connect sender, receiver, storage and attachments; metadata recording never waits for file I/O. UI uses localized codes and a bounded manual export.",
       "Classroom visible reads advance a merged classroom/legacy timeline cursor through unloaded pages; local marks and opt-in receipts commit atomically under the existing view generation guard.",
       "Normal classroom viewport reads skip transactions when the current inbox snapshot has no unread messages; incoming updates refresh the snapshot and retain view-generation guards.",
-      "DiagnosticRecoveryPolicy keeps unresolved stage/code failures separate, chooses the most urgent warning and removes only recovered flows. No-runtime diagnostic export uses OpenReadOnly and never starts a writer or rotates history."
+      "DiagnosticRecoveryPolicy keeps unresolved stage/code failures separate, chooses the most urgent warning and removes only recovered flows. No-runtime diagnostic export uses OpenReadOnly and never starts a writer or rotates history.",
+      "Schema v14 backs up pre-upgrade SQLite, atomically auto-adds bounded source-IP contacts with receive/legacy/attachment commits, preserves archive ids, merges v13 queue ownership without changing original targetIp, and enforces a single local teacher. Auto source is not file/pairing trust; label/IP edits preserve it until explicit confirmation."
     ],
     "external_integrations": []
   },
@@ -211,6 +212,14 @@
     {
       "fact": "Pure recovery regression covers overlapping persistent/transient failures; read-only export preserves all four generations byte for byte, and unknown custom exception messages map to OtherException.",
       "source": "windows-lite/NekoChat.Core/Diagnostics/DiagnosticRecoveryPolicy.cs; windows-lite/NekoChat.Tests/DiagnosticRecoveryChecks.cs; windows-lite/NekoChat.Tests/DiagnosticChecks.cs"
+    },
+    {
+      "fact": "CT/TC/RR/MD Core scenarios use real SQLite plus controlled protocol peers; receipt processing pages fairly and valid same-peer communication re-arms bounded retries. Receipt defaults and explicit choices/notices migrate under D-28 generation rules.",
+      "source": "windows-lite/NekoChat.Tests/ContactExperienceChecks.cs; windows-lite/NekoChat.Core/Storage/ChatStore.Contacts.cs; windows-lite/NekoChat.Core/Classroom/Transport/ClassroomReceiptService.cs"
+    },
+    {
+      "fact": "Frozen v13 attribution fixtures are retained explicitly; v14 contact and read-through checks use returned roster principals. Adaptation decisions are listed for review; WPF projection and physical acceptance remain unexecuted.",
+      "source": "docs/team/CODEX-VERIFICATION.md; windows-lite/docs/specs/contacts.md"
     }
   ]
 }
