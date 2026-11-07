@@ -15,7 +15,7 @@
 
 **TC-03 老師設定只有一個來源**
 - When 設為／取消老師
-- Then `RosterEntry.isTeacher` 與 `Settings.TeacherIp` 在同一個操作中一起更新；不再有隱藏的「記住老師」欄位與名單不一致
+- Then SQLite `RosterEntry.isTeacher` 為唯一權威，在一個資料庫交易內選定且至多一位；Core 回傳權威老師 IP（無老師為 null）。`Settings.TeacherIp` 僅為 B1-b 投影，在操作後及啟動時由 SQLite 校正，投影寫入失敗可重試，不回滾已提交的老師選擇；不宣稱 SQLite／JSON 跨檔原子提交
 
 **TC-04 取消老師**
 - Given 老師 `T`
@@ -30,9 +30,13 @@
 **TC-06 升級舊資料**
 - Given 舊版資料庫有多筆 `isTeacher=1`，或老師 IP 同時有 `ip:` 對話，或刪除過的老師
 - When 升級到新版並啟動
-- Then 依「最近設定者優先（無法判斷時取 `Settings.TeacherIp` 對應者）」只保留一位老師，其餘降為學生；`ip:` 對話依 CT-02 合併；不刪除任何訊息
+- Then 舊資料沒有設定時間，不能推斷最近設定者；由啟動 adapter 提供 legacy Settings.TeacherIp（Core option），優先採現有老師中 IP 相符者，否則依 roster id ordinal 選一位。之後有唯一索引保證只保留一位老師，其餘降為學生；`ip:` 對話依 CT-02 合併；若草稿／訊息衝突則保留兩份並記固定診斷，待使用者處理，不讓整個資料庫無法升級、不刪任何訊息。舊刪除快照無 endpoint 不猜測；保留封存
 - And 遷移前自動備份資料庫（沿用現行升級備份）
 
 **TC-07 CSV 名單種子**
 - Given 空名單首次啟動，`classroom-roster.csv` 標示多位老師
-- Then 只採第一位為老師，其餘當學生並記錄診斷；不破壞 TC-02
+- Then 以 CSV 原始行序（先排除本機）只採第一位為老師，其餘當學生並記錄診斷；不破壞 TC-02；一般 CSV 匯入也須遵守至多一位。既有老師未被明確取代時保留，不因匯入悄悄變更
+
+## S0 Core／WPF 邊界
+
+Core 提供設為老師、取消老師、權威 IP、原子單一化與保存資料的 API；取代前確認／按鈕可見性／JSON 投影只由 B1-b 驗證。自動恢復已移除老師時先成為學生，不自動恢復教師權限。

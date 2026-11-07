@@ -14,7 +14,7 @@
 - Given B 端已存在 `ip:A` 對話（例如升級前留下），內含訊息、未讀、草稿、附件與待送
 - When CT-01 的自動加入發生，或使用者手動新增 IP `A`
 - Then 原 `ip:A` 的訊息、未讀數、草稿、附件、回條佇列、送出嘗試與待送（`ClassroomOutbox.principal`）全部改歸新聯絡人
-- And 清單只剩一條 A 的對話，順序與內容不變
+- And 清單只剩一條 A 的對話，原訊息 localSeq／createdUtc、內容與未讀保留；同內容同 id 去重。雙方不同非空草稿、不同內容同 id 或活動傳送衝突時，拒絕手動合併；自動加入以 CT-05 回退，不覆寫、不默丟資料
 
 **CT-03 自動加入不給任何身分或權限**
 - Given CT-01 自動加入了 A
@@ -27,19 +27,19 @@
 - Then 只建立一筆聯絡人；重複 messageId 仍回 duplicate，不重複建列
 
 **CT-05 自動加入失敗不影響收訊**
-- Given 自動加入因名單限制或儲存錯誤失敗
+- Given 自動加入發生可恢復的局部錯誤（不包含 CT-06 容量耗盡或資料庫本身無法寫入）
 - When 收到訊息
-- Then 訊息仍照現行規則存入 `ip:A` 並可回覆，不會因為建聯絡人失敗而遺失訊息；失敗以診斷代碼記錄
+- Then 訊息仍照現行規則存入 `ip:A` 並可回覆，不會因為建聯絡人局部失敗而遺失訊息；局部修改以 savepoint 回滾，失敗以不含 IP／內容的診斷代碼記錄。資料庫本身無法提交時不回 stored ACK，原傳送端仍可重試
 
 **CT-06 名單外上限改套在自動加入**
 - Given 自動加入的聯絡人已達上限（沿用現行 200 來源）
 - When 新 IP 來訊
-- Then 依現行 `offroster-limit` 規則拒收，並提示「聯絡人已達上限」
+- Then 依現行 `offroster-limit`／rate_limited 規則拒收，UI 可據此提示「聯絡人已達上限」；Core 不改 frozen wire 錯誤碼。自動加入後仍套用每來源／總訊息／byte 上限，不得靠 source=auto 繞過；手動名單不受自動來源名額限制
 
 **CT-07 已移除的聯絡人再次來訊**
 - Given 使用者先前移除了 A（A 在封存區）
 - When A 再次來訊
-- Then A 回到一般清單成為聯絡人，沿用原本的備註與歷史，不再產生新的「名單外」列
+- Then A 回到一般清單成為聯絡人，沿用原本 id、備註與歷史，不再產生新的「名單外」列；不恢復老師旗標、peer 綁定或任何權限。新版移除快照保存 endpoint 及必要本機欄位；舊版移除紀錄缺 endpoint，不能猜 IP，保留其封存歷史，來訊另依 CT-01 建立
 
 ## 新增、移除、備註
 
@@ -70,4 +70,10 @@
 
 **CT-15 編輯 IP 時歷史跟著聯絡人**
 - Given 聯絡人 A 的 IP 由 `x` 改為 `y`
-- Then 歷史與草稿留在同一筆聯絡人；`x` 之後若再來訊，依 CT-01 視為新的陌生來訊（現行 CM-10 已知限制）
+- Then 歷史與草稿留在同一筆聯絡人；`x` 之後若再來訊，依 CT-01 視為新的陌生來訊（現行 CM-10 已知限制）。已排隊的舊 IP 工作不得改送新 IP；晚到舊 ACK 不得確認新對象或復活刪除訊息。只依 accepted socket source IP 歸戶，多網卡不同來源不憑名稱／to_ip／對方聲稱自動合併
+
+## S0 保護界線
+
+- CT-01 同交易涵蓋 classroom 文字與附件 offer；舊 legacy v1 接收亦套用自動加入，但保留其 scope／clear revision guard，且不捏造 stored ACK 或已讀能力。
+- CT-02 合併同時更新 v13 ClassroomOutbox.principal，保留 targetIp、messageId、順序、狀態；舊 principal 的草稿／附件 epoch 失效。已讀先於本機 ACK 時回 transient，待確認後再套用，不丟回條。
+- CT-13 的 Core 證據是 Removed 封存旗標、唯讀不可送與歷史保留；視窗、確認與封存區入口由 B1-b WPF 驗證。
