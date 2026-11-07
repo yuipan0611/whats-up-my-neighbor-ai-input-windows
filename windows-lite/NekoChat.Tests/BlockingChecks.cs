@@ -153,7 +153,8 @@ internal static class BlockingChecks
     }
     sealed class ReceiptPeer(Action? afterHello) : HttpMessageHandler
     {
-        internal int Receipts;
+        internal int Receipts, Hellos;
+        internal bool StaleFirstPost;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation)
         {
             request.Options.Set(ClassroomSender.LocalEndpointOptionKey,B);
@@ -162,7 +163,14 @@ internal static class BlockingChecks
             if(request.RequestUri!.AbsolutePath.EndsWith("/hello",StringComparison.Ordinal))
             {
                 response=ClassroomPacketWriter.HelloOk(body.GetProperty("client_nonce").GetString()!,ClassroomPacketWriter.NewToken(),A,B,["msg.plain","receipt.read"]);
+                Hellos++;
                 afterHello?.Invoke();
+            }
+            else if(StaleFirstPost&&Receipts==0)
+            {
+                Receipts++;
+                var (status,errorBody)=ClassroomPacketWriter.Error(ClassroomCodes.StaleSession);
+                return new((HttpStatusCode)status){Content=new ByteArrayContent(errorBody)};
             }
             else
             {
@@ -289,6 +297,134 @@ internal static class BlockingChecks
         Check(receiver.Store.ListClassroomMessages(restored.Principal).Items.Single().MessageId==id,"BK-05 D-30 same id explicit resend after unblock is accepted (isolated loopback ingress)");
         Console.WriteLine("PASS BK-02/BK-05 D-30 real sender/TCP, offered-only attachment, discarded receipts, no receiver rows/identifiers");
     }
+    static string Forge(Env e,string sql){e.Number(sql);return sql;}
+    static async Task Hardening()
+    {
+        // ---- receipt sender fence: before hello, and before the stale-session retry --------------------------------------------------
+        using(var e=new Env())
+        {
+            PendingClassroomReceipt Pending(string ip){var rx=Receive(e.Store,ip);e.Store.MarkClassroomVisibleRead(rx.Principal,[rx.LocalSeq],new(rx.Principal.Value,true,true,false,true));return e.Store.ListPendingClassroomReceipts().Single();}
+            Add(e.Store,A);var pending=Pending(A);
+            e.Store.SetSourceBlocked(A,true);   // candidate already listed; block commits before the sender starts
+            using(var peer=new ReceiptPeer(null))using(var http=new HttpClient(peer))
+            {
+                var result=await new ClassroomSender(e.Store,http).SendReceiptAsync(pending,8768,B,()=>true);
+                Check(result.Status=="stale_policy"&&peer.Hellos==0&&peer.Receipts==0,"BK-02 D-30 listed receipt blocked before send never even says hello");
+            }
+            e.Store.SetSourceBlocked(A,false);pending=Pending(A);
+            using(var peer=new ReceiptPeer(null){StaleFirstPost=true})using(var http=new HttpClient(peer))
+            {
+                var result=await new ClassroomSender(e.Store,http).SendReceiptAsync(pending,8768,B,()=>true);
+                Check(result.Completed&&peer.Receipts==2&&peer.Hellos==2,"BK-02 D-30 positive control: stale-session retry re-hellos and resends when not blocked");
+            }
+            e.Store.SetSourceBlocked(A,true);e.Store.SetSourceBlocked(A,false);
+            var again=Receive(e.Store,A);e.Store.MarkClassroomVisibleRead(again.Principal,[again.LocalSeq],new(again.Principal.Value,true,true,false,true));pending=e.Store.ListPendingClassroomReceipts().Single();
+            int hello=0;
+            using(var peer=new ReceiptPeer(()=>{if(++hello==2)e.Store.SetSourceBlocked(A,true);}){StaleFirstPost=true})using(var http=new HttpClient(peer))
+            {
+                var result=await new ClassroomSender(e.Store,http).SendReceiptAsync(pending,8768,B,()=>true);
+                Check(!result.Completed&&result.Status=="stale_policy"&&peer.Receipts==1,"BK-02 D-30 block during the stale-session re-hello stops the retry POST");
+            }
+            Console.WriteLine("PASS BK-02 D-30 receipt sender re-checks block before hello and before the stale-session retry");
+        }
+        // ---- unblocked storage errors keep root-cause correlation --------------------------------------------------------------------
+        {
+            using var root=new Env();await using var journal=new DiagnosticJournal(Path.Combine(root.Root,"diagnostics"),"0.1.0-beta.12");
+            var faults=new Faults();using var e=new Env(faults:faults,diagnostics:journal);
+            faults.After=op=>{if(op=="classroom-receive")throw new StoreException(StoreErrorKind.DiskFull,"disk");};
+            var sink=new ClassroomStoreSink(e.Store,journal);string id=Guid.NewGuid().ToString("D");
+            bool failed=false;try{await sink.OnMessageAsync(A,B,new ClassroomRequest(ClassroomRequestKind.Message,MessageId:id,Session:ClassroomPacketWriter.NewToken(),Text:"x"),()=>true,default);}catch(StoreException){failed=true;}
+            Check(failed&&journal.Recent.Any(r=>r.MessageId==id),"BK-02 D-30 unblocked source storage failure keeps the message UUID for correlation");
+            Console.WriteLine("PASS BK-02 D-30 unblocked storage failure keeps UUID correlation");
+        }
+        // ---- adapter's own failure records never carry identifiers for a blocked source -------------------------------------------------
+        {
+            using var root=new Env();await using var journal=new DiagnosticJournal(Path.Combine(root.Root,"diagnostics"),"0.1.0-beta.12");
+            var faults=new Faults();using var e=new Env(faults:faults,diagnostics:journal);e.Store.SetSourceBlocked(A,true);
+            var adapter=new ClassroomEndpointAdapter(new ClassroomStoreSink(e.Store,journal),capabilities:["msg.plain","receipt.read"],diagnostics:journal);adapter.SetReady(true);
+            var ctx=new ClassroomConnectionContext(A,B);
+            async Task<string> Hello(){using var d=JsonDocument.Parse((await adapter.HandleAsync(new("classroom.hello",ClassroomPacketWriter.HelloRequest(ClassroomPacketWriter.NewToken())),ctx,()=>true,default)).Body);return d.RootElement.GetProperty("session").GetString()!;}
+            faults.After=op=>{if(op is "classroom-receive" or "classroom-apply-receipt")throw new StoreException(StoreErrorKind.DiskFull,"SENSITIVE");};
+            string id=Guid.NewGuid().ToString("D");
+            var message=await adapter.HandleAsync(new("classroom.message",ClassroomPacketWriter.MessageSend(id,await Hello(),B,"SENSITIVE")),ctx,()=>true,default);
+            var receipt=await adapter.HandleAsync(new("classroom.receipt",ClassroomPacketWriter.ReceiptRequest(id,await Hello(),B)),ctx,()=>true,default);
+            Check(message.StatusCode>=500&&receipt.StatusCode>=500&&journal.Recent.Count(r=>r.ExceptionType is not null)>=2,"BK-02 D-30 fixture: adapter failure paths ran for blocked source");
+            Check(journal.Recent.All(r=>r.MessageId is null),"BK-02 D-30 adapter commit and receipt failure diagnostics carry no blocked message ID");
+            Console.WriteLine("PASS BK-02 D-30 adapter-level failure diagnostics exclude identifiers");
+        }
+        // ---- outbox / attachment write gates (reachable orderings, then forged state to prove the gate itself) ---------------------------
+        using(var e=new Env())
+        {
+            Add(e.Store,A);Add(e.Store,B);var p=e.Store.ResolveClassroomPrincipal(A)!.Value;
+            string id=Queue(e.Store,p,"queued before block");
+            var file=new AttachmentFile(Guid.NewGuid().ToString("N"),"offer.txt",1,new string('a',64));
+            var offer=e.Store.ReceiveAttachmentOffer(A,8768,Guid.NewGuid().ToString("D"),file,"",new string('b',64),()=>true).Record!;
+            Check(e.Store.CanAutoReceiveAttachments(p)&&e.Store.AttachmentCurrent(offer),"BK-02 control: unblocked contact may auto-receive and its offer is current");
+            e.Store.SetSourceBlocked(A,true);
+            Check(!e.Store.CanAutoReceiveAttachments(p),"BK-02 D-30 blocked contact never auto-receives attachments");
+            Check(!e.Store.AttachmentCurrent(offer),"BK-02 D-30 blocked peer's attachment is no longer current (chunk/complete gate)");
+            var draft=e.Store.GetClassroomDraftState(p);e.Store.SaveClassroomDraft(p,"after block",draft.Epoch,draft.Revision+1);
+            Check(e.Store.BeginClassroomSend(p,"after block",draft.Epoch,draft.Revision+1) is InvalidSend,"BK-04 sending to a blocked contact is refused");
+            long outboxBefore=e.Number("SELECT count(*) FROM ClassroomOutbox");
+            try{e.Store.EnqueueClassroomMessage(p,"after block",draft.Epoch,draft.Revision+1,8768);}catch(Exception){}
+            Check(e.Number("SELECT count(*) FROM ClassroomOutbox")==outboxBefore,"BK-04 queueing to a blocked contact creates no outbox row");
+            e.Store.EnqueueAttachmentDownload(offer);
+            Check(e.Number("SELECT count(*) FROM ClassroomOutbox WHERE messageId LIKE 'download:%'")==0,"BK-02 D-30 blocked offer never queues a download");
+            Check(!e.Store.SetAttachmentState(offer,"downloading")&&e.Store.GetAttachment(offer.LocalSeq)!.State=="cancelled","BK-02 D-30 blocked attachment state cannot be advanced");
+            Check(!e.Store.AcknowledgeAttachmentOffer(offer,offer.Epoch,0)&&e.Store.GetAttachment(offer.LocalSeq)!.State=="cancelled","BK-02 D-30 blocked attachment offer cannot be re-acknowledged");
+            // forged: put the queue row back as if the block had not cancelled it
+            Forge(e,"UPDATE ClassroomOutbox SET state='sending' WHERE messageId='"+id+"'");
+            Check(!e.Store.OutboxCurrent(id),"BK-04 forged sending row for a blocked target is never current");
+            Forge(e,"UPDATE ClassroomOutbox SET state='queued',nextAttemptUtc='2000-01-01T00:00:00Z' WHERE messageId='"+id+"'");
+            Check(e.Store.ClaimOutbox(id,true) is null,"BK-04 forged queued row for a blocked target is never claimed");
+            Console.WriteLine("PASS BK-02/BK-04 blocked write gates for sends, downloads, and attachment state");
+        }
+        using(var e=new Env())   // the download-queue claim gate has no other fence (download rows skip the target check)
+        {
+            Add(e.Store,A);
+            var file=new AttachmentFile(Guid.NewGuid().ToString("N"),"offer.txt",1,new string('a',64));
+            var offer=e.Store.ReceiveAttachmentOffer(A,8768,Guid.NewGuid().ToString("D"),file,"",new string('b',64),()=>true).Record!;
+            e.Store.EnqueueAttachmentDownload(offer);string id="download:"+offer.LocalSeq;
+            Check(e.Number("SELECT count(*) FROM ClassroomOutbox WHERE messageId='"+id+"'")==1,"BK-02 control: unblocked offer queues its download");
+            e.Store.SetSourceBlocked(A,true);
+            Forge(e,"UPDATE ClassroomOutbox SET state='queued',nextAttemptUtc='2000-01-01T00:00:00Z' WHERE messageId='"+id+"'");
+            Check(e.Store.ClaimOutbox(id,true) is null,"BK-02 D-30 a download row for a blocked peer is never claimed");
+            Console.WriteLine("PASS BK-02 blocked download claim gate");
+        }
+        // ---- read receipts: read-through, stale queue rows, legacy delivered ----------------------------------------------------------
+        using(var e=new Env())
+        {
+            Add(e.Store,A);var first=Receive(e.Store,A);var second=Receive(e.Store,A);
+            e.Store.MarkClassroomVisibleRead(first.Principal,[first.LocalSeq],new(first.Principal.Value,true,true,false,true));
+            string principal=first.Principal.Value;Check(e.Store.ListPendingClassroomReceipts().Count==1,"BK-02 control: unblocked read queues a receipt");
+            e.Store.SetSourceBlocked(A,true);
+            Forge(e,"INSERT INTO ClassroomReceiptOutbox(originalLocalSeq,principal,receiptKind,createdUtc) VALUES("+first.LocalSeq+",'"+principal+"','read','2026-11-01T00:00:00Z')");
+            Check(e.Store.ListPendingClassroomReceipts().Count==0,"BK-02 D-30 a stale queued receipt for a blocked peer is never listed");
+            var through=e.Store.MarkClassroomReadThrough(second.Principal,null,second.LocalSeq,false,new(principal,true,true,false,true),()=>true);
+            Check(through.Marked>=1&&through.Queued==0,"BK-02 D-30 read-through on a blocked conversation never queues a receipt");
+            Console.WriteLine("PASS BK-02 blocked receipt queue gates (list and read-through)");
+        }
+        using(var e=new Env())
+        {
+            Add(e.Store,A);var p=e.Store.ResolveClassroomPrincipal(A)!.Value;string id=Queue(e.Store,p,"legacy path");
+            e.Store.ClaimOutbox(id);var work=e.Store.GetClassroomPreparedSend(id)!;e.Store.RecordClassroomRoute(id,work.TryCount,ClassroomRoute.Legacy,DateTime.UtcNow);
+            e.Store.SetSourceBlocked(A,true);
+            Forge(e,"UPDATE ClassroomAttempt SET attemptState='sending' WHERE messageId='"+id+"'");
+            Check(e.Store.CompleteClassroomLegacyDelivered(id,A,work.TryCount) is Discarded{Reason:"source-not-allowed"},"BK-02 D-30 a legacy 'delivered' answer from a blocked peer is discarded by the block gate");
+            Console.WriteLine("PASS BK-02 blocked legacy delivered gate");
+        }
+        // ---- teacher via edit / csv --------------------------------------------------------------------------------------------------
+        using(var e=new Env())
+        {
+            string id=e.Store.SaveManualRosterEntry(null,new("alias","1",false,A),Token(e.Store)).EntryId!;
+            e.Store.SetSourceBlocked(A,true);
+            Check(e.Store.SaveManualRosterEntry(id,new("alias","1",true,A),Token(e.Store)) is{Changed:false,Reason:"blocked"},"BK-07 manual edit cannot make a blocked contact a teacher");
+            Check(e.Store.SaveManualRosterEntry(id,new("alias","1",false,B),Token(e.Store)) is{Changed:false,Reason:"blocked"}&&e.Store.GetRosterSnapshot().Single().Entry.Endpoint==A,"BK-01 a blocked contact's address cannot be edited away (would orphan the block)");
+            var csv=RosterImportPreview.Create(e.Store.GetRosterSnapshot(),RosterCsv.Parse(Encoding.UTF8.GetBytes("student_number,name,ip,role\n1,alias,"+A+",teacher")));
+            Check(e.Store.ApplyRosterPreview(csv).Applied&&e.Store.GetClassroomTeacherIp() is null&&!e.Store.GetRosterSnapshot().Single().Entry.IsTeacher,"BK-07 CSV import cannot make a blocked contact a teacher");
+            Console.WriteLine("PASS BK-07 blocked contact cannot gain teacher or move address by edit/import");
+        }
+    }
     public static async Task Run()
     {
         count=0;
@@ -373,6 +509,7 @@ internal static class BlockingChecks
             faults.Before=null;
         }
         Console.WriteLine("PASS BK-08 upgrade backup and cross-connection atomic admission");
+        await Hardening();
         await D30Transport();
         await D30ReceiptFence();
         await D30FailurePrivacy();
