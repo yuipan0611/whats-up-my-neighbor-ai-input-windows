@@ -119,7 +119,12 @@ public sealed partial class ChatStore : IChatStore
             }
 
             RunMigrations((int)version);
-            NormalizeChatUxHistory();
+            try { NormalizeChatUxHistory(); }
+            catch (Exception error) when (DiagnosticFault.Catchable(error))
+            {
+                ContactDiagnostic("contact-normalization-failed");
+                _options.Diagnostics?.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Failed, error: error);
+            }
 
             // 4. recovery: no network, no sending. sending → unconfirmed.
             _recoveredAttempts = Write("recover", ctx =>

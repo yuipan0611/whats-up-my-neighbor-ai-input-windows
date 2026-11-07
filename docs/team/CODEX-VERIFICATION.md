@@ -100,3 +100,15 @@ S0 spec commit: 92865f9. All following checks ran on the final Core content, wit
 Not executed: WPF runtime/menus/confirmation/upgrade notice/Settings JSON projection, native Windows CI, two physical Windows machines, classroom network, Chinese IME, physical DPI/multiple monitors, native clipboard, Windows junction/path-only checks. No push, PR, merge, release, installation or deployment.
 
 A concurrently created `windows-lite/docs/specs/LINE-PARITY.md` is not this task's file; left untouched and untracked, excluded from these commits.
+
+## Follow-up step 1 and Ben mandatory repairs
+
+- Step 1: Tom 82482e4/f4227e9 cherry-picked as cd20c14/c5bfe5f, original author/coauthor preserved; RR-03 clarified in c4ad1a5. --contacts 143 assertions and --classroom-all passed.
+- Step 2: ClassroomStoreChecks now runs all 122 checks on v14. Successful receive/conflict/address-change paths use returned/resolved principals; D-28 opt-out is explicit. Only CM-02 merge fixtures seed an unknown source through an injected, recoverable auto-contact failure (CT-05) on the actual v14 schema. No successful-ingress paths are pinned to v13.
+- MessageRecoveryChecks root/open/restart moved to v14; receive assigns actual principal, secondary draft fixtures keep their own IP principal, and nickname selection uses its endpoint instead of Single() on the whole roster. All 32 assertions remain.
+- ClassroomInboxChecks keeps its historical v13 contract. v14 corresponding coverage: `CT-13 v14 inbox projects active queued unknown and archived rows without writes`, plus `CT-13 pre-v8 orphan conversation remains a read-only archive`, CT-02 ownership/receipt/draft merge, CT-07 restore and TC-05 archive. New v14 scenario checks combined legacy/classroom unread, per-principal uniqueness, queued attempts, unknown drafts, read-only archive and unchanged WAL bytes.
+- NormalizeChatUxHistory failure now rolls back its transaction, records fixed `contact-normalization-failed`, allows startup, retries next open. New scenario injects pre-COMMIT failure after a real merge and proves the data stays in its original scope, then next startup merges.
+- Pre-v8 orphan `roster:` conversations without RosterRemoved are visible as read-only archives with fallback label 已移除的聯絡人; migration/real SQLite scenario preserves body.
+- teacher.md documents explicit teacher selection changes csv to manual.
+- Step 2 focused results: --contacts 156 assertions, --classroom-store 122, --message-recovery 32, all PASS. Full step2 classroom result recorded after completion. Logs: build/b1-followup/step2-*.log.
+- Step 2 full `--classroom-all`: exit 0, all prelude and 15 focused suites passed; no older outcome assertions removed. v14 adaptation additionally updates automatic-source row counts, D-27 restore/duplicate-add expectations and the explicit v14 migration version. Historical Inbox v13 is paired with the new v14 projection/orphan scenarios above.

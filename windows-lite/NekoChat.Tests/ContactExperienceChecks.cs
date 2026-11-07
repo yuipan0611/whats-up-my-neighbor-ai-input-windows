@@ -72,6 +72,35 @@ internal static class ContactExperienceChecks
     {
         _checks = 0;
         Scenario[] scenarios = [
+            Sync("CT-13 v14 inbox projects active queued unknown and archived rows without writes", () => {
+                using var e=new Env();string a=Add(e.Store,A,teacher:true);Receive(e.Store,A);
+                e.Store.ReceiveLegacyMessage(new("legacy",null),e.Store.GetLegacyReceiveContext(A),()=>true);
+                Receive(e.Store,B);string queue=Queue(e.Store,P(e.Store,B),"pending");
+                e.Store.SaveClassroomDraft(ClassroomPrincipalKey.ForSourceIp(C),"unknown draft",0,1);
+                var preview=e.Store.PreviewRosterDelete(a);e.Store.DeleteRosterEntry(a,preview.SnapshotToken,preview.ToConfirmation());
+                string Hash()=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(e.Store.DatabasePath+"-wal")));
+                string before=Hash();var snapshot=e.Store.GetClassroomInboxSnapshot();
+                Check(snapshot.Entries.Count==3 && snapshot.TotalUnread==3 && snapshot.Entries.Select(r=>r.Principal).Distinct().Count()==3,"v14 inbox counts each active/archive/unknown stream once");
+                Check(snapshot.Entries.Single(r=>r.RosterEntryId==a) is {Removed:true,CanSend:false,LegacyUnread:1,ClassroomUnread:1},"archived teacher legacy and classroom stay read-only");
+                Check(snapshot.Entries.Single(r=>r.Endpoint==B).Attempt?.MessageId==queue && snapshot.Entries.Single(r=>r.Endpoint==C).Draft.RawText=="unknown draft","queued and draft-only projections retained");
+                Check(before==Hash(),"v14 inbox snapshot performs no writes");
+            }),
+            Sync("CT-02 normalization failure rolls back and retries on next startup", () => {
+                var faults=new Faults();var codes=new List<string>();using var e=new Env(13,faults:faults,diagnostic:codes.Add);
+                Receive(e.Store,A,"normalization","keep");Add(e.Store,A,"known");
+                faults.Fail="commit:chat-ux-normalize";e.Upgrade();
+                Check(codes.Contains("contact-normalization-failed") && e.Count("SELECT count(*) FROM ClassroomMessage WHERE principal LIKE 'ip:%'")==1,"startup survives failed normalization without moving data");
+                Check(codes.All(c=>!c.Contains(A) && !c.Contains("keep")),"normalization diagnostic has no address or text");
+                faults.Fail=null;e.Upgrade();
+                Check(e.Store.GetClassroomInboxSnapshot().Entries.Count==1 && e.Store.ListClassroomMessages(P(e.Store,A)).Items.Single().RawText=="keep","next startup retries the merge successfully");
+            }),
+            Sync("CT-13 pre-v8 orphan conversation remains a read-only archive", () => {
+                using var e=new Env(7);string id=Add(e.Store,A);var saved=Receive(e.Store,A,"orphan","old archive");
+                e.Scalar("DELETE FROM RosterEntry");e.Upgrade();
+                var row=e.Store.GetClassroomInboxSnapshot().Entries.Single();
+                Check(row.Removed && !row.CanSend && row.DisplayName=="已移除的聯絡人" && row.Principal==saved.Principal,"pre-v8 orphan is named and readable in archive");
+                Check(e.Store.ListClassroomMessages(row.Principal).Items.Single().RawText=="old archive","orphan content preserved");
+            }),
             Sync("CT-01 automatic first contact and message commit together", () => {
                 using var e = new Env(); var r = Receive(e.Store, A);
                 var row = e.Store.GetRosterSnapshot().Single();

@@ -16,7 +16,7 @@ public sealed partial class ChatStore
         using var cmd = c.CreateCommand();
         bool archive = _migrations.Count >= 14;
         string removedSubject = archive
-            ? "SELECT 'roster:'||d.rosterEntryId,'removed',d.rosterEntryId,d.rosterEntryId,NULL,d.displayName,NULL,0,NULL FROM RosterRemoved d WHERE NOT EXISTS(SELECT 1 FROM RosterEntry r WHERE r.id=d.rosterEntryId)"
+            ? "SELECT 'roster:'||d.rosterEntryId,'removed',d.rosterEntryId,d.rosterEntryId,NULL,d.displayName,NULL,0,NULL FROM RosterRemoved d WHERE NOT EXISTS(SELECT 1 FROM RosterEntry r WHERE r.id=d.rosterEntryId) UNION ALL SELECT cc.principal,'removed',substr(cc.principal,8),substr(cc.principal,8),NULL,'已移除的聯絡人',NULL,0,NULL FROM ClassroomConversation cc WHERE cc.principal GLOB 'roster:*' AND NOT EXISTS(SELECT 1 FROM RosterEntry r WHERE 'roster:'||r.id=cc.principal) AND NOT EXISTS(SELECT 1 FROM RosterRemoved d WHERE 'roster:'||d.rosterEntryId=cc.principal)"
             : "SELECT cc.principal,'removed',substr(cc.principal,8),NULL,NULL,d.displayName,NULL,0,NULL FROM ClassroomConversation cc LEFT JOIN RosterRemoved d ON d.rosterEntryId=substr(cc.principal,8) WHERE cc.principal GLOB 'roster:*' AND NOT EXISTS(SELECT 1 FROM RosterEntry r WHERE 'roster:'||r.id=cc.principal)";
         string legacyOwner = archive ? "(x.rosterEntryId=s.legacyRow OR (x.rosterEntryId IS NULL AND x.scopeKey='legacy-row:'||s.legacyRow))" : "x.rosterEntryId=s.legacyRow";
         string unknownLegacyFilter = archive ? " AND scopeKey='legacy-ip:'||sourceIp" : "";
