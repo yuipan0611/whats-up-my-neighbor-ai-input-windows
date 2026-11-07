@@ -69,7 +69,8 @@
       "Classroom visible reads advance a merged classroom/legacy timeline cursor through unloaded pages; local marks and opt-in receipts commit atomically under the existing view generation guard.",
       "Normal classroom viewport reads skip transactions when the current inbox snapshot has no unread messages; incoming updates refresh the snapshot and retain view-generation guards.",
       "DiagnosticRecoveryPolicy keeps unresolved stage/code failures separate, chooses the most urgent warning and removes only recovered flows. No-runtime diagnostic export uses OpenReadOnly and never starts a writer or rotates history.",
-      "Schema v14 backs up pre-upgrade SQLite, atomically auto-adds bounded source-IP contacts with receive/legacy/attachment commits, preserves archive ids, merges v13 queue ownership without changing original targetIp, and enforces a single local teacher. Auto source is not file/pairing trust; label/IP edits preserve it until explicit confirmation."
+      "Schema v14 backs up pre-upgrade SQLite, atomically auto-adds bounded source-IP contacts with receive/legacy/attachment commits, preserves archive ids, merges v13 queue ownership without changing original targetIp, and enforces a single local teacher. Auto source is not file/pairing trust; label/IP edits preserve it until explicit confirmation.",
+      "Migration15 adds explicit local source-IP blocking; immediate writer transactions gate ingress and queued work. Unblock never auto-resumes cancelled work. WPF reads authoritative teacher state, projects Settings with retry, separates archive/blocked lists, and exposes scoped local deletion. Cross-build evidence is separate from unexecuted native UI acceptance."
     ],
     "external_integrations": []
   },
@@ -218,7 +219,7 @@
       "source": "windows-lite/NekoChat.Tests/ContactExperienceChecks.cs; windows-lite/NekoChat.Core/Storage/ChatStore.Contacts.cs; windows-lite/NekoChat.Core/Classroom/Transport/ClassroomReceiptService.cs"
     },
     {
-      "fact": "Frozen v13 attribution fixtures are retained explicitly; v14 contact and read-through checks use returned roster principals. Adaptation decisions are listed for review; WPF projection and physical acceptance remain unexecuted.",
+      "fact": "ClassroomStore and MessageRecovery run v14 using stored principals; historical Inbox v13 is paired with v14 projection/archive scenarios. Blocking v15 has backup and transaction-race coverage. WPF projection and physical acceptance remain unexecuted.",
       "source": "docs/team/CODEX-VERIFICATION.md; windows-lite/docs/specs/contacts.md"
     }
   ]

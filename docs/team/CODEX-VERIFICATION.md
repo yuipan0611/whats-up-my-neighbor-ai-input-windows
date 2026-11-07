@@ -30,9 +30,9 @@ All attribution/default changes below are caused by D-27 or D-28; original outco
 | ClassroomSenderOutcomeIndependentChecks.cs:116,459 — ExerciseReceipt and keep-alive receipt | Fixed ip principal for newly received message | Use stored.Principal; all transport/ACK/keep-alive expectations unchanged | D-27 | No; v14 |
 | ClassroomSendChecks.cs:358 — Check 7b receipt seed | Fixed outgoing ip principal reused for received row | Rebind principal from received row before visible read; preserve all resolver/backoff/8-attempt assertions | D-27 | No; v14 |
 | ClassroomReceiptChecks.cs:234 — first incoming receipt seed | Fixed keyA after receive | Set keyA from ClassroomStored.Principal; original 60 retry, ACK, policy and scope assertions retained | D-27 | No; v14 |
-| ClassroomStoreChecks.cs:552 — Fixture.Options | CM-10 assertions explicitly expect no automatic roster creation and consent-only merge | Keep those assertions unchanged with Migrations.Take(13) | D-27 | Yes, 122 checks; new v14 paths in ContactExperienceChecks |
+| ClassroomStoreChecks.cs:560 — Fixture.Options | Former B1-a fixture was pinned to v13 | Follow-up now runs all 122 checks on v14; exact adaptations below | D-27/D-28 and Ben mandatory request | No; full v14 suite |
 | ClassroomInboxChecks.cs:164 — Fixture.Options | CM-02/17 explicitly expects unknown ip conversations and old orphaned-legacy projection | Keep old assertions unchanged with Migrations.Take(13); v14 archive semantics tested in CT-07/13 | D-27 (old projection replaced with automatic contacts) | Yes, 161 checks |
-| MessageRecoveryChecks.cs:18,103 — root Open and root reopen | Receive midway through an ip-principal deletion fixture was expected to keep ip ownership | Root fixture stays on v13, preserving all deletion/nickname assertions; its separate pagination/post-ACK-edit stores still use latest migration | D-27 | Yes, root fixture only; v14 MD-02/04 added |
+| MessageRecoveryChecks.cs:18,106 — root Open and reopen | Former B1-a root fixture was pinned to v13 | Full v14 root/restart; use received principal and endpoint-specific nickname row; all 32 deletion/recovery assertions retained | D-27 and Ben mandatory request | No; v14 |
 | AttachmentChecks.cs:112 — additive upgrade check | LatestVersion == 13; ListBackups().Count != 0 | LatestVersion == 14; backup condition unchanged | Migration version advance, separately approved by PM | No; v10 to v14 upgrade |
 
 ### Scenario mapping
@@ -120,3 +120,41 @@ Additive v15 preserves reviewed v14. BlockedSource stores only explicit local bl
 BK-01..08 Core scenarios: BlockingChecks.cs via --blocking, 25 assertions PASS, including persistent read-only projection, no ingress records/notifications, author/node filtering, queued preservation/manual retry, removal distinction, teacher demotion, v14→v15 backup and two-connection serialized receive. --contacts (explicit v14 contract) 156, --outbox 63, --diagnostics recovery24/journal77 PASS. Logs build/b1-followup/step3-*.log.
 
 S0 blocking clarification: no local backfill; after unblock a new explicit transmission can be accepted because rejected IDs/content are not retained. Network bytes already in flight cannot be recalled. Signed catalog operations received from an unblocked replica remain available for monotone withdrawal semantics, while blocked authors are hidden locally. WPF remains unexecuted. Historical AttachmentChecks v10→v14 fixture version setting has been reported to PM before alteration; approval pending.
+
+
+## Follow-up test adaptation details (current files)
+
+All rows below retain the assertion's data-loss, scope, quota, privacy, rollback or cancellation check. Only changed contact ownership/default fixtures are adapted. The earlier table now describes the final v14 coverage rather than the superseded v13 choice.
+
+| Test file:line | Old assertion / fixture | Current assertion / fixture | Basis | Old migration contract retained? |
+|---|---|---|---|---|
+| ClassroomStoreChecks.cs:43 | Stranger has ip principal; 2 roster rows | Stored principal is roster; 3 rows | D-27 | No; v14 |
+| ClassroomStoreChecks.cs:50 | Claimed identity text still belongs to ip source | Compare actual stored source principal; target's 2 rows unchanged | D-27 | No; source boundary retained |
+| ClassroomStoreChecks.cs:56,535 | Query old ip directly after endpoint move | Resolve actual source principal; old/new address histories stay distinct | D-27 | No; CM-10 boundary retained |
+| ClassroomStoreChecks.cs:132,134 | Default off queues zero | Explicitly turn off then assert zero | D-28 | Old default retained in RR-02 migration fixture |
+| ClassroomStoreChecks.cs:167,191,201,221,237,254,262,276,288,424,436,494 | v13 supplies unknown histories for merge/clear/guard/import fixtures | v14 plus CT-05 auto-contact local failure supplies identical unknown histories; assertions unchanged | D-27; Ben full-v14 request | No; conflict/rollback/consent checks remain |
+| ClassroomStoreChecks.cs:315 | Count 3 incoming rows under ip:* | Count 3 incoming rows, now auto-owned | D-27 | No; source quota still enforced |
+| ClassroomStoreChecks.cs:342 | 2 retained legacy rows have null owner | 2 retained legacy rows join source=auto; diagnostics still exclude addresses/content | D-27 | No; count/privacy retained |
+| ClassroomStoreChecks.cs:367 | New message creates second unknown conversation | Restores same principal and one conversation | D-27 / CT-07 | No |
+| ClassroomStoreChecks.cs:368 | Legacy owner cleared by removal | Legacy row reattaches to restored contact; count stays 1 | D-27 / CT-07 | No |
+| ClassroomStoreChecks.cs:369,370 | Manual add creates new id and empty history | Duplicate refused, original id and 2 messages retained | D-27 | No |
+| ClassroomStoreChecks.cs:371 | Clear deletes 1 row | Clear deletes both preserved rows | D-27 | No; clear scope retained |
+| ClassroomStoreChecks.cs:503,560 | user_version 13 / fixture Take(13) | Explicit 14 / Take(14), old Message/Legacy/Peer contents unchanged | Migration version advance; Ben v14 request | v3 legacy data retained through v14 |
+| MessageRecoveryChecks.cs:18,37,52,78,106,108,111 | v13 root; ip assumptions; Single() roster | v14; stored.Principal; reset isolated pagination principal; resolve after restart; select nickname by endpoint | D-27; Ben full-v14 request | No; all 32 original lifecycle outcomes retained |
+| ContactExperienceChecks.cs:59 | Upgrade uses latest default | Explicit Take(14) | D-29 adds v15; retain already reviewed v14 contract | Yes; BK-08 separately covers v14→v15 |
+
+## Follow-up step 4 — WPF implementation, native acceptance pending
+
+| Specs | Implementation | Verification boundary |
+|---|---|---|
+| CT-10/11 | ClassRoster: IP + optional local note; duplicate opens captured existing IP | Cross-build only |
+| CT-12/14, CT-08 confirmation | ContactManagement shared menu for list right-click and title ⋯; note dialog states local-only; explicit adoption confirmation | Cross-build only |
+| CT-13, BK-01/06/07 | Inbox normal/archive/blocked sections, read-only composer; separate removal/block confirmations; teacher-demotion warning; unblock never auto-retries | Core scenarios PASS; WPF unexecuted |
+| TC-01..07 projection | Runtime supplies LegacyTeacherIp before Open; authoritative teacher projected after startup/mutation; failed JSON save retried by reload/next open; teacher replacement confirmed | Core scenarios PASS; native JSON/UI flow unexecuted |
+| RR-02 | Visible toggle, explanatory text, notice recorded only after shown | Core migration/notice tests PASS; native modal unexecuted |
+| MD-01/03/05 | Hover/focus ⋯ and handled正文 right-click; disabled reason; preserve code newline-copy choices; draft removal / transfer cancel / local delete are separate | Cross-build only; native routing/clipboard/hover unexecuted |
+| BK-02/04 | Deferred pet notification rechecks source block; pending status says stopped due to block; blocked/archived retry and attachment transfer disabled | Core admission/outbox PASS; native pet/UI unexecuted |
+
+Cross-build logs: build/b1-followup/step4-{layout,contacts,actions,final,reviewed,readonly}-build.log; each edited WPF batch built for win-x64. Final WPF code commit: 8e54149. Final readonly cross-build exit 0, zero warnings/errors; preceding layout/contacts/actions/final/reviewed builds also exited 0. git diff --check and safety config strict validation passed (two existing physical/native unknowns remain).
+
+Final Core rerun: contacts 156, blocking 25, outbox 63, diagnostics recovery 24/journal 77, diagnostic-journal 77, diagnostic-recovery 24, diag-independent 32: all exit 0. Logs build/b1-followup/final-*.log and final-results.json. Full classroom-all currently exits 1 at AttachmentChecks:112 only: the default upgrade now reaches v15 but the historical assertion requires 14. Prelude plus first 14 suites passed. No full-green claim; PM was asked before changing this old test (fdd40628, repeated ed623eae). WPF runtime, physical Windows, two-machine/classroom, IME/DPI remain unexecuted. No push/PR/merge/release/install/deploy.
