@@ -158,6 +158,19 @@ internal static class ContactExperienceChecks
                 faults.Fail = null; var next = Receive(e.Store, A);
                 Check(next.Principal.IsRoster && e.Store.ListClassroomMessages(next.Principal).Items.Count == 2, "next successful admission merges fallback history");
             }),
+            Sync("CT-05 conflict after partial automatic insert rolls the whole contact back", () => {
+                var codes = new List<string>(); var faults = new Faults();
+                using var e = new Env(faults: faults, diagnostic: codes.Add);
+                string id = Add(e.Store, A, "alias"); Receive(e.Store, A, "same-id", "original");
+                var preview = e.Store.PreviewRosterDelete(id); Check(e.Store.DeleteRosterEntry(id, preview.SnapshotToken, preview.ToConfirmation()).Changed, "removed");
+                faults.Fail = "auto-contact"; var parked = Receive(e.Store, A, "same-id", "different");
+                Check(!parked.Principal.IsRoster, "fault parks a same-id message with different content under the source address");
+                faults.Fail = null; var later = Receive(e.Store, A, "later-id", "later");
+                Check(codes.Count(c => c == "auto-contact-failed") == 2, "restore conflict reported with the fixed code");
+                Check(!later.Principal.IsRoster && e.Store.GetRosterSnapshot().Count == 0, "no phantom contact survives the failed restore");
+                Check(e.Count("SELECT count(*) FROM RosterRemoved WHERE rosterEntryId='" + id + "'") == 1 && e.Count("SELECT count(*) FROM ClassroomAutoSource") == 0, "archive record and source budget untouched by the rolled-back restore");
+                Check(e.Store.ListClassroomMessages(later.Principal).Items.Count == 2 && e.Store.ListClassroomMessages(ClassroomPrincipalKey.ForRosterEntry(id)).Items.Single().RawText == "original", "both histories keep their own messages");
+            }),
             Sync("CT-06 automatic contacts retain source and content budgets", () => {
                 using var e = new Env(limits: new(2, 2, 4, 100)); Receive(e.Store,A,text:"a"); Receive(e.Store,B,text:"b");
                 Check(e.Store.ReceiveClassroomMessage(C,new("third","c"),()=>true) is ClassroomRejected { Reason: "offroster-limit" }, "third automatic source rejected");
@@ -221,6 +234,15 @@ internal static class ContactExperienceChecks
                 string stale=Token(e.Store); Check(e.Store.SetClassroomTeacher(b,stale).Changed,"replace teacher");
                 Check(!e.Store.GetRosterSnapshot().Single(r=>r.Entry.Id==a).Entry.IsTeacher && e.Store.GetRosterSnapshot().Count(r=>r.Entry.IsTeacher)==1,"old teacher remains ordinary contact");
                 Check(!e.Store.SetClassroomTeacher(a,stale).Changed && e.Store.GetClassroomTeacherIp()==B,"stale confirmation cannot override newer choice");
+            }),
+            Sync("TC-02 database itself refuses a second teacher", () => {
+                using var e=new Env(); string a=Add(e.Store,A,"first",true),b=Add(e.Store,B,"second");
+                bool refused=false;
+                try { e.Scalar("UPDATE RosterEntry SET isTeacher=1 WHERE id='"+b+"'"); } catch(SqliteException){ refused=true; }
+                Check(refused && e.Count("SELECT count(*) FROM RosterEntry WHERE isTeacher=1")==1 && e.Store.GetClassroomTeacherIp()==A,"direct SQL cannot create two teachers");
+                bool insertRefused=false;
+                try { e.Scalar("INSERT INTO RosterEntry(id,displayName,isTeacher,endpoint,source) VALUES('"+Guid.NewGuid().ToString("N")+"','x',1,'"+C+"','manual')"); } catch(SqliteException){ insertRefused=true; }
+                Check(insertRefused && e.Count("SELECT count(*) FROM RosterEntry WHERE isTeacher=1")==1,"direct insert of a second teacher is refused too");
             }),
             Sync("TC-03 SQLite alone owns the projected teacher address", () => {
                 using var e=new Env(); string id=Add(e.Store,A);
@@ -287,6 +309,14 @@ internal static class ContactExperienceChecks
                 await endpoint.HandleAsync(new("classroom.hello",ClassroomPacketWriter.HelloRequest(ClassroomPacketWriter.NewToken())),context,()=>true,default);
                 await service.ProcessOutboxBatchAsync();Check(service.TotalCompleted==1 && e.Store.ListPendingClassroomReceipts().Count==0,"same peer hello recovers without restart");
             }),
+            new("RR-03 the receipt's own successful hello cannot reset its retry budget", async () => {
+                using var e=new Env(); Receive(e.Store,A); Mark(e.Store,P(e.Store,A));
+                var clock=new ManualClock(); var http=new ReceiptHttp { FailReceiptPost=true };
+                http.OnHello=()=>e.Store.RecordClassroomCommunicationSuccess(A);   // a same-peer success reported while this receipt attempt is in flight
+                var sender=new ClassroomSender(e.Store,new HttpClient(http)); await using var service=new ClassroomReceiptService(e.Store,sender,ownIp:Own,clock:clock);
+                for(int i=0;i<20;i++){await service.ProcessOutboxBatchAsync();clock.Advance();}
+                Check(service.TotalAttempts==8 && service.TotalCompleted==0 && e.Store.ListPendingClassroomReceipts().Count==1,"hello succeeds and reports success mid-flight, receipt POST keeps failing: attempts stop at the session bound of 8");
+            }),
             new("RR-04 paging and per-target admission avoid head-of-line starvation", async () => {
                 using var e=new Env(); for(int i=0;i<51;i++)Receive(e.Store,A); Receive(e.Store,B);Mark(e.Store,P(e.Store,A));Mark(e.Store,P(e.Store,B));
                 var http=new ReceiptHttp { OfflineIp=A }; var sender=new ClassroomSender(e.Store,new HttpClient(http));
@@ -301,6 +331,29 @@ internal static class ContactExperienceChecks
                 var http=new ReceiptHttp(); await using var service=new ClassroomReceiptService(e.Store,new(e.Store,new HttpClient(http)),ownIp:Own);
                 e.Store.RecordClassroomCommunicationSuccess(A);await service.ProcessOutboxBatchAsync();Check(service.TotalAttempts==0,"communication never bypasses off policy");
                 e.Store.SetReadReceiptPolicy(true);Mark(e.Store,P(e.Store,A));Check(e.Store.ListPendingClassroomReceipts().Count==0 && !e.Store.CompleteClassroomReadReceipt(old),"no backfill or stale policy completion");
+            }),
+            new("RR-05 sender gate refuses a stale listed receipt while disabled", async () => {
+                using var e=new Env();Receive(e.Store,A);Mark(e.Store,P(e.Store,A));var old=e.Store.ListPendingClassroomReceipts().Single();
+                var proxy=System.Reflection.DispatchProxy.Create<IChatStore,StalePendingStore>();var stale=(StalePendingStore)(object)proxy;stale.Inner=e.Store;stale.Row=old;
+                var live=new ReceiptHttp();await using(var control=new ClassroomReceiptService(proxy,new(e.Store,new HttpClient(live)),ownIp:Own))
+                { await control.ProcessOutboxBatchAsync(); Check(control.TotalAttempts==1 && live.Receipts.Contains(A),"control: while enabled the listed receipt is transmitted"); }
+                Receive(e.Store,A,text:"second");Mark(e.Store,P(e.Store,A));old=e.Store.ListPendingClassroomReceipts().Single();stale.Row=old;
+                string created=(string)e.Scalar("SELECT createdUtc FROM ClassroomReceiptOutbox")!;
+                Check(e.Store.SetReadReceiptPolicy(false).DroppedReceipts==1,"off drops queue");
+                e.Scalar("INSERT INTO ClassroomReceiptOutbox(originalLocalSeq,principal,receiptKind,createdUtc) VALUES("+old.OriginalLocalSeq+",'"+old.Principal.Value+"','read','"+created+"')");
+                Check(e.Count("SELECT count(*) FROM ClassroomReceiptOutbox")==1 && e.Store.ListPendingClassroomReceipts().Count==0,"store itself never lists a queued receipt while disabled");
+                var http=new ReceiptHttp(); await using var service=new ClassroomReceiptService(proxy,new(e.Store,new HttpClient(http)),ownIp:Own);
+                e.Store.RecordClassroomCommunicationSuccess(A);await service.ProcessOutboxBatchAsync();await service.ProcessOutboxBatchAsync();
+                Check(service.TotalAttempts==0 && http.Receipts.Count==0,"no hello or receipt reaches the network while disabled even if a stale row is listed");
+            }),
+            new("RR-05 receipt in flight across an off/on toggle is never transmitted", async () => {
+                using var e=new Env(); Receive(e.Store,A); Mark(e.Store,P(e.Store,A));
+                var http=new ReceiptHttp(); bool toggled=false;
+                http.OnHello=()=>{ if(toggled)return; toggled=true; e.Store.SetReadReceiptPolicy(false); e.Store.SetReadReceiptPolicy(true); };
+                await using var service=new ClassroomReceiptService(e.Store,new(e.Store,new HttpClient(http)),ownIp:Own);
+                await service.ProcessOutboxBatchAsync();
+                Check(toggled && e.Store.GetReadReceiptPolicy().Enabled && e.Store.GetReadReceiptPolicy().Generation>=2,"policy went off and on while the receipt was in flight");
+                Check(http.Receipts.Count==0 && service.TotalCompleted==0,"old-generation receipt is not transmitted after the policy generation changed");
             }),
             Sync("MD-02 local deletion keeps remote data and dedup tombstones", () => {
                 using var local=new Env();using var remote=new Env();string id=Guid.NewGuid().ToString("D");
@@ -329,6 +382,17 @@ internal static class ContactExperienceChecks
         { await scenario.Run(); Console.WriteLine("PASS " + scenario.Name); }
         Console.WriteLine($"Contact experience: {_checks} assertions passed; WPF/physical acceptance not run.");
     }
+    public class StalePendingStore : System.Reflection.DispatchProxy
+    {
+        internal IChatStore Inner = null!;
+        internal PendingClassroomReceipt? Row;
+        protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
+        {
+            if (method!.Name == nameof(IChatStore.ListPendingClassroomReceipts) && Row is { } row)
+                return (args![1] as long?) is { } after && row.OriginalLocalSeq <= after ? Array.Empty<PendingClassroomReceipt>().AsReadOnly() : new[] { row }.AsReadOnly();
+            try { return method.Invoke(Inner, args); } catch (System.Reflection.TargetInvocationException e) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException!).Throw(); throw; }
+        }
+    }
     private sealed class PlainSecrets : IShareSecrets { public byte[] Protect(byte[] b)=>b.ToArray(); public byte[] Unprotect(byte[] b)=>b.ToArray(); }
     private sealed class ManualClock : TimeProvider
     {
@@ -341,6 +405,8 @@ internal static class ContactExperienceChecks
     {
         internal bool Offline;
         internal string? OfflineIp;
+        internal bool FailReceiptPost;
+        internal Action? OnHello;
         internal List<string> Receipts {get;}=[];
         private readonly string _session=ClassroomPacketWriter.NewToken();
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation)
@@ -351,7 +417,8 @@ internal static class ContactExperienceChecks
             using var doc=JsonDocument.Parse(await request.Content!.ReadAsByteArrayAsync(cancellation));var json=doc.RootElement;
             byte[] bytes;
             if(request.RequestUri.AbsolutePath.EndsWith("/hello",StringComparison.Ordinal))
-                bytes=ClassroomPacketWriter.HelloOk(json.GetProperty("client_nonce").GetString()!,_session,ip,Own,["msg.plain","receipt.read"]);
+            { OnHello?.Invoke(); bytes=ClassroomPacketWriter.HelloOk(json.GetProperty("client_nonce").GetString()!,_session,ip,Own,["msg.plain","receipt.read"]); }
+            else if(FailReceiptPost){ return new(HttpStatusCode.ServiceUnavailable){Content=new StringContent("unavailable")}; }
             else { Receipts.Add(ip);bytes=ClassroomPacketWriter.ReceiptAck("ok",json.GetProperty("message_id").GetString()!,_session,Own,ip); }
             return new(HttpStatusCode.OK){Content=new ByteArrayContent(bytes)};
         }
