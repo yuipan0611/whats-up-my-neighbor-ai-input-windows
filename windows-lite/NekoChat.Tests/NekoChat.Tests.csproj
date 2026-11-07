@@ -6,4 +6,5 @@
   <ItemGroup><Compile Include="../NekoChat.Windows/Identity/IdentityFileVault.cs" Link="WindowsIdentity/IdentityFileVault.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../NekoChat.Windows/Settings.cs" Link="WindowsSettings/Settings.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../NekoChat.Windows/UiTestOptions.cs" Link="WindowsSettings/UiTestOptions.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../Shared/ContactsUiSmokeSeed.cs" Link="Fixtures/ContactsUiSmokeSeed.cs" /></ItemGroup>
 </Project>

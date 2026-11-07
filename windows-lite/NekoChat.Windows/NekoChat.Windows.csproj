@@ -29,4 +29,5 @@
     <Content Include="../../Examples/CatAppearance/*.json" Link="Coats/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup><Compile Include="../../Shared/UpdateDownloadUiFixture.cs" Link="UpdateDownloadUiFixture.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../Shared/ContactsUiSmokeSeed.cs" Link="Fixtures/ContactsUiSmokeSeed.cs" /></ItemGroup>
 </Project>

@@ -44,7 +44,7 @@ public partial class ChatWindow
             WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = panel };
         string? addedIp = null; bool busy = false; bool duplicate=false; string? duplicateIp=null;
         open.Click+=(_,_)=>{addedIp=duplicateIp;dialog.DialogResult=true;};
-        dialog.Closing += (_, e) => { if (busy) e.Cancel = true; };
+        dialog.Closing += (_, e) => { if (busy && _contactsUiSmoke?.DialogFailure is null) e.Cancel = true; };
         dialog.Loaded += (_, _) => input.Focus();
         save.Click += async (_, _) => {
             if (busy) return;
@@ -55,7 +55,7 @@ public partial class ChatWindow
             {
                 await runtime.InvalidatePairingAsync("roster_edit");
                 var state=await runtime.Worker.Run(store=>(Token:RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot()),Teacher:store.GetClassroomTeacherIp()));
-                if(teacher&&state.Teacher is{} previous&&previous!=ip&&MessageBox.Show(dialog,$"將取代目前的老師 {previous}，原老師保留為一般聯絡人。","更換老師",MessageBoxButton.YesNo,MessageBoxImage.Question,MessageBoxResult.No)!=MessageBoxResult.Yes)return;
+                if(teacher&&state.Teacher is{} previous&&previous!=ip&&ContactPrompt($"將取代目前的老師 {previous}，原老師保留為一般聯絡人。","更換老師",MessageBoxButton.YesNo,MessageBoxImage.Question,MessageBoxResult.No,dialog)!=MessageBoxResult.Yes)return;
                 string alias=string.IsNullOrWhiteSpace(nickname.Text)?ip:nickname.Text.Trim();
                 var result = await runtime.Worker.Run(store => teacher?store.SetClassroomTeacherByIp(ip,state.Token):store.SaveManualRosterEntry(null,new RosterEdit(alias,null,false,ip),state.Token));
                 if (result.Changed || teacher && result.Reason == "unchanged") { addedIp = ip; busy = false; dialog.DialogResult = true; }
@@ -64,7 +64,7 @@ public partial class ChatWindow
             catch { error.Text = "無法加入好友，請稍後重試。"; }
             finally { busy = false; save.IsEnabled = cancel.IsEnabled = input.IsEnabled = true; }
         };
-        if (dialog.ShowDialog() != true || addedIp is null) return;
+        if (ContactDialog(dialog) != true || addedIp is null) return;
         runtime.Presence?.Refresh(); await SyncTeacherProjectionAsync();ResetRecipientProtocolHints(); await RefreshInboxAsync();
         InboxFilter.SelectedIndex=_snapshot?.Entries.Any(e=>e.Endpoint==addedIp&&e.Blocked)==true?3:0;
         SelectEndpoint(addedIp); SetStatus(duplicate?"已在名單中，已開啟既有對話。":teacher ? "老師已加入。" : "好友已加入，可按右鍵編輯本機備註。");

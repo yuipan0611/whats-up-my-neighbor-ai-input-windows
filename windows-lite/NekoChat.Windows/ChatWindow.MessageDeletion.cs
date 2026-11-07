@@ -18,7 +18,7 @@ public partial class ChatWindow
     private async Task ConfirmDeleteLocalMessageAsync(InboxEntry entry, MessageView message)
     {
         if (LocalMessageDeleteReason(entry, message) is { } reason) { SetStatus(reason); return; }
-        if (MessageBox.Show(this, "只從這台電腦刪除此則訊息？\n不會收回或刪除對方已收到的內容。", "從本機刪除",
+        if (ContactPrompt("只從這台電腦刪除此則訊息？\n不會收回或刪除對方已收到的內容。", "從本機刪除",
             MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
         await DeleteLocalMessageAsync(entry, message);
     }

@@ -26,6 +26,9 @@ jobs:
       - run: python -m pip install -r nekochat/relay/requirements-dev.txt
       - run: dotnet run --project windows-lite/NekoChat.Tests -c Release
       - run: dotnet run --project windows-lite/NekoChat.Tests -c Release --no-build -- --classroom-all
+      - run: dotnet run --project windows-lite/NekoChat.Tests -c Release --no-build -- --blocking
+      - run: dotnet run --project windows-lite/NekoChat.Tests -c Release --no-build -- --contacts
+      - run: dotnet run --project windows-lite/NekoChat.Tests -c Release --no-build -- --contacts-ui-seed-check
       - run: dotnet run --project windows-lite/NekoChat.Animation.Tests -c Release -- windows-lite/NekoChat.Animation/Assets/manifest.json
       - name: Protocol, auth, real WebSocket and C# integration tests
         run: NEKOCHAT_DOTNET="$(command -v dotnet)" python -m pytest nekochat/relay/tests -q
@@ -46,6 +49,9 @@ jobs:
           dotnet-version: '10.0.x'
       - run: dotnet run --project windows-lite/NekoChat.Tests -c Release
       - run: dotnet run --project windows-lite/NekoChat.Tests -c Release --no-build -- --classroom-all
+      - run: dotnet run --project windows-lite/NekoChat.Tests -c Release --no-build -- --blocking
+      - run: dotnet run --project windows-lite/NekoChat.Tests -c Release --no-build -- --contacts
+      - run: dotnet run --project windows-lite/NekoChat.Tests -c Release --no-build -- --contacts-ui-seed-check
       - run: dotnet run --project windows-lite/NekoChat.Animation.Tests -c Release -- windows-lite/NekoChat.Animation/Assets/manifest.json
       - run: dotnet build windows-lite/NekoChat.Windows -c Release
       - name: Publish single-file portable EXE (Zero-Setup Classroom App)
@@ -94,6 +100,37 @@ jobs:
             Get-Content "$proof/unread-result.json"
             if ($probe.ExitCode -ne 0) { throw "Unread smoke failed: $kind" }
           }
+      - name: Verify contacts teacher archives blocking and deletion in native WPF
+        timeout-minutes: 6
+        shell: pwsh
+        run: |
+          foreach ($app in @('build/windows-lite-package/NekoChat.Windows.exe', 'build/windows-lite-portable/NekoChat-Lite.exe')) {
+            $kind = if ($app -like '*portable*') { 'portable' } else { 'package' }
+            $proof = Join-Path $env:GITHUB_WORKSPACE "build/windows-lite-smoke/contacts-ui-$kind"
+            $probe = Start-Process -FilePath (Resolve-Path $app).Path -ArgumentList @('--contacts-ui-smoke-test', "`"$proof`"") -PassThru
+            if (-not $probe.WaitForExit(150000)) { $probe.Kill(); throw "Contacts UI smoke timed out: $kind" }
+            $resultFile = Join-Path $proof 'contacts-ui-result.json'
+            if (-not (Test-Path $resultFile)) { throw "Contacts UI result missing: $kind" }
+            Get-Content $resultFile
+            $result = Get-Content $resultFile -Raw | ConvertFrom-Json
+            if ($probe.ExitCode -ne 0 -or $result.passed -ne $true -or $result.dailyProfileUsed -ne $false -or $result.loopbackOnly -ne $true -or $result.dialogsAutoAnswered -ne $true -or $result.backgroundSendLoopsStarted -ne $false -or $result.seedSchemaVersion -ne 13 -or $result.syntheticSourceMapping -ne $true) {
+              throw "Contacts UI smoke failed or isolation flags invalid: $kind"
+            }
+            if ($result.captures.Count -lt 18) { throw "Missing native contacts UI screenshots: $kind" }
+            foreach ($capture in $result.captures) {
+              if (-not (Test-Path (Join-Path $proof $capture))) { throw "Missing contacts UI capture: $capture" }
+            }
+          }
+      - name: Upload contacts UI JSON and synthetic screenshots even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nekochat-lite-contacts-ui-smoke
+          path: |
+            build/windows-lite-smoke/contacts-ui-*/contacts-ui-result.json
+            build/windows-lite-smoke/contacts-ui-*/*.png
+          if-no-files-found: warn
+          retention-days: 14
       - name: Verify installed App without external runtimes
         shell: pwsh
         run: |

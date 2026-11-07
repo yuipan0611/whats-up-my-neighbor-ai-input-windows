@@ -17,6 +17,7 @@ if (NekoChat.Tests.StorageReadChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageLegacyRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageBackupChecks.RunChild(args)) return;
+if (args.SequenceEqual(new[] { "--contacts-ui-seed-check" })) { NekoChat.Tests.ContactsUiSeedChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--blocking" })) { await NekoChat.Tests.BlockingChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--contacts" })) { await NekoChat.Tests.ContactExperienceChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--teacher" })) { await NekoChat.Tests.ContactExperienceChecks.Run("TC-"); return; }

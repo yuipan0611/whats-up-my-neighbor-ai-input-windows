@@ -53,6 +53,12 @@ public partial class App : Application
             return;
         }
 
+        if (startupArgs.Length == 2 && startupArgs[0] == "--contacts-ui-smoke-test")
+        {
+            Environment.Exit(await RunContactsUiSmokeAsync(startupArgs[1]));
+            return;
+        }
+
         if (startupArgs.Length == 2 && startupArgs[0] == "--unread-smoke-test")
         {
             Environment.Exit(await RunUnreadSmokeAsync(startupArgs[1]));

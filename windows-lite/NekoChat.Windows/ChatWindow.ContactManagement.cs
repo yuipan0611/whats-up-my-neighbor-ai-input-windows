@@ -24,7 +24,7 @@ public partial class ChatWindow
         try{
             var preference=await runtime.Worker.Run(s=>s.GetReadReceiptPreferences());
             if(preference.NoticeShown||!IsVisible||!ReferenceEquals(runtime,_runtime)||_closingRequested)return;
-            MessageBox.Show(this,"已讀回條現在預設開啟，可在設定關閉。已送出的回條無法撤回。","已讀回條",MessageBoxButton.OK,MessageBoxImage.Information);
+            ContactPrompt("已讀回條現在預設開啟，可在設定關閉。已送出的回條無法撤回。","已讀回條",MessageBoxButton.OK,MessageBoxImage.Information);
             if(ReferenceEquals(runtime,_runtime))await runtime.Worker.Run(s=>{s.AcknowledgeReadReceiptNotice();return true;});
         }catch(Exception error){ShowStorageError(error);}finally{_readNoticeShowing=false;}
     }
@@ -59,7 +59,7 @@ public partial class ChatWindow
             "confirm"=>"確認為一般聯絡人後，可自動接收小附件並參與課堂檔案備援。名稱與 IP 不代表身分驗證。",
             _=>entry.Blocked?"解除封鎖後可再次收訊；已停止的待送不會自動重送，可手動重送。":(entry.IsTeacher?"這會取消此對象的老師身分。\n":"")+"封鎖後不再接收此 IP 的訊息與檔案；對方不會收到封鎖通知，可隨時解除。"
         };
-        if(MessageBox.Show(this,text,entry.DisplayName,MessageBoxButton.YesNo,MessageBoxImage.Question,MessageBoxResult.No)!=MessageBoxResult.Yes)return;
+        if(ContactPrompt(text,entry.DisplayName,MessageBoxButton.YesNo,MessageBoxImage.Question,MessageBoxResult.No)!=MessageBoxResult.Yes)return;
         if(!ReferenceEquals(runtime,_runtime)||_closingRequested)return;
         await FlushDraftsAsync();
         var result=await runtime.Worker.Run(s=>action switch{

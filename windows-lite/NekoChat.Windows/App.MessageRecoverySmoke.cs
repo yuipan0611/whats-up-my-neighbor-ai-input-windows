@@ -32,10 +32,10 @@ public partial class App
         {
             window!.History.ScrollIntoView(row); window.UpdateLayout();
             var card = FindDndVisuals<MessageCard>(window.History).Single(c => ReferenceEquals(c.Message, row));
-            var border = FindDndVisuals<Border>(card).First(b => b.ContextMenu?.Items.OfType<MenuItem>().Any(m => Equals(m.Header, "從本機刪除…")) == true);
-            var menu = border.ContextMenu!; menu.PlacementTarget = border; menu.IsOpen = true;
+            var menu = await ContactsOpenMessageMoreAsync(card, deadline.Token);
             await Wait(() => menu.IsOpen);
-            var deletion = menu.Items.OfType<MenuItem>().Single(m => Equals(m.Header, "從本機刪除…"));
+            var deletion = ContactsDeleteItem(menu);
+            if (!deletion.IsEnabled) throw new InvalidOperationException("Native delete is disabled: " + deletion.ToolTip);
             var confirmation = Task.Run(async () => {
                 IntPtr dialog;
                 while ((dialog = DndFindWindow("#32770", "從本機刪除")) == IntPtr.Zero) await Task.Delay(25, deadline.Token).ConfigureAwait(false);
@@ -157,12 +157,12 @@ public partial class App
             if (DndProcessAt(point) != Environment.ProcessId) throw new InvalidOperationException("Nickname right-click target is not our isolated window");
             SetCursorPos((int)point.X, (int)point.Y); MouseEvent(0x0008, 0, 0, 0, UIntPtr.Zero); MouseEvent(0x0010, 0, 0, 0, UIntPtr.Zero);
             await Wait(() => window.InboxList.ContextMenu.IsOpen);
-            var rename = window.InboxList.ContextMenu.Items.OfType<MenuItem>().Single(m => Equals(m.Header, "編輯綽號…"));
+            var rename = window.InboxList.ContextMenu.Items.OfType<MenuItem>().Single(m => Equals(m.Header, "編輯本機備註…"));
             Check(rename.IsEnabled, "native right-click opens existing nickname action");
             var editDialog = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
             timer.Tick += (_, _) => {
-                var dialog = Windows.OfType<Window>().FirstOrDefault(w => w.Title == "編輯綽號");
+                var dialog = Windows.OfType<Window>().FirstOrDefault(w => w.Title == "編輯本機備註");
                 if (dialog is null) return;
                 timer.Stop(); FindDndVisuals<TextBox>(dialog).Single().Text = "本機暱稱測試";
                 Click(FindDndVisuals<Button>(dialog).Single(b => Equals(b.Content, "儲存"))); editDialog.TrySetResult();
