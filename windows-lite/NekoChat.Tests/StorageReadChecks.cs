@@ -39,29 +39,30 @@ internal static class StorageReadChecks
                 Execute(f.Db, $"UPDATE Message SET localReadAt='2026-01-01T00:00:00.000Z' WHERE localSeq={p.M6}; INSERT INTO ReceiptOutbox VALUES({p.M6},'{p.A}','A','read','2026-01-01T00:00:00.000Z')");
             }
             using var upgraded = ChatStore.Open(f.Options);
-            Check(upgraded.GetReadReceiptPolicy() is { Enabled: false, Generation: 0 } && Number(f.Db, "SELECT count(*) FROM ReceiptOutbox") == 0 &&
+            Check(upgraded.GetReadReceiptPolicy() is { Enabled: true, Generation: 1 } && Number(f.Db, "SELECT count(*) FROM ReceiptOutbox") == 0 &&
                 Number(f.Db, "SELECT count(*) FROM Message WHERE localReadAt IS NOT NULL") == 1 && Number(f.Db, "SELECT count(*) FROM Message") == 3,
-                "v2 upgrade defaults off and drops old unsent receipts while preserving local read and history");
+                "D-28 v2 upgrade enables unset receipts and drops old unsent queue while preserving local read/history");
         }
         using (var f = new Fixture())
         {
             using var store = ChatStore.Open(f.Options); var (a, b, m6, m7, m8) = Prepare(store);
-            Check(store.GetReadReceiptPolicy() is { Enabled: false, Generation: 0 } && store.ListPendingReadReceipts().Count == 0, "new privacy policy defaults off");
+            Check(store.GetReadReceiptPolicy() is { Enabled: true, Generation: 1 } && store.ListPendingReadReceipts().Count == 0, "D-28 new privacy policy defaults on with no backfill");
+            store.SetReadReceiptPolicy(false); // Explicit opt-out phase: preserves all off/read/re-enable guards under D-28.
             var active = Active(a);
             foreach (var denied in new[] { active with { UserOpened = false }, active with { WindowActive = false }, active with { Minimized = true },
                 active with { ViewportReady = false }, active with { ActiveConversationId = b } })
                 Check(store.MarkVisibleRead(a, [m6], denied) is { Marked: 0 } && store.GetUnreadCount(a) == 2, "each foreground/open/viewport/conversation guard rejects");
             var read = store.MarkVisibleRead(a, [m6, m6, m8, long.MaxValue], active);
             Check(read is { Marked: 1, Queued: 0 } && store.GetUnreadCount(a) == 1 && store.GetUnreadCount(b) == 1, "only visible same-conversation m6 read, no default outbound receipt");
-            Check(store.SetReadReceiptPolicy(true).Policy is { Enabled: true, Generation: 1 } && store.ListPendingReadReceipts().Count == 0 &&
+            Check(store.SetReadReceiptPolicy(true).Policy is { Enabled: true, Generation: 3 } && store.ListPendingReadReceipts().Count == 0 &&
                 store.MarkVisibleRead(a, [m6], active).Marked == 0, "enabling does not backfill reads made while off");
             Check(store.MarkVisibleRead(a, [m7], active) is { Marked: 1, Queued: 1 } && store.ListPendingReadReceipts().Count == 1, "allowed read and receipt queued together");
             var token = store.ListPendingReadReceipts().Single();
-            Check(token is { ReaderId: "Local", OriginalSenderId: "A", MessageId: "m7", PolicyGeneration: 1 }, "metadata token binds reader/original sender/message/policy");
+            Check(token is { ReaderId: "Local", OriginalSenderId: "A", MessageId: "m7", PolicyGeneration: 3 }, "metadata token binds reader/original sender/message/policy");
             Check(!store.CompleteReadReceipt(token with { OriginalSenderId = "B" }) && !store.CompleteReadReceipt(token with { MessageId = "unknown" }) &&
                 !store.CompleteReadReceipt(token with { ReaderId = "other" }) && store.ListPendingReadReceipts().Count == 1, "mismatched receipt ACK cannot drop pending row");
             using var secondHandle = ChatStore.Open(f.Options);
-            Check(secondHandle.SetReadReceiptPolicy(false) is { DroppedReceipts: 1, Policy.Generation: 2 } && store.GetReadReceiptPolicy().Enabled == false &&
+            Check(secondHandle.SetReadReceiptPolicy(false) is { DroppedReceipts: 1, Policy.Generation: 4 } && store.GetReadReceiptPolicy().Enabled == false &&
                 store.GetUnreadCount(a) == 0 && store.ListPendingReadReceipts().Count == 0, "disable is shared across handles, drops pending receipts, preserves local read");
             store.SetReadReceiptPolicy(true);
             Check(!store.CompleteReadReceipt(token) && store.ListPendingReadReceipts().Count == 0, "old generation ACK harmless after re-enable and no backfill");

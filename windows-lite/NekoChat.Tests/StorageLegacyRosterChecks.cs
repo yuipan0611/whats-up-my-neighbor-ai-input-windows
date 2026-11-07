@@ -59,7 +59,7 @@ internal static class StorageLegacyRosterChecks
                 v3.BindPairedRosterPeer(id, "A", Token(v3));
             }
             using var current = ChatStore.Open(f.Options);
-            Check(!current.LegacyRosterImportCompleted() && Number(f.Db, "PRAGMA user_version") == 13, "real v3-to-current migration leaves bootstrap pending");
+            Check(!current.LegacyRosterImportCompleted() && Number(f.Db, "PRAGMA user_version") == 15, "real v3-to-current migration leaves bootstrap pending");
             Check(current.GetReadReceiptPolicy() is { Enabled: true, Generation: 1 } && current.ListPendingReadReceipts().Single().MessageId == "history",
                 "current migration preserves the existing privacy preference and allowed receipt");
             Check(current.ImportLegacyRoster(Valid) is { Added: 1, Skipped: 1 }, "existing endpoint wins without overwrite");

@@ -68,13 +68,13 @@ public static class UiEnhancementChecks
         {
             using (var store = ChatStore.Open(new(Path.Combine(dbDir, "data"))))
             {
-                // On fresh database: Generation == 0, Enabled == false before UI startup
+                // D-28: Core initializes a fresh database enabled, generation 1 before UI startup.
                 var policy0 = store.GetReadReceiptPolicy();
-                Check(policy0.Generation == 0 && !policy0.Enabled, "Fresh DB read receipt policy has generation 0");
+                Check(policy0.Generation == 1 && policy0.Enabled, "D-28 fresh DB read receipt policy is enabled at generation 1");
 
-                // UI startup sets Enabled = true on Generation 0
+                // Reapplying enabled is idempotent; no startup adapter needs to change the default.
                 var change1 = store.SetReadReceiptPolicy(true);
-                Check(change1.Policy.Enabled && change1.Policy.Generation == 1, "First startup sets read receipts Enabled=true, Generation=1");
+                Check(change1.Policy.Enabled && change1.Policy.Generation == 1, "D-28 idempotent enabled choice preserves Generation=1");
 
                 // User toggles off: sets Enabled = false, Generation = 2
                 var change2 = store.SetReadReceiptPolicy(false);

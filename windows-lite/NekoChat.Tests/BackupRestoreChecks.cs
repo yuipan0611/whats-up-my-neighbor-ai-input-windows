@@ -28,7 +28,7 @@ internal static class BackupRestoreChecks
         {
             string backup = f.Seed(10); string hash = Hash(backup);
             var result = OfflineBackupRestore.Prepare(backup, f.Target);
-            Check(result is { SourceVersion: 10, RestoredVersion: 13, SuspendedPeers: 2, ContainsLocalIdentity: true, OutboundReadReceiptsEnabled: false } && result.SourceSha256 == hash, "current backup reports verified hash, identity presence and reset security");
+            Check(result is { SourceVersion: 10, RestoredVersion: 15, SuspendedPeers: 2, ContainsLocalIdentity: true, OutboundReadReceiptsEnabled: false } && result.SourceSha256 == hash, "current backup reports verified hash, identity presence and reset security");
             using var restored = ChatStore.Open(new(f.Target));
             var entries = restored.GetInboxSnapshot().Entries;
             Check(entries.Where(e => e.PeerId is not null).All(e => e.Pairing == PairingState.Suspended), "every previously paired peer suspended on the restored copy");
@@ -46,7 +46,7 @@ internal static class BackupRestoreChecks
             using var f = new Fixture(); string backup = f.Seed(version), before = Hash(backup);
             var result = OfflineBackupRestore.Prepare(backup, f.Target);
             using var restored = ChatStore.Open(new(f.Target));
-            Check(result.SourceVersion == version && result.RestoredVersion == 13 && restored.GetInboxSnapshot().Entries.Single(e => e.PeerId == "A").Pairing == PairingState.Suspended && Hash(backup) == before, $"frozen schema v{version} validates, upgrades, reopens and preserves source");
+            Check(result.SourceVersion == version && result.RestoredVersion == 15 && restored.GetInboxSnapshot().Entries.Single(e => e.PeerId == "A").Pairing == PairingState.Suspended && Hash(backup) == before, $"frozen schema v{version} validates, upgrades, reopens and preserves source");
         }
         foreach (string kind in new[] { "empty", "text", "foreign", "newer", "altered", "foreign-key", "schema-record", "truncated", "wal-header" })
         {

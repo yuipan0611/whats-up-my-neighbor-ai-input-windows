@@ -88,10 +88,11 @@ internal static class V2StorageFenceChecks
         }
         using (var f = new Fixture())
         {
+            f.Store.SetReadReceiptPolicy(false); // D-28 explicit opt-out: wire cannot override the user choice.
             var prepared = f.Prepare();
             Check(f.Store.ApplyV2Receipt(f.Receipt(prepared.MessageId), f.Security, () => true).Reason == "pending-local-confirmation", "early read remains transient pending not successful discard");
             var incoming = f.Message(V2PacketWriter.NewClientNonce()); var stored = (Stored)f.Store.ReceiveV2Message(incoming, f.Security, () => true);
-            Check(!f.Store.GetReadReceiptPolicy().Enabled, "wire integration leaves privacy default off");
+            Check(!f.Store.GetReadReceiptPolicy().Enabled, "D-28 wire integration preserves explicit privacy off");
             f.Store.SetReadReceiptPolicy(true);
             f.Store.MarkVisibleRead(f.Conversation, new[] { stored.LocalSeq }, new(f.Conversation, true, true, false, true));
             var pending = f.Store.ListPendingReadReceipts().Single(); var ack = f.ReceiptAck(pending.MessageId); var snapshot = f.Security; bool live = true;
