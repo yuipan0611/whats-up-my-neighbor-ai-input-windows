@@ -61,17 +61,17 @@ public static class ClassroomSendUiPolicyChecks
         // 涵蓋：Confirmed、AlreadyConfirmed、StateUpdated(unconfirmed／failed／cancelled)、
         //       AckMismatch、Discarded、null＋cancelled、例外
         // =========================================================================
-        // (a) Confirmed -> terminal/confirmed -> "已送達"
+        // (a) D-30 Confirmed -> terminal/confirmed -> "已送出"
         var rConfirmed = new ClassroomSendResult(true, "ok", new Confirmed(1, true), ClassroomRoute.Classroom);
         var cConfirmed = ClassroomSendUiPolicy.DecideCancelResultFromOutcome(rConfirmed);
         C(!cConfirmed.Cancelled && cConfirmed.Reason == "confirmed", "2a. Confirmed maps to confirmed");
-        C(ClassroomSendUiPolicy.DecideCancelClickResult(cConfirmed).Contains("已送達"), "2a. Confirmed text contains 已送達");
+        C(ClassroomSendUiPolicy.DecideCancelClickResult(cConfirmed) == "已送出（無法再取消）。", "2a. D-30 Confirmed cancellation text means sent, not stored");
 
-        // (b) AlreadyConfirmed -> terminal/already_confirmed -> "已送達"
+        // (b) D-30 AlreadyConfirmed -> terminal/already_confirmed -> "已送出"
         var rAlreadyConfirmed = new ClassroomSendResult(true, "ok", new AlreadyConfirmed(1), ClassroomRoute.Classroom);
         var cAlreadyConfirmed = ClassroomSendUiPolicy.DecideCancelResultFromOutcome(rAlreadyConfirmed);
         C(!cAlreadyConfirmed.Cancelled && cAlreadyConfirmed.Reason == "already_confirmed", "2b. AlreadyConfirmed maps to already_confirmed");
-        C(ClassroomSendUiPolicy.DecideCancelClickResult(cAlreadyConfirmed).Contains("已送達"), "2b. AlreadyConfirmed text contains 已送達");
+        C(ClassroomSendUiPolicy.DecideCancelClickResult(cAlreadyConfirmed) == "已送出（無法再取消）。", "2b. D-30 AlreadyConfirmed cancellation text means sent, not stored");
 
         // (c) StateUpdated(unconfirmed) -> "對方可能已收到"
         var rUnconfirmed = new ClassroomSendResult(false, "cancelled", new StateUpdated("unconfirmed"), ClassroomRoute.Classroom);
@@ -290,14 +290,14 @@ public static class ClassroomSendUiPolicyChecks
 
         // =========================================================================
         // 項目 10（Ben 複審必修）：補回 8 條精確文案與 DraftCleared 旗標斷言
-        // (a) Confirmed＋Classroom＝「已驗證對方的儲存確認。」，Confirmed＋Legacy＝「已送達（舊版同學）。」，驗 DraftCleared
+        // (a) Confirmed＋Classroom＝「已送出。」，Confirmed＋Legacy＝「已送達（舊版同學）。」，驗 DraftCleared
         // (b) UI-S Discarded 的精確文案，驗 DraftCleared=false
         // (c) failed 帶 reasonCode、不帶 reasonCode 的精確格式，驗 DraftCleared=false
         // (d) cancel-before、cancel-after 的精確文案，驗 DraftCleared=false
         // =========================================================================
         // (a) Confirmed 文案與 DraftCleared 旗標
         var dConfClassroom = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(true, "ok", new Confirmed(1, true), ClassroomRoute.Classroom));
-        C(dConfClassroom.StatusText == "已驗證對方的儲存確認。", "10a. Confirmed classroom route exact status text match");
+        C(dConfClassroom.StatusText == "已送出。", "10a. Confirmed classroom route exact status text match");
         C(dConfClassroom.DraftCleared, "10a. Confirmed classroom route with DraftCleared=true reports true");
 
         var dConfLegacy = ClassroomSendUiPolicy.DecideOutcome(new ClassroomSendResult(true, "ok", new Confirmed(1, false), ClassroomRoute.Legacy));

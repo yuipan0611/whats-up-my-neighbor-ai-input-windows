@@ -6,6 +6,7 @@ using System.Windows;
 using Microsoft.Win32;
 using NekoChat.Core;
 using NekoChat.Core.Storage;
+using NekoChat.Core.Diagnostics;
 
 namespace NekoChat.Windows;
 
@@ -443,20 +444,19 @@ public partial class App : Application
             candidate.AttachmentProgress += (id, done, total) => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.ShowAttachmentProgress(id, done, total); }));
             candidate.DataChanged += () => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.DataChanged(); }));
             var listener = candidate.Listener; directListener = listener;
-            listener.LegacyMessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
-                if (closingApp || !ReferenceEquals(directListener, listener) || chatRuntime?.IsSourceBlocked(notice.SourceIp) == true) return;
+            var notificationRuntime = candidate;
+            listener.LegacyMessageStored += notice => _ = NotifyAfterBlockCheckAsync(notificationRuntime, listener, notice.SourceIp, () => {
                 chat.DataChanged();
                 bool teacher = chatRuntime?.ClassroomFiles?.IsTeacherNode == true || LanInvitation.LocalAddresses().Contains(settings.TeacherIp) || settings.TeacherIp == "127.0.0.1";
                 var reaction = notice.Reaction is { } id ? ClassroomReactions.Find(id) : null;
                 if (settings.ShowReactionPreviews && reaction is not null && (!reaction.TeacherOnly || teacher)) pet.NotifyReaction(reaction, notice.Scope.ContextId);
                 else pet.NotifyChat("新訊息", notice.Scope.ContextId, chat.LegacyNotificationName(notice));
-            }));
+            });
             listener.V2MessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
                 if (closingApp || !ReferenceEquals(directListener, listener)) return;
                 chat.DataChanged(); pet.NotifyChat("新訊息", "peer:" + notice.SenderId, chat.PeerNotificationName(notice.SenderId));
             }));
-            listener.ClassroomMessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
-                if (closingApp || !ReferenceEquals(directListener, listener) || chatRuntime?.IsSourceBlocked(notice.SourceIp) == true) return;
+            listener.ClassroomMessageStored += notice => _ = NotifyAfterBlockCheckAsync(notificationRuntime, listener, notice.SourceIp, () => {
                 chat.DataChanged();
                 bool teacher = chatRuntime?.ClassroomFiles?.IsTeacherNode == true || LanInvitation.LocalAddresses().Contains(settings.TeacherIp) || settings.TeacherIp == "127.0.0.1";
                 var reaction = notice.Reaction is { } id ? ClassroomReactions.Find(id) : null;
@@ -464,7 +464,7 @@ public partial class App : Application
                     pet.NotifyReaction(reaction, notice.SourceIp);
                 else
                     pet.NotifyChat("新訊息", notice.SourceIp, chat.ClassroomNotificationName(notice.SourceIp));
-            }));
+            });
             listener.Diagnostic += code => { if (code is "receiver_not_ready" or "listener_failed") Dispatcher.BeginInvoke(new Action(() => { if (!closingApp && ReferenceEquals(directListener, listener)) chat.SetReceiverState(false, startupPort, listener.Error ?? "接收服務已停止"); })); };
             candidate.Start(sharedNetwork: classroomShareNetwork); chatRuntime = candidate; candidate = null;
             chat.SetReceiverState(directListener.Running, directListener.Port, directListener.Error);
@@ -473,6 +473,23 @@ public partial class App : Application
         catch (Exception ex)
         { chat.DetachRuntime(); chat.ShowDataFailure(ex); chat.SetReceiverState(false, startupPort, "本機資料尚未就緒"); }
         finally { if (candidate is not null) await candidate.DisposeAsync(); startingData = false; }
+    }
+
+    private async Task NotifyAfterBlockCheckAsync(ChatRuntime runtime, DirectLanListener listener, string sourceIp, Action notify)
+    {
+        try
+        {
+            bool allowed = await runtime.Worker.Run(s => !s.IsSourceBlocked(sourceIp)).ConfigureAwait(false);
+            if (!allowed) return;
+            await Dispatcher.InvokeAsync(() => {
+                if (!closingApp && ReferenceEquals(chatRuntime, runtime) && ReferenceEquals(directListener, listener)) notify();
+            });
+        }
+        catch (Exception error) when (DiagnosticFault.Catchable(error))
+        {
+            // Unknown block state fails closed; no source address or message UUID is recorded.
+            runtime.Diagnostics.Record(DiagnosticStage.ReceiveNotify, DiagnosticOutcome.Failed, error: error);
+        }
     }
 
     private async Task RequestShutdownAsync()
