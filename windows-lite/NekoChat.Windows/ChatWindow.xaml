@@ -189,14 +189,14 @@
       <Button x:Name="TeacherFilesButton" Content="▤  課堂檔案" Click="TeacherFilesClick" HorizontalContentAlignment="Left" Background="#FAFBFD" Foreground="#536781" Margin="0,6,0,14" Padding="12,8" AutomationProperties.Name="課堂檔案"/>
       <Grid><TextBox x:Name="InboxSearch" TextChanged="InboxSearchChanged" AutomationProperties.Name="搜尋 IP 或綽號" ToolTip="搜尋 IP 或本機綽號" Margin="0,0,0,8"/><TextBlock x:Name="InboxSearchHint" Text="搜尋 IP 或綽號" Foreground="#8A96A7" FontSize="12" Margin="10,7,0,0" IsHitTestVisible="False"/></Grid>
       <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="InboxCount" Text="同學" Foreground="#69778A" FontSize="12" VerticalAlignment="Center"/><StackPanel Grid.Column="1" Orientation="Horizontal"><Button x:Name="FilterAllButton" Content="全部" Click="FilterAllClick" Padding="8,3" FontSize="12" Margin="0,0,4,0"/><Button x:Name="FilterUnreadButton" Content="未讀" Click="FilterUnreadClick" Padding="8,3" FontSize="12"/></StackPanel></Grid>
-      <ComboBox x:Name="InboxFilter" SelectedIndex="0" Visibility="Collapsed" SelectionChanged="InboxFilterChanged" AutomationProperties.Name="名單篩選"><ComboBoxItem Content="全部"/><ComboBoxItem Content="未讀"/></ComboBox>
+      <ComboBox x:Name="InboxFilter" SelectedIndex="0" Margin="0,6,0,0" SelectionChanged="InboxFilterChanged" AutomationProperties.Name="名單篩選"><ComboBoxItem Content="一般聯絡人"/><ComboBoxItem Content="未讀"/><ComboBoxItem Content="封存（歷史唯讀）"/><ComboBoxItem Content="已封鎖（歷史唯讀）"/></ComboBox>
      </StackPanel></ScrollViewer>
      <StackPanel x:Name="SidebarFooter" DockPanel.Dock="Bottom" Margin="16,12">
       <WrapPanel VerticalAlignment="Center">
        <Button Content="＋ 新增對象" Click="AddRosterClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,8,8"/>
        <Button Content="設定" Click="OpenSettingsClick" Height="30" Padding="10,0" VerticalContentAlignment="Center" Margin="0,0,0,8"/>
       </WrapPanel>
-      <TextBlock x:Name="NicknameHint" Text="右鍵可設定本機綽號" Foreground="#69778A" FontSize="11" Margin="0,4"/>
+      <TextBlock x:Name="NicknameHint" Text="右鍵或對話 ⋯ 可管理聯絡人與本機備註" Foreground="#69778A" FontSize="11" Margin="0,4"/>
       <TextBlock x:Name="IdentityStatus" Visibility="Collapsed" Text="教室區域網路・依名單 IP" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
      </StackPanel>
      <Grid><ListBox x:Name="InboxList" BorderThickness="0" SelectionChanged="InboxSelectionChanged" ItemContainerStyle="{StaticResource InboxItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
@@ -243,7 +243,7 @@
      <Border x:Name="AttemptBanner" Background="#FFF8E8" BorderBrush="#ECD9A8" BorderThickness="1" CornerRadius="4" Padding="12,8" Margin="0,0,0,8" Visibility="Collapsed"><StackPanel><TextBlock x:Name="AttemptText" Foreground="#916015" TextWrapping="Wrap"/><WrapPanel Margin="0,6,0,0"><Button x:Name="RetryAttempt" Content="重試傳送" Click="RetryAttemptClick" Margin="0,0,8,0"/><Button x:Name="CancelAttemptButton" Content="取消當次" Click="CancelAttemptClick"/></WrapPanel></StackPanel></Border>
      </StackPanel></ScrollViewer>
      <Border x:Name="ComposerBorder" Grid.Row="1" BorderBrush="#DCE3EC" BorderThickness="1" CornerRadius="8" Padding="8" AllowDrop="True" PreviewDragOver="ComposerDragOver" PreviewDragLeave="ComposerDragLeave" PreviewDrop="ComposerDrop"><Grid x:Name="ComposerBox"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition x:Name="CodeToolbarRow" Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <Border x:Name="AttachmentDraftPanel" Grid.Row="0" Grid.ColumnSpan="2" Visibility="Collapsed" Background="#F1F5FA" CornerRadius="6" Padding="8" Margin="0,0,0,8"><DockPanel LastChildFill="True"><Button x:Name="RemoveAttachmentButton" DockPanel.Dock="Right" Content="移除" Click="RemoveAttachmentClick" Margin="8,0,0,0"/><Image x:Name="AttachmentDraftImage" DockPanel.Dock="Left" Width="48" Height="42" Stretch="Uniform" Margin="0,0,8,0"/><TextBlock x:Name="AttachmentDraftText" MaxHeight="44" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.Name="待傳附件"/></DockPanel></Border>
+      <Border x:Name="AttachmentDraftPanel" Grid.Row="0" Grid.ColumnSpan="2" Visibility="Collapsed" Background="#F1F5FA" CornerRadius="6" Padding="8" Margin="0,0,0,8"><DockPanel LastChildFill="True"><Button x:Name="RemoveAttachmentButton" DockPanel.Dock="Right" Content="移除附件" Click="RemoveAttachmentClick" Margin="8,0,0,0"/><Image x:Name="AttachmentDraftImage" DockPanel.Dock="Left" Width="48" Height="42" Stretch="Uniform" Margin="0,0,8,0"/><TextBlock x:Name="AttachmentDraftText" MaxHeight="44" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.Name="待傳附件"/></DockPanel></Border>
       <TextBox x:Name="Draft" Grid.Row="1" Grid.ColumnSpan="2" AcceptsReturn="True" Height="72" MaxHeight="120" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" Padding="4" PreviewKeyDown="DraftPreviewKeyDown" TextChanged="DraftEdited" AutomationProperties.Name="訊息草稿" AllowDrop="True" PreviewDragOver="ComposerDragOver" PreviewDragLeave="ComposerDragLeave" PreviewDrop="ComposerDrop"/>
       <TextBlock x:Name="DraftPlaceholder" Grid.Row="1" Grid.ColumnSpan="2" Text="輸入訊息…" Foreground="#8A96A7" FontSize="13" Margin="5,5,0,0" IsHitTestVisible="False"/>
       <Button x:Name="SendButton" Style="{StaticResource PrimaryButton}" Grid.Row="2" Grid.Column="1" Content="傳送" Click="SendClick" Margin="8,8,0,0"/>
@@ -283,7 +283,7 @@
      <CheckBox x:Name="TeacherLabel" Visibility="Collapsed"/>
      <WrapPanel Margin="0,4,0,0">
       <Button x:Name="SaveContactButton" Content="新增到名單" Click="SaveContactClick" HorizontalAlignment="Left"/>
-      <Button x:Name="DeleteContactButton" Content="移除此名單標籤" Click="DeleteRosterClick" HorizontalAlignment="Left" Margin="8,0,0,0" IsEnabled="False"/>
+      <Button x:Name="DeleteContactButton" Content="移除聯絡人…" Click="DeleteRosterClick" HorizontalAlignment="Left" Margin="8,0,0,0" IsEnabled="False"/>
       <TextBlock x:Name="SaveContactFeedback" Foreground="DarkGreen" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0,0,0"/>
      </WrapPanel>
      </StackPanel>
@@ -297,7 +297,7 @@
      <Button x:Name="ExportDiagnosticsButton" Content="匯出診斷記錄" Click="ExportDiagnosticsClick" HorizontalAlignment="Left" Margin="0,12,0,0" IsEnabled="False"/>
      <TextBlock Text="診斷只保存在本機，不含聊天或附件內容。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
      <TextBlock x:Name="DiagnosticsStatus" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
-     <StackPanel Visibility="Collapsed"><CheckBox x:Name="ReadReceiptToggle" IsChecked="True" Content="傳送對外已讀回條（預設開啟）" Click="ReadReceiptToggleClick" Margin="0,20,0,4"/></StackPanel><Button x:Name="ClearAttachmentCacheButton" Content="清理附件空間" Click="ClearAttachmentCacheClick" HorizontalAlignment="Left" Margin="0,8,0,0"/><TextBlock Visibility="Collapsed" Text="本機看過才標已讀。關閉不影響本機未讀，未送出的回條會移除；已送出的回條無法撤回。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/>
+     <StackPanel><CheckBox x:Name="ReadReceiptToggle" IsChecked="True" Content="傳送對外已讀回條（預設開啟）" Click="ReadReceiptToggleClick" Margin="0,20,0,4"/></StackPanel><Button x:Name="ClearAttachmentCacheButton" Content="清理附件空間" Click="ClearAttachmentCacheClick" HorizontalAlignment="Left" Margin="0,8,0,0"/><TextBlock Text="本機看過才標已讀。關閉不影響本機未讀，未送出的回條會移除；已送出的回條無法撤回。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/>
     </StackPanel></ScrollViewer>
    </DockPanel>
   </Border>

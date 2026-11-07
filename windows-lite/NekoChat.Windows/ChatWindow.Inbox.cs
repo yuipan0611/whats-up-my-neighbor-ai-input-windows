@@ -89,7 +89,7 @@ public partial class ChatWindow
         };
         _saveTimer.Tick += async (_, _) => { _saveTimer.Stop(); await FlushDraftsAsync(); };
         _readTimer.Tick += async (_, _) => { _readTimer.Stop(); await MarkViewportAsync(); };
-        Activated += (_, _) => ViewChanged(); Deactivated += (_, _) => ViewChanged(); StateChanged += (_, _) => ViewChanged(); IsVisibleChanged += (_, _) => ViewChanged();
+        Activated += (_, _) => ViewChanged(); Deactivated += (_, _) => ViewChanged(); StateChanged += (_, _) => ViewChanged(); IsVisibleChanged += async (_, _) => { ViewChanged(); await ShowReadReceiptNoticeAsync(); };
         History.PreviewMouseDown += (_, _) => { if (_selected is not null) { _userOpened = true; _showInbox = false; ViewChanged(); } };
         UpdateComposer(); UpdateShellLayout();
     }
@@ -97,15 +97,12 @@ public partial class ChatWindow
     {
         _diagnosticFailures = []; _runtime = runtime; SetDiagnosticsDirectory(Path.Combine(Path.GetDirectoryName(runtime.DataDirectory)!, "diagnostics")); ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
         var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy());
-        if (!runtime.ArchivedIdentityFixture && !policy.Enabled && policy.Generation == 0)
-        {
-            var updated = await runtime.Worker.Run(s => s.SetReadReceiptPolicy(true));
-            policy = updated.Policy;
-        }
         ReadReceiptToggle.IsChecked = policy.Enabled;
         if (runtime.Presence is { } presence) presence.StateChanged += PresenceChanged;
         await BootstrapClassRosterAsync();
+        await SyncTeacherProjectionAsync();
         await RefreshInboxAsync();
+        await ShowReadReceiptNoticeAsync();
     }
     internal void ShowDataFailure(Exception error) => ShowDataFailure(DiagnosticMessage(DiagnosticFault.FromException(error)));
     internal void ShowDataFailure(string message)
@@ -160,6 +157,7 @@ public partial class ChatWindow
     {
         if (_runtime?.ArchivedIdentityFixture != true)
         {
+            if (entry.Blocked) return "已封鎖，歷史唯讀";
             if (entry.Removed) return "已從名單移除，不能發送，可查看對話";
             if (entry.Endpoint is null) return "未設定位址";
             return entry.LegacyUnread > 0 ? "舊版訊息・在線狀態待確認" : "在線狀態待確認";
@@ -177,23 +175,24 @@ public partial class ChatWindow
     private void ApplyInboxFilter()
     {
         if (!_initializedInbox || _snapshot is null) return;
-        string query = InboxSearch.Text.Trim(); bool unread = InboxFilter.SelectedIndex == 1;
-        var entries = _snapshot.Entries.Where(e => !e.IsTeacher && (!unread || e.TotalUnread > 0) && (query.Length == 0 || e.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+        string query = InboxSearch.Text.Trim(); bool unread = InboxFilter.SelectedIndex == 1; int section=InboxFilter.SelectedIndex;
+        var entries = _snapshot.Entries.Where(e => (section==2 ? e.Removed&&!e.Blocked : section==3 ? e.Blocked : !e.IsTeacher&&!e.Removed&&!e.Blocked) && (!unread || e.TotalUnread > 0) && (query.Length == 0 || e.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
             e.StudentNumber?.Contains(query, StringComparison.OrdinalIgnoreCase) == true || e.Endpoint?.Contains(query, StringComparison.OrdinalIgnoreCase) == true)).OrderBy(e => EndpointSortKey(e.Endpoint));
         _changingSelection = true;
         try
         {
-            TeachersList.ItemsSource = _snapshot.Entries.Where(e => e.IsTeacher).Select(e => new InboxRowView(e, StateOf(e))).ToArray();
+            TeachersList.ItemsSource = _snapshot.Entries.Where(e => e.IsTeacher&&!e.Removed&&!e.Blocked).Select(e => new InboxRowView(e, StateOf(e))).ToArray();
             TeachersList.SelectedItem = _showTeacherFiles ? null : TeachersList.Items.OfType<InboxRowView>().FirstOrDefault(e => e.Entry.Id == _selected?.Id);
-            SetTeacherButton.Visibility = _snapshot.Entries.Any(e => e.IsTeacher && !e.Removed) ? Visibility.Collapsed : Visibility.Visible;
+            SetTeacherButton.Visibility = _snapshot.Entries.Any(e => e.IsTeacher && !e.Removed&&!e.Blocked) ? Visibility.Collapsed : Visibility.Visible;
             _inbox.Clear(); foreach (var entry in entries) _inbox.Add(new(entry, StateOf(entry)));
             InboxList.SelectedItem = _showTeacherFiles ? null : _inbox.FirstOrDefault(e => e.Entry.Id == _selected?.Id);
         }
         finally { _changingSelection = false; }
-        InboxCount.Text = $"同學 · {_snapshot.Entries.Count(e => !e.IsTeacher)} 位";
-        bool noEntries = !_snapshot.Entries.Any(e => !e.IsTeacher);
+        InboxCount.Text = $"{(section==2 ? "封存" : section==3 ? "已封鎖" : "同學")} · {_inbox.Count} 位";
+        bool noEntries = !_snapshot.Entries.Any(e => !e.IsTeacher&&!e.Removed&&!e.Blocked);
         InboxEmpty.Text = noEntries ? "尚無同學對話。\n新增名單後，即可開始一對一聊天。" : "沒有符合搜尋或篩選的同學。";
-        AddFirstContactButton.Visibility = noEntries ? Visibility.Visible : Visibility.Collapsed;
+        if(section>=2) InboxEmpty.Text=section==2 ? "沒有封存的對話。" : "沒有已封鎖的聯絡人。";
+        AddFirstContactButton.Visibility = noEntries && section<2 ? Visibility.Visible : Visibility.Collapsed;
         InboxEmptyPanel.Visibility = _inbox.Count == 0 ? Visibility.Visible : Visibility.Collapsed; UpdatePresenceView();
     }
     private static uint EndpointSortKey(string? endpoint)
@@ -288,7 +287,7 @@ public partial class ChatWindow
     {
         if (!_initializedInbox) return;
         var buffer = CurrentDraft(); bool attached = _runtime is not null; bool ready = attached && _runtime!.CanSend && (_runtime.ArchivedIdentityFixture ? _selected?.Pairing == PairingState.Paired : _selected?.CanSend == true);
-        bool isRemoved = _selected?.Removed == true;
+        bool isRemoved = _selected?.Removed == true || _selected?.Blocked == true;
         Draft.IsReadOnly = isRemoved;
         Draft.IsEnabled = !_showTeacherFiles && !_stopping && !_closingRequested && (attached ? buffer is { Clearing: false } : _receiverRunning) && !isRemoved;
         bool hasAttachment = _attachmentDraft is not null;
@@ -331,7 +330,7 @@ public partial class ChatWindow
     {
         if (_showTeacherFiles) { ConversationTitle.Text = "課堂檔案"; ConversationMeta.Text = "全班共用 · 老師與同學都能分享"; TrustBanner.Visibility = Visibility.Collapsed; return; }
         ConversationTitle.Text = _selected?.DisplayName ?? "選擇一位同學";
-        ConversationMeta.Text = _selected is { } entry ? entry.Removed || entry.Endpoint is null ? StateOf(entry) :
+        ConversationMeta.Text = _selected is { } entry ? entry.Removed || entry.Blocked || entry.Endpoint is null ? StateOf(entry) :
             entry.DisplayName == entry.Endpoint ? (entry.IsTeacher ? "老師" : "同學") + " · 一對一聊天" : entry.Endpoint : "對話紀錄保存在本機";
         bool legacy = CurrentRecipientIsLegacy;
         TrustBanner.Visibility = legacy || History.Rows.Any(r => r.Legacy) ? Visibility.Visible : Visibility.Collapsed;
@@ -384,7 +383,7 @@ public partial class ChatWindow
                 m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "", peerAvatar)) ?? [];
             var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""), peerAvatar)) ?? [];
             var existing = History.Rows.Where(x => x.AttemptId is null).ToDictionary(m => m.Key, StringComparer.Ordinal); int oldCount = existing.Count;
-            foreach (var row in crRows.Concat(rows).Concat(legacy)) { if (!_runtime.ArchivedIdentityFixture && !row.Key.StartsWith("v2:", StringComparison.Ordinal)) row.DeleteLocal = () => ConfirmDeleteLocalMessageAsync(entry, row); if (existing.TryGetValue(row.Key, out var old)) { old.Delivery = row.Delivery; old.AttachmentPath = row.AttachmentPath; old.Attachment = row.Attachment; } else existing.Add(row.Key, row); }
+            foreach (var row in crRows.Concat(rows).Concat(legacy)) { row.ContactReadOnly=entry.Removed||entry.Blocked; if (!_runtime.ArchivedIdentityFixture && !row.Key.StartsWith("v2:", StringComparison.Ordinal)) { row.DeleteLocal = () => ConfirmDeleteLocalMessageAsync(entry, row); row.DeleteDisabledReason = () => LocalMessageDeleteReason(entry, row); } if (existing.TryGetValue(row.Key, out var old)) { old.Delivery = row.Delivery; old.AttachmentPath = row.AttachmentPath; old.Attachment = row.Attachment; old.ContactReadOnly=row.ContactReadOnly; old.RefreshActions(); } else existing.Add(row.Key, row); }
             var sorted = existing.Values.OrderBy(m => m.Utc, StringComparer.Ordinal).ThenBy(m => m.Legacy).ThenBy(m => m.Sequence).ToArray();
             for (int i = 0; i < sorted.Length; i++)
             {
@@ -551,6 +550,7 @@ public partial class ChatWindow
             if (result.Changed || result.Reason == "unchanged")
             {
                 if (generation == _manualFormGeneration) { _editingRosterId = result.EntryId; _manualFormSnapshot = result.SnapshotToken; SaveContactButton.Content = "儲存這位同學"; DeleteContactButton.IsEnabled = true; SaveContactFeedback.Foreground = System.Windows.Media.Brushes.DarkGreen; SaveContactFeedback.Text = "✅ 名單已儲存"; }
+                await SyncTeacherProjectionAsync();
                 if (generation == _manualFormGeneration) await LoadManualFormAsync(result.EntryId);
                 SetStatus(result.Changed ? "名單已儲存。" : "名單沒有變動。"); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync();
                 if (id is null)
@@ -576,11 +576,11 @@ public partial class ChatWindow
         {
             var preview = await _runtime.Worker.Run(s => s.PreviewRosterDelete(id));
             if (!preview.CanDelete) { SetStorageNotice(RosterFailure(preview.Reason)); return; }
-            if (MessageBox.Show(this, preview.Notice, "移除名單標籤", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+            if (MessageBox.Show(this, "只從這台電腦的名單移除，歷史會保留在封存區，不會封鎖對方。", "移除聯絡人", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
             await _runtime.InvalidatePairingAsync("roster_delete");
             var result = await _runtime.Worker.Run(s => s.DeleteRosterEntry(id, preview.SnapshotToken, preview.ToConfirmation()));
             if (!result.Changed) { SetStorageNotice(RosterFailure(result.Reason)); return; }
-            await LoadManualFormAsync(null); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync(true); SetStatus("名單標籤已移除，對話仍保留。");
+            await SyncTeacherProjectionAsync();await LoadManualFormAsync(null); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync(true); InboxFilter.SelectedIndex=2;SetStatus("聯絡人已移到封存，歷史保留。");
         }
         catch (Exception ex) { ShowStorageError(ex); }
     }
@@ -588,7 +588,9 @@ public partial class ChatWindow
         "roster_changed" => "名單已變動，尚未儲存。請保留目前輸入，重新開啟設定後再檢查。",
         "confirmation_mismatch" => "名單已被修改，請重新開啟設定後再確認刪除。",
         "not-found" => "這筆名單已不存在。",
-        "duplicate-endpoint" => "這個 IP 已在名單中，請編輯原本那位同學。",
+        "duplicate-endpoint" => "這個 IP 已在名單中，可開啟既有對話。",
+        "blocked" => "此 IP 已封鎖，請先解除封鎖。",
+        "merge_conflict" => "兩邊的草稿或訊息有衝突，資料已保留，請先處理再合併。",
         "duplicate-student-number" => "學號已存在，請檢查原本的名單。",
         "invalid-endpoint" => "請填寫可用的同網段 IPv4；不能填自己、廣播或回送位址。",
         "invalid-student-number" => "學號需為 1 到 12 位數字，或留白。",
@@ -669,7 +671,7 @@ public partial class ChatWindow
     private async void ReloadDataClick(object sender, RoutedEventArgs e)
     {
         if (_runtime is null) { DataRetryRequested?.Invoke(); return; }
-        try { long edit = ++_readPolicyEdit; var policy = await _runtime.Worker.Run(s => s.GetReadReceiptPolicy()); if (edit == _readPolicyEdit) { ReadReceiptToggle.IsChecked = policy.Enabled; ReadReceiptToggle.IsEnabled = true; } await FlushDraftsAsync(); _historyLoaded = false; await RefreshInboxAsync(true); }
+        try { long edit = ++_readPolicyEdit; var policy = await _runtime.Worker.Run(s => s.GetReadReceiptPolicy()); if (edit == _readPolicyEdit) { ReadReceiptToggle.IsChecked = policy.Enabled; ReadReceiptToggle.IsEnabled = true; } await SyncTeacherProjectionAsync(); await FlushDraftsAsync(); _historyLoaded = false; await RefreshInboxAsync(true); }
         catch (Exception ex) { ShowStorageError(ex); }
     }
     private void ShowStorageError(Exception exception, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")

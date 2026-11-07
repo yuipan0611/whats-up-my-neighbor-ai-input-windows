@@ -16,32 +16,34 @@ public partial class ChatWindow
         var container = source is null ? null : ItemsControl.ContainerFromElement(list, source) as ListBoxItem;
         if (container is null && e.CursorLeft < 0 && System.Windows.Input.Keyboard.FocusedElement is DependencyObject focused)
             container = ItemsControl.ContainerFromElement(list, focused) as ListBoxItem;
-        if (container?.DataContext is not InboxRowView { Entry.RosterId: not null } row)
+        if (container?.DataContext is not InboxRowView row)
         { e.Handled = true; return; }
         var menu = list.ContextMenu;
         menu.Items.Clear();
-        var rename = new MenuItem { Header = "編輯綽號…", CommandParameter = row };
-        rename.Click += RenameNicknameClick;
-        menu.Items.Add(rename);
+        var fresh=ContactMenu(row.Entry);var items=fresh.Items.Cast<object>().ToArray();fresh.Items.Clear();foreach(var item in items)menu.Items.Add(item);
     }
 
-    private async Task AddContactDialogAsync(bool teacher)
+    private async Task AddContactDialogAsync(bool teacher,string? initialIp=null)
     {
         if (_runtime is not { } runtime) { SetStatus("本機資料尚未就緒，請先重新讀取。"); return; }
-        var input = new TextBox { MaxLength = 15, Margin = new(0, 6, 0, 12) };
+        var input = new TextBox { Text=initialIp??"", MaxLength = 15, Margin = new(0, 6, 0, 12) };
         System.Windows.Automation.AutomationProperties.SetName(input, "輸入對方 IP 位址");
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.Firebrick };
         var panel = new StackPanel { Margin = new(20) };
         panel.Children.Add(new Label { Content = "輸入對方 IP 位址", Target = input, Padding = new(0) });
-        panel.Children.Add(input); panel.Children.Add(error);
+        panel.Children.Add(input);
+        var nickname=new TextBox{MaxLength=64,Margin=new(0,4,0,12)};
+        if(!teacher){panel.Children.Add(new Label{Content="本機備註（可留白，只在這台電腦顯示）",Target=nickname});panel.Children.Add(nickname);}panel.Children.Add(error);
         var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 12, 0, 0) };
         var cancel = new Button { Content = "取消", IsCancel = true, Margin = new(0, 0, 8, 0) };
         var save = new Button { Content = teacher ? "加入老師" : "新增對象", IsDefault = true };
-        buttons.Children.Add(cancel); buttons.Children.Add(save); panel.Children.Add(buttons);
+        var open=new Button{Content="開啟既有對話",Visibility=Visibility.Collapsed,Margin=new(0,0,8,0)};
+        buttons.Children.Add(open);buttons.Children.Add(cancel); buttons.Children.Add(save); panel.Children.Add(buttons);
         var dialog = new Window { Owner = this, Title = teacher ? "加入老師" : "新增對象", Width = 340,
             SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = panel };
-        string? addedIp = null; bool busy = false;
+        string? addedIp = null; bool busy = false; bool duplicate=false; string? duplicateIp=null;
+        open.Click+=(_,_)=>{addedIp=duplicateIp;dialog.DialogResult=true;};
         dialog.Closing += (_, e) => { if (busy) e.Cancel = true; };
         dialog.Loaded += (_, _) => input.Focus();
         save.Click += async (_, _) => {
@@ -52,19 +54,20 @@ public partial class ChatWindow
             try
             {
                 await runtime.InvalidatePairingAsync("roster_edit");
-                var result = await runtime.Worker.Run(store => {
-                    var token = RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot());
-                    return store.SaveManualRosterEntry(null, new RosterEdit(teacher ? "老師" : ip, null, teacher, ip), token);
-                });
-                if (result.Changed) { addedIp = ip; busy = false; dialog.DialogResult = true; }
-                else error.Text = RosterFailure(result.Reason);
+                var state=await runtime.Worker.Run(store=>(Token:RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot()),Teacher:store.GetClassroomTeacherIp()));
+                if(teacher&&state.Teacher is{} previous&&previous!=ip&&MessageBox.Show(dialog,$"將取代目前的老師 {previous}，原老師保留為一般聯絡人。","更換老師",MessageBoxButton.YesNo,MessageBoxImage.Question,MessageBoxResult.No)!=MessageBoxResult.Yes)return;
+                string alias=string.IsNullOrWhiteSpace(nickname.Text)?ip:nickname.Text.Trim();
+                var result = await runtime.Worker.Run(store => teacher?store.SetClassroomTeacherByIp(ip,state.Token):store.SaveManualRosterEntry(null,new RosterEdit(alias,null,false,ip),state.Token));
+                if (result.Changed || teacher && result.Reason == "unchanged") { addedIp = ip; busy = false; dialog.DialogResult = true; }
+                else { error.Text=RosterFailure(result.Reason);duplicate=result.Reason=="duplicate-endpoint";duplicateIp=duplicate?ip:null;open.Visibility=duplicate?Visibility.Visible:Visibility.Collapsed; }
             }
             catch { error.Text = "無法加入好友，請稍後重試。"; }
             finally { busy = false; save.IsEnabled = cancel.IsEnabled = input.IsEnabled = true; }
         };
         if (dialog.ShowDialog() != true || addedIp is null) return;
-        runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync();
-        SelectEndpoint(addedIp); SetStatus(teacher ? "老師已加入。" : "好友已加入，可按右鍵編輯綽號。");
+        runtime.Presence?.Refresh(); await SyncTeacherProjectionAsync();ResetRecipientProtocolHints(); await RefreshInboxAsync();
+        InboxFilter.SelectedIndex=_snapshot?.Entries.Any(e=>e.Endpoint==addedIp&&e.Blocked)==true?3:0;
+        SelectEndpoint(addedIp); SetStatus(duplicate?"已在名單中，已開啟既有對話。":teacher ? "老師已加入。" : "好友已加入，可按右鍵編輯本機備註。");
     }
 
     private async void RenameNicknameClick(object sender, RoutedEventArgs e)
@@ -78,12 +81,12 @@ public partial class ChatWindow
             var input = new TextBox { Text = entry.DisplayName, MaxLength = 64, Margin = new(0, 8, 0, 12) };
             var panel = new StackPanel { Margin = new(20) };
             System.Windows.Automation.AutomationProperties.SetName(input, "本機綽號");
-            panel.Children.Add(new TextBlock { Text = "綽號只保存在這台電腦", TextWrapping = TextWrapping.Wrap }); panel.Children.Add(input);
+            panel.Children.Add(new TextBlock { Text = "備註只保存在這台電腦", TextWrapping = TextWrapping.Wrap }); panel.Children.Add(input);
             var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
             var cancel = new Button { Content = "取消", IsCancel = true, Margin = new(0,0,8,0) };
             var save = new Button { Content = "儲存", IsDefault = true };
             buttons.Children.Add(cancel); buttons.Children.Add(save); panel.Children.Add(buttons);
-            var dialog = new Window { Owner = this, Title = "編輯綽號", Width = 340, SizeToContent = SizeToContent.Height,
+            var dialog = new Window { Owner = this, Title = "編輯本機備註", Width = 340, SizeToContent = SizeToContent.Height,
                 ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = panel };
             var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.Firebrick };
             panel.Children.Insert(2, error);

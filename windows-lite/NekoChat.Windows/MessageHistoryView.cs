@@ -32,8 +32,12 @@ internal sealed class MessageView(string key, string rawText, bool outgoing, boo
     public int AttemptTryCount { get; set; }
     public bool AttemptFailed { get; set; }
     public Func<Task>? RetrySend { get; set; }
+    public string? RetryDisabledReason { get; set; }
     public Func<Task>? CancelSend { get; set; }
     public Func<Task>? DeleteLocal { get; set; }
+    public Func<string?>? DeleteDisabledReason { get; set; }
+    public bool AttemptSending { get; set; }
+    public bool ContactReadOnly { get; set; }
     internal void RefreshActions() => PropertyChanged?.Invoke(this, new(nameof(RetrySend)));
     public event PropertyChangedEventHandler? PropertyChanged;
 }
@@ -73,10 +77,11 @@ public sealed class MessageCard : UserControl
             var actions = new WrapPanel { Margin = new(0,6,0,0) };
             void Button(string label, string action) {
                 var button = new Button { Content = label, Margin = new(0,0,8,4), Padding = new(8,4,8,4), MinHeight = 30 };
+                if(message.ContactReadOnly && action is "download" or "retry") { button.IsEnabled=false; button.ToolTip="此對話為唯讀，無法啟動附件傳輸。"; ToolTipService.SetShowOnDisabled(button,true); }
                 button.Click += async (_,_) => { if (message.AttachmentAction is { } invoke) await invoke(attachment, action); };
                 actions.Children.Add(button);
             }
-            if (attachment.State is "queued" or "sending" or "receiving" || attachment.Direction == "outgoing" && attachment.State == "offered") Button("取消", "cancel");
+            if (attachment.State is "queued" or "sending" or "receiving" || attachment.Direction == "outgoing" && attachment.State == "offered") Button("取消傳輸", "cancel");
             else if (attachment.Direction == "incoming" && attachment.State != "complete") Button("下載", "download");
             else if (attachment.Direction == "outgoing" && attachment.State is not ("complete" or "offered" or "unavailable")) Button("重試", "retry");
             if (attachment.State == "complete" && attachment.Problem == "confirmation_pending") Button("重送確認", "download");
@@ -157,13 +162,16 @@ public sealed class MessageCard : UserControl
                 timer.Start();
             };
 
-            var menu = new ContextMenu();
+            var menu = new ContextMenu { Tag = "code-copy" };
             foreach (var mode in new[] { ("保留原換行", CodeCopyNewlines.Preserve), ("使用 LF 換行", CodeCopyNewlines.Lf), ("使用 CRLF 換行", CodeCopyNewlines.CrLf) })
             {
                 var choice = new MenuItem { Header = mode.Item1 };
                 choice.Click += (_, _) => ShowCopyFeedback(document.CopyCode(block, mode.Item2));
                 menu.Items.Add(choice);
             }
+            menu.Items.Add(new Separator());
+            var codeDelete = DeleteItem(message); menu.Items.Add(codeDelete);
+            menu.Opened += (_, _) => UpdateDeleteItem(codeDelete, message);
             copyBtn.ContextMenu = menu;
 
             DockPanel.SetDock(copyBtn, Dock.Right);
@@ -222,10 +230,10 @@ public sealed class MessageCard : UserControl
         {
             var actions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0,4,0,0) };
             var retry = new Button { Content = "重試傳送", IsEnabled = message.RetrySend is not null, FontSize = 12, Margin = new(0,0,8,0),
-                ToolTip = message.RetrySend is null ? "請先傳送或清空正在編輯的其他內容，再重試這則訊息。" : "重試這則訊息，不會重複建立新的訊息" };
+                ToolTip = message.RetryDisabledReason ?? (message.RetrySend is null ? "請先傳送或清空正在編輯的其他內容，再重試這則訊息。" : "重試這則訊息，不會重複建立新的訊息") };
             retry.Click += async (_,_) => { if (message.RetrySend is { } invoke) await invoke(); }; actions.Children.Add(retry);
             if (message.CancelSend is { } cancel)
-            { var button = new Button { Content = "取消當次", FontSize = 12 }; button.Click += async (_,_) => await cancel(); actions.Children.Add(button); }
+            { var button = new Button { Content = "停止後續重試", FontSize = 12 }; button.Click += async (_,_) => await cancel(); actions.Children.Add(button); }
             body.Children.Add(actions);
         }
 
@@ -238,17 +246,11 @@ public sealed class MessageCard : UserControl
             MaxWidth = 520
         };
 
-        var rawMenu = new ContextMenu();
-        var rawCopy = new MenuItem { Header = "複製整則原文" };
-        rawCopy.Click += (_, _) => ShowCopyFeedback(message.RawText);
-        rawMenu.Items.Add(rawCopy);
-        if (message.DeleteLocal is not null)
-        {
-            var delete = new MenuItem { Header = "從本機刪除…" };
-            delete.Click += async (_, _) => { if (message.DeleteLocal is { } remove) await remove(); };
-            rawMenu.Items.Add(delete);
-        }
-        card.ContextMenu = rawMenu;
+        var more = new Button { Content = "⋯", ToolTip = "訊息操作", Padding = new(8,0,8,0),
+            HorizontalAlignment = HorizontalAlignment.Right, Opacity = 0 };
+        System.Windows.Automation.AutomationProperties.SetName(more, "訊息操作");
+        more.Click += (_, _) => { var menu = ActionMenu(message); menu.PlacementTarget = more; menu.IsOpen = true; };
+        body.Children.Add(more);
 
         var avatarImage = new Image
         {
@@ -286,7 +288,46 @@ public sealed class MessageCard : UserControl
             rowGrid.Children.Add(card);
         }
 
+        rowGrid.MouseEnter += (_, _) => more.Opacity = 1;
+        rowGrid.MouseLeave += (_, _) => { if (!rowGrid.IsKeyboardFocusWithin) more.Opacity = 0; };
+        rowGrid.GotKeyboardFocus += (_, _) => more.Opacity = 1;
+        rowGrid.LostKeyboardFocus += (_, _) => { if (!rowGrid.IsMouseOver) more.Opacity = 0; };
+        rowGrid.ContextMenu = new ContextMenu();
+        rowGrid.AddHandler(ContextMenuService.ContextMenuOpeningEvent, new ContextMenuEventHandler((_, e) => {
+            for (DependencyObject? node = e.Source as DependencyObject; node is not null;
+                node = node is Visual ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
+                if ((node as FrameworkElement)?.ContextMenu?.Tag as string == "code-copy") return;
+            e.Handled = true;
+            var menu = ActionMenu(message, e.OriginalSource as TextBox);
+            menu.PlacementTarget = rowGrid; menu.IsOpen = true;
+        }), true);
         Content = rowGrid;
+    }
+
+    private MenuItem DeleteItem(MessageView message)
+    {
+        var item = new MenuItem { Header = message.AttemptId is null ? "從這台電腦刪除…" : "停止傳送並刪除…" };
+        UpdateDeleteItem(item, message);
+        item.Click += async (_, _) => { if (message.DeleteLocal is { } remove) await remove(); };
+        return item;
+    }
+    private static void UpdateDeleteItem(MenuItem item, MessageView message)
+    {
+        string? reason = message.DeleteDisabledReason?.Invoke() ?? (message.DeleteLocal is null ? "此紀錄不支援本機刪除。" : null);
+        item.IsEnabled = reason is null; item.ToolTip = reason;
+        ToolTipService.SetShowOnDisabled(item, true);
+    }
+    private ContextMenu ActionMenu(MessageView message, TextBox? selected = null)
+    {
+        var menu = new ContextMenu();
+        if (selected?.SelectionLength > 0) {
+            string text = selected.SelectedText;
+            var copySelection = new MenuItem { Header = "複製選取文字" };
+            copySelection.Click += (_, _) => ShowCopyFeedback(text); menu.Items.Add(copySelection);
+        }
+        var copy = new MenuItem { Header = "複製整則原文" };
+        copy.Click += (_, _) => ShowCopyFeedback(message.RawText); menu.Items.Add(copy);
+        menu.Items.Add(DeleteItem(message)); return menu;
     }
 
     private void ShowCopyFeedback(string text)

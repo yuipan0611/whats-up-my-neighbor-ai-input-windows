@@ -190,8 +190,10 @@ internal sealed class ChatRuntime : IAsyncDisposable
         if (row.State == "complete" || !Volatile.Read(ref _outboxSnapshot).TryGetValue(id, out var item)) return row;
         return item.State is "queued" or "cancelled" or "failed" ? row with { State = item.State, Problem = item.Error } : row;
     }
+    internal bool IsSourceBlocked(string ip) { try { return _store.IsSourceBlocked(ip); } catch(Exception error) when(DiagnosticFault.Catchable(error)) { return true; } }
     internal string? QueuedStatus(string id) {
         Volatile.Read(ref _outboxSnapshot).TryGetValue(id, out var item);
+        if(item?.Error=="source_blocked") return "已停止（已封鎖）；解除封鎖後可手動重送。";
         return item?.State switch {
             "queued" => "等待傳送；連線恢復後會自動續送。",
             "sending" => "傳送中，等待對方儲存確認。",
@@ -216,7 +218,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             store = ChatStore.Open(new(data) {
                 RosterExcludedEndpoints = () => LanInvitation.LocalAddresses().ToArray(),
                 TextValidator = text => V2Text.Check(text, configuration?.MaximumTextBytes ?? V2Text.ProductMaxUtf8Bytes) == V2TextProblem.None,
-                AppVersion = version, Diagnostics = diagnostics
+                AppVersion = version, Diagnostics = diagnostics, LegacyTeacherIp = source.Value.TeacherIp
             });
             var imported = source.CanImportLegacyRoster && source.Value.Contacts.Count <= NekoChat.Core.Roster.RosterCsv.MaxRows ? source.ImportLegacyRoster(store) : null;
             string? warning = !source.CanImportLegacyRoster ? "設定檔無法讀取；原檔保留，未從這份設定匯入名單。" : source.Value.Contacts.Count > NekoChat.Core.Roster.RosterCsv.MaxRows ? "舊名單超過單次載入上限，尚未載入；請聯絡班級包提供者協助。" : imported is { Skipped: > 0 } ? $"舊名單已匯入；略過 {imported.Skipped} 筆無效或重複資料。" : null;

@@ -91,15 +91,8 @@ public partial class ChatWindow
 
     private void ConversationMenuClick(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { PlacementTarget = ConversationMenuButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
-        var rename = new MenuItem { Header = "編輯綽號…", IsEnabled = _selected?.RosterId is not null };
-        if (_selected is { } entry) rename.CommandParameter = new InboxRowView(entry, StateOf(entry));
-        rename.Click += RenameNicknameClick; menu.Items.Add(rename);
-        var details = new MenuItem { Header = "編輯對象 IP…", IsEnabled = _selected?.RosterId is not null };
-        details.Click += async (_, _) => { SettingsPane.Visibility = Visibility.Visible; ContactSettingsPanel.Visibility = Visibility.Visible; ViewChanged(); await LoadManualFormAsync(_selected?.RosterId); };
-        menu.Items.Add(details); menu.Items.Add(new Separator());
-        var clear = new MenuItem { Header = "清除此對話…", IsEnabled = ClearConversationButton.IsEnabled };
-        clear.Click += ClearConversationClick; menu.Items.Add(clear); menu.IsOpen = true;
+        if(_selected is not{} entry)return;
+        var menu=ContactMenu(entry);menu.PlacementTarget=ConversationMenuButton;menu.Placement=System.Windows.Controls.Primitives.PlacementMode.Bottom;menu.IsOpen=true;
     }
     private void StickerClick(object sender, RoutedEventArgs e)
     {
@@ -178,7 +171,8 @@ public partial class ChatWindow
         row.AttemptTryCount = attempt.TryCount;
         row.AttemptFailed = attempt.State is "failed" or "unconfirmed";
         if (_runtime?.ArchivedIdentityFixture == false) {
-            row.RetrySend = attempt.State != "sending" && !_closingRequested ? async () => {
+            row.RetryDisabledReason = entry.Blocked ? "請先解除封鎖，再手動重送。" : entry.Removed ? "此對話已封存，不能傳送。" : null;
+            row.RetrySend = attempt.State != "sending" && !_closingRequested && entry.CanSend && !entry.Blocked && !entry.Removed ? async () => {
                 if (_runtime is { } runtime && ClassroomPrincipalKey.TryParse(entry.ConversationId, out var principal)) { await runtime.RetryStoredAsync(principal, attempt.MessageId, _peerPort); await RefreshInboxAsync(true); }
             } : null;
         }
@@ -198,7 +192,9 @@ public partial class ChatWindow
         } : null;
         row.CancelSend = _selected.Attempt?.MessageId == attempt.MessageId && CancelAttemptButton.IsEnabled ?
             () => { if (_selected is { Attempt: { } current } selected && selected.Id == entry.Id && current.MessageId == attempt.MessageId && current.TryCount == attempt.TryCount) CancelAttemptClick(this, new RoutedEventArgs()); return Task.CompletedTask; } : null;
-        row.DeleteLocal = _runtime?.ArchivedIdentityFixture == false && !_sending && attempt.State != "sending" ?
+        row.AttemptSending = attempt.State == "sending";
+        row.DeleteDisabledReason = () => LocalMessageDeleteReason(entry, row);
+        row.DeleteLocal = _runtime?.ArchivedIdentityFixture == false ?
             () => ConfirmDeleteLocalMessageAsync(entry, row) : null;
         row.Delivery = _runtime?.QueuedStatus(attempt.MessageId) ?? ClassroomSendUiPolicy.DecideAttemptBanner(attempt.State, cancelling);
         row.RefreshActions();

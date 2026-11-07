@@ -444,9 +444,9 @@ public partial class App : Application
             candidate.DataChanged += () => Dispatcher.BeginInvoke(new Action(() => { if (!closingApp) chat.DataChanged(); }));
             var listener = candidate.Listener; directListener = listener;
             listener.LegacyMessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
-                if (closingApp || !ReferenceEquals(directListener, listener)) return;
+                if (closingApp || !ReferenceEquals(directListener, listener) || chatRuntime?.IsSourceBlocked(notice.SourceIp) == true) return;
                 chat.DataChanged();
-                bool teacher = LanInvitation.LocalAddresses().Contains(settings.TeacherIp) || settings.TeacherIp == "127.0.0.1";
+                bool teacher = chatRuntime?.ClassroomFiles?.IsTeacherNode == true || LanInvitation.LocalAddresses().Contains(settings.TeacherIp) || settings.TeacherIp == "127.0.0.1";
                 var reaction = notice.Reaction is { } id ? ClassroomReactions.Find(id) : null;
                 if (settings.ShowReactionPreviews && reaction is not null && (!reaction.TeacherOnly || teacher)) pet.NotifyReaction(reaction, notice.Scope.ContextId);
                 else pet.NotifyChat("新訊息", notice.Scope.ContextId, chat.LegacyNotificationName(notice));
@@ -456,9 +456,9 @@ public partial class App : Application
                 chat.DataChanged(); pet.NotifyChat("新訊息", "peer:" + notice.SenderId, chat.PeerNotificationName(notice.SenderId));
             }));
             listener.ClassroomMessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
-                if (closingApp || !ReferenceEquals(directListener, listener)) return;
+                if (closingApp || !ReferenceEquals(directListener, listener) || chatRuntime?.IsSourceBlocked(notice.SourceIp) == true) return;
                 chat.DataChanged();
-                bool teacher = LanInvitation.LocalAddresses().Contains(settings.TeacherIp) || settings.TeacherIp == "127.0.0.1";
+                bool teacher = chatRuntime?.ClassroomFiles?.IsTeacherNode == true || LanInvitation.LocalAddresses().Contains(settings.TeacherIp) || settings.TeacherIp == "127.0.0.1";
                 var reaction = notice.Reaction is { } id ? ClassroomReactions.Find(id) : null;
                 if (settings.ShowReactionPreviews && reaction is not null && (!reaction.TeacherOnly || teacher))
                     pet.NotifyReaction(reaction, notice.SourceIp);
