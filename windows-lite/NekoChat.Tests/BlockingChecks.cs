@@ -64,6 +64,76 @@ internal static class BlockingChecks
         }
         public async ValueTask DisposeAsync(){await Listener.DisposeAsync();await Files.DisposeAsync();Store.Dispose();await Journal.DisposeAsync();}
     }
+    static string DatabaseSnapshot(string path)
+    {
+        using var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Mode=SqliteOpenMode.ReadOnly,Pooling=false}.ToString());c.Open();
+        using var q=c.CreateCommand();q.CommandText="PRAGMA user_version";string version=Convert.ToString(q.ExecuteScalar())!;
+        q.CommandText="SELECT name,type,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' OR name='sqlite_sequence' ORDER BY name";
+        var schema=new List<(string Name,string Type,string Sql)>();
+        using(var r=q.ExecuteReader())while(r.Read())schema.Add((r.GetString(0),r.GetString(1),r.IsDBNull(2)?"":r.GetString(2)));
+        var snapshot=new List<string>{version};
+        foreach(var item in schema)
+        {
+            snapshot.Add(JsonSerializer.Serialize(item,new JsonSerializerOptions{IncludeFields=true}));
+            if(item.Type!="table")continue;
+            q.CommandText="SELECT * FROM \""+item.Name.Replace("\"","\"\"")+"\"";
+            var rows=new List<string>();using(var r=q.ExecuteReader())while(r.Read())
+            {var values=new object?[r.FieldCount];for(int i=0;i<values.Length;i++)values[i]=r.IsDBNull(i)?null:r.GetValue(i);rows.Add(JsonSerializer.Serialize(values));}
+            snapshot.AddRange(rows.OrderBy(row=>row,StringComparer.Ordinal));
+        }
+        return string.Join("\n",snapshot);
+    }
+    static void V15FailureRollback()
+    {
+        using var e=new Env(14);string id=Add(e.Store,A,true);var received=Receive(e.Store,A);
+        Queue(e.Store,received.Principal,"queued before upgrade");
+        var draft=e.Store.GetClassroomDraftState(received.Principal);e.Store.SaveClassroomDraft(received.Principal,"newer draft",draft.Epoch,draft.Revision+1);
+        e.Store.ReceiveLegacyMessage(new("legacy before upgrade",null),e.Store.GetLegacyReceiveContext(A),()=>true);
+        string path=e.Store.DatabasePath;e.Store.Dispose();string before=DatabaseSnapshot(path);
+        bool applied=false;
+        var broken=Migration.V15 with{Apply=ctx=>{
+            Migration.V15.Apply(ctx); // Real v15 DDL has already executed inside its transaction.
+            ctx.Exec("INSERT INTO BlockedSource(ip,displayName,blockedUtc) VALUES(@ip,'partial',@now)",("@ip",A),("@now",ctx.NowUtc));
+            ctx.Exec("UPDATE RosterEntry SET displayName='partial upgrade corruption'");
+            applied=true;throw new IOException("synthetic halfway v15 failure");
+        }};
+        bool failed=false;
+        try{using var unexpected=ChatStore.Open(e.Options with{Migrations=Migration.Default.Take(14).Append(broken).ToArray()});}
+        catch(StoreException error){failed=error.Kind==StoreErrorKind.MigrationFailed&&error.FromVersion==14&&error.ToVersion==15;}
+        Check(applied&&failed,"BK-08 F5 v15 fails after actual DDL and data mutations");
+        Check(DatabaseSnapshot(path)==before,"BK-08 F5 failure restores v14 schema/version and all table contents exactly");
+        using(var old=ChatStore.Open(e.Options with{Migrations=Migration.Default.Take(14).ToArray()}))
+            Check(old.LatestVersion==14&&old.GetRosterSnapshot().Single().Entry.Id==id,"BK-08 F5 database reopens as valid v14 after failure");
+        e.Reopen();
+        Check(e.Store.LatestVersion==15&&e.Store.GetBlockedContacts().Count==0&&e.Store.GetClassroomDraftState(received.Principal).RawText=="newer draft"&&e.Store.ListOutbox().Single().State=="queued"&&e.Store.ListClassroomMessages(received.Principal).Items.Single().MessageId==received.MessageId,"BK-08 F5 next normal open upgrades successfully without corrupting data");
+        Check(e.Store.ListBackups().Any(b=>b.FileName.Contains("-v14-",StringComparison.Ordinal)),"BK-08 F5 pre-upgrade v14 backup retained");
+        Console.WriteLine("PASS BK-08 F5 real v15 partial-apply rollback, exact v14 data and successful retry");
+    }
+    static async Task BlockedAuthorRelay()
+    {
+        using var e=new Env();Add(e.Store,A);Add(e.Store,B);
+        await using var attachments=new AttachmentService(e.Store,Path.Combine(e.Root,"files"),1);
+        await using var shares=new ClassroomFileService(e.Store,attachments,new Secrets(),()=>[new(A,8768),new(B,8768)],()=>"10.40.0.99");shares.SetReady(true);
+        byte[] bytes=Encoding.UTF8.GetBytes("cached author bytes \u4fdd\u7559\u5099\u63f4");
+        var blob=await attachments.Vault.StageAsync(new MemoryStream(bytes),"replica.txt",bytes.Length);
+        using var key=ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var manifest=new ShareManifest(ShareProtocol.Id(key),Convert.ToBase64String(key.ExportSubjectPublicKeyInfo()),blob.Name,blob.Size,blob.Sha256,A,"",DateTime.UtcNow.ToString("O"));
+        e.Store.MergeClassroomFile(ShareProtocol.Sign(manifest,"add",key));e.Store.SetClassroomFileLocal(manifest.Id,blob.BlobId,"available");
+        e.Store.SetSourceBlocked(A,true);
+        Check(shares.List().Count==0&&e.Store.GetClassroomFile(manifest.Id) is null,"BK-03 F3 blocked author remains hidden from local list/lookup");
+        byte[] Request(string kind,string? grant=null)=>ShareProtocol.Bytes(new ShareRequest(1,kind,Id:manifest.Id,Offset:0,Count:bytes.Length,Token:grant));
+        var status=await shares.HandleAsync("status",Request("status"),B,()=>true,default);
+        var info=ShareProtocol.Parse<ShareStatus>(status.Body);
+        Check(status.StatusCode==200&&info.Available&&info.Token.Length>0,"BK-03 F3 cached blocked-author replica remains available to another peer");
+        var chunk=await shares.HandleAsync("chunk",Request("chunk",info.Token),B,()=>true,default);
+        Check(chunk.StatusCode==200&&chunk.Binary&&chunk.Body.Span.SequenceEqual(bytes),"BK-03 F3 relay serves exact cached bytes despite local author block");
+        Check((await shares.HandleAsync("chunk",Request("chunk",AttachmentLimits.Token()),B,()=>true,default)).StatusCode!=200,"BK-03 F3 relay still validates grant token");
+        Check((await shares.HandleAsync("status",Request("status"),A,()=>true,default)).StatusCode==403,"BK-03 F3 blocked source still denied node access");
+        e.Store.MergeClassroomFile(ShareProtocol.Sign(manifest,"withdraw",key));
+        var withdrawn=await shares.HandleAsync("status",Request("status"),B,()=>true,default);
+        Check(!ShareProtocol.Parse<ShareStatus>(withdrawn.Body).Available&&(await shares.HandleAsync("chunk",Request("chunk",info.Token),B,()=>true,default)).StatusCode!=200,"BK-03 F3 signed withdrawal still stops status/chunks with an old grant");
+        Console.WriteLine("PASS BK-03 F3 relay cached blocked-author bytes, hide locally and honor withdrawal/grants");
+    }
     static async Task D30FailurePrivacy()
     {
         using var root=new Env();
@@ -306,6 +376,8 @@ internal static class BlockingChecks
         await D30Transport();
         await D30ReceiptFence();
         await D30FailurePrivacy();
+        V15FailureRollback();
+        await BlockedAuthorRelay();
         Console.WriteLine($"Blocking: {count} assertions passed; WPF/physical acceptance not run.");
     }
 }

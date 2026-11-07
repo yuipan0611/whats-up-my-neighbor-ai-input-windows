@@ -43,9 +43,12 @@ public sealed partial class ChatStore
         while (r.Read()) list.Add(new(JsonSerializer.Deserialize<ShareOperation>(r.GetString(0))!.File, r.GetInt32(1) != 0, r.IsDBNull(2) ? null : r.GetString(2), r.GetString(3), r.IsDBNull(4) ? null : r.GetString(4), 0, r.GetInt64(5))); return list.AsReadOnly();
     });
     public SharedFile? GetClassroomFile(string id) => ListClassroomFileById(id);
-    private SharedFile? ListClassroomFileById(string id) => Read(c => {
+    // Relay access preserves class-wide cached replicas while local UI/download hides blocked authors.
+    // Both lookups still exclude withdrawn operations.
+    internal SharedFile? GetClassroomFileForServing(string id) => ListClassroomFileById(id, hideBlockedAuthors: false);
+    private SharedFile? ListClassroomFileById(string id, bool hideBlockedAuthors = true) => Read(c => {
         using var cmd = c.CreateCommand(); cmd.CommandText = "SELECT a.json,l.protectedKey IS NOT NULL,l.blobId,coalesce(l.state,'available'),l.problem,a.seq FROM ClassroomFileOperation a LEFT JOIN ClassroomFileLocal l ON l.shareId=a.shareId WHERE a.shareId=@id AND a.kind='add' AND NOT EXISTS(SELECT 1 FROM ClassroomFileOperation w WHERE w.shareId=a.shareId AND w.kind='withdraw')";
-        if (_migrations.Count>=15) cmd.CommandText += " AND NOT EXISTS(SELECT 1 FROM BlockedSource b WHERE b.ip=json_extract(a.json,'$.File.UploaderIp'))";
+        if (hideBlockedAuthors && _migrations.Count>=15) cmd.CommandText += " AND NOT EXISTS(SELECT 1 FROM BlockedSource b WHERE b.ip=json_extract(a.json,'$.File.UploaderIp'))";
         cmd.Parameters.AddWithValue("@id", id); using var r = cmd.ExecuteReader(); return r.Read() ? new SharedFile(JsonSerializer.Deserialize<ShareOperation>(r.GetString(0))!.File,r.GetInt32(1)!=0,r.IsDBNull(2)?null:r.GetString(2),r.GetString(3),r.IsDBNull(4)?null:r.GetString(4),0,r.GetInt64(5)) : null;
     });
     public byte[]? ClassroomFileKey(string id) => Read(c => { using var cmd=c.CreateCommand(); cmd.CommandText="SELECT protectedKey FROM ClassroomFileLocal WHERE shareId=@id"; cmd.Parameters.AddWithValue("@id",id); return cmd.ExecuteScalar() is byte[] b ? b : null; });
