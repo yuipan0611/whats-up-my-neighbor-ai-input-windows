@@ -70,7 +70,8 @@
       "Normal classroom viewport reads skip transactions when the current inbox snapshot has no unread messages; incoming updates refresh the snapshot and retain view-generation guards.",
       "DiagnosticRecoveryPolicy keeps unresolved stage/code failures separate, chooses the most urgent warning and removes only recovered flows. No-runtime diagnostic export uses OpenReadOnly and never starts a writer or rotates history.",
       "Schema v14 backs up pre-upgrade SQLite, atomically auto-adds bounded source-IP contacts with receive/legacy/attachment commits, preserves archive ids, merges v13 queue ownership without changing original targetIp, and enforces a single local teacher. Auto source is not file/pairing trust; label/IP edits preserve it until explicit confirmation.",
-      "Migration15 adds explicit local source-IP blocking; immediate writer transactions gate ingress and queued work. Unblock never auto-resumes cancelled work. WPF reads authoritative teacher state, projects Settings with retry, separates archive/blocked lists, and exposes scoped local deletion. Cross-build evidence is separate from unexecuted native UI acceptance."
+      "Migration15 adds explicit local source-IP blocking; immediate writer transactions gate ingress and queued work. Unblock never auto-resumes cancelled work. WPF reads authoritative teacher state, projects Settings with retry, separates archive/blocked lists, and exposes scoped local deletion. Cross-build evidence is separate from unexecuted native UI acceptance.",
+      "D-30: blocked valid classroom sends get normal stored ACKs but no local persistence; legacy uses existing delivered and offers use offered, never complete. Blocked receipt ACK is discarded; outgoing receipts recheck local blocking after hello. Receive diagnostics omit identifiers before admission. Classroom UI labels this acknowledgement sent, not proof of remote storage."
     ],
     "external_integrations": []
   },
@@ -221,6 +222,10 @@
     {
       "fact": "ClassroomStore and MessageRecovery run v14 using stored principals; historical Inbox v13 is paired with v14 projection/archive scenarios. Blocking v15 has backup and transaction-race coverage. WPF projection and physical acceptance remain unexecuted.",
       "source": "docs/team/CODEX-VERIFICATION.md; windows-lite/docs/specs/contacts.md"
+    },
+    {
+      "fact": "D-30 uses real isolated TCP/SQLite durable text and attachment queues plus receiver row-count and diagnostic ZIP checks; a controlled hello peer tests read-receipt blocking in flight with a positive control. Product loopback guards stay intact; physical/UI acceptance remains separate.",
+      "source": "windows-lite/NekoChat.Tests/BlockingChecks.cs; windows-lite/docs/specs/blocking.md; docs/team/CODEX-VERIFICATION.md"
     }
   ]
 }

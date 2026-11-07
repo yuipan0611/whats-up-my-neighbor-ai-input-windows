@@ -115,11 +115,11 @@ A concurrently created `windows-lite/docs/specs/LINE-PARITY.md` is not this task
 
 ## Follow-up step 3 — D-29 blocking Core
 
-Additive v15 preserves reviewed v14. BlockedSource stores only explicit local block actions. Receive/legacy/attachment/receipt admission checks share their writer transaction with mutation; source-not-allowed reuses existing errors. Blocking preserves history, cancels queued/active retry work, fences late ACK/attachment writes and demotes teacher atomically; unblock never automatically resumes cancelled work. Auto-download and classroom-file author/node access are filtered. Inbox exposes a Blocked flag without duplicating an empty IP subject for an existing contact.
+Historical D-29 implementation below; D-30 later replaces the outward refusal response while preserving the transactional no-persistence boundary. Additive v15 preserves reviewed v14. BlockedSource stores only explicit local block actions. Receive/legacy/attachment/receipt admission checks share their writer transaction with mutation; source-not-allowed reuses existing errors. Blocking preserves history, cancels queued/active retry work, fences late ACK/attachment writes and demotes teacher atomically; unblock never automatically resumes cancelled work. Auto-download and classroom-file author/node access are filtered. Inbox exposes a Blocked flag without duplicating an empty IP subject for an existing contact.
 
 BK-01..08 Core scenarios: BlockingChecks.cs via --blocking, 25 assertions PASS, including persistent read-only projection, no ingress records/notifications, author/node filtering, queued preservation/manual retry, removal distinction, teacher demotion, v14→v15 backup and two-connection serialized receive. --contacts (explicit v14 contract) 156, --outbox 63, --diagnostics recovery24/journal77 PASS. Logs build/b1-followup/step3-*.log.
 
-S0 blocking clarification: no local backfill; after unblock a new explicit transmission can be accepted because rejected IDs/content are not retained. Network bytes already in flight cannot be recalled. Signed catalog operations received from an unblocked replica remain available for monotone withdrawal semantics, while blocked authors are hidden locally. WPF remains unexecuted. Historical AttachmentChecks v10→v14 fixture version setting has been reported to PM before alteration; approval pending.
+S0 blocking clarification: no local backfill; after unblock a new explicit transmission can be accepted because rejected IDs/content are not retained. Network bytes already in flight cannot be recalled. Signed catalog operations received from an unblocked replica remain available for monotone withdrawal semantics, while blocked authors are hidden locally. WPF remains unexecuted. Historical AttachmentChecks v10→v14 fixture setting was initially pending PM approval; Emily subsequently approved explicit Take(14), recorded in the D-30 follow-up below.
 
 
 ## Follow-up test adaptation details (current files)
@@ -157,4 +157,67 @@ All rows below retain the assertion's data-loss, scope, quota, privacy, rollback
 
 Cross-build logs: build/b1-followup/step4-{layout,contacts,actions,final,reviewed,readonly}-build.log; each edited WPF batch built for win-x64. Final WPF code commit: 8e54149. Final readonly cross-build exit 0, zero warnings/errors; preceding layout/contacts/actions/final/reviewed builds also exited 0. git diff --check and safety config strict validation passed (two existing physical/native unknowns remain).
 
-Final Core rerun: contacts 156, blocking 25, outbox 63, diagnostics recovery 24/journal 77, diagnostic-journal 77, diagnostic-recovery 24, diag-independent 32: all exit 0. Logs build/b1-followup/final-*.log and final-results.json. Full classroom-all currently exits 1 at AttachmentChecks:112 only: the default upgrade now reaches v15 but the historical assertion requires 14. Prelude plus first 14 suites passed. No full-green claim; PM was asked before changing this old test (fdd40628, repeated ed623eae). WPF runtime, physical Windows, two-machine/classroom, IME/DPI remain unexecuted. No push/PR/merge/release/install/deploy.
+Final Core rerun: contacts 156, blocking 25, outbox 63, diagnostics recovery 24/journal 77, diagnostic-journal 77, diagnostic-recovery 24, diag-independent 32: all exit 0. Logs build/b1-followup/final-*.log and final-results.json. Historical pre-D-30 rerun: full classroom-all exited 1 at AttachmentChecks:112 only: the default upgrade now reaches v15 but the historical assertion requires 14. Prelude plus first 14 suites passed. At that checkpoint no full-green claim was made; PM was asked before changing this old test (fdd40628, repeated ed623eae). Emily later approved the explicit v14 fixture; final rerun is recorded below. WPF runtime, physical Windows, two-machine/classroom, IME/DPI remain unexecuted. No push/PR/merge/release/install/deploy.
+
+
+## D-30 follow-up — approved fixture and Tom integration
+
+| Test file:line | Old assertion / fixture | New assertion / fixture | Basis | Old migration contract retained? |
+|---|---|---|---|---|
+| AttachmentChecks.cs:111–112 | Default Open now reaches v15 while asserting LatestVersion == 14 | Explicit Migration.Default.Take(14); constant 14 and ListBackups().Count != 0 unchanged | Emily's latest ruling, reply to fdd40628; migration version advance | Yes: historical v10→v14. BK-08 separately covers v14→v15 backup |
+| ContactExperienceChecks.cs:244 | Restore/archive overlap not independently guarded | Tom's unchanged automatic-restore / one-inbox-row negative scenario | 3f35778 cherry-picked as f968b52, author/coauthor preserved | v14 |
+| ContactExperienceChecks.cs:254 | Stale archive/live roster overlap not independently guarded | Tom's unchanged live-row-never-removed scenario | Same Tom commit | v14 |
+| ContactExperienceChecks.cs:261 | Row-scoped legacy leak not independently guarded | Tom's unchanged removed-contact legacy isolation scenario | Same Tom commit | v14 |
+| BlockingChecks.cs (BK-02 response assertion) | Blocked transport returns 403 | HTTP 200 normal stored ACK; local Core still rejects persistence in the same transaction | D-30 | New v15 behavior, not a legacy migration waiver |
+
+M2 (`unknownLegacyFilter`) is an equivalent mutant by PM ruling: no product change was made for it. Tom's three new scenarios are retained verbatim; no assertions removed.
+
+D-30 behavior map:
+
+- ClassroomStoreSink.OnMessageAsync: transaction's source-not-allowed result becomes normal message.ack stored with the frozen writer's real content hash; no MessageStored / success-rearm callback. Legacy uses the existing v1 delivered response, not a new v1 wire shape. OnReceiptAsync returns discarded without event or identifying diagnostics.
+- Receive diagnostics: start/rejection and adapter exception paths omit request IDs, including stopped-request rejection before the store can identify a block. Normal stored-message success diagnostics remain unchanged. Normal unblocked storage failures also retain their original UUID/root-cause correlation at the sink; blocked or unreadable block-state failures omit identifiers. Existing DiagnosticChecks:235 remains unchanged and passes; new D-30 privacy tests cover both failure branches. Actual negative test initially caught an ID retained on the stopped-request path; the regression now checks all receiver journal events and a real ZIP export.
+- AttachmentService.HandleAsync: validate offer normally, then catch the transactional block refusal and return existing offered ACK. No attachment metadata/download/complete. A's durable attachment queue completes with zero failures; row remains offered with no CompletedUtc, label 「通知已送出 · 等待收件確認」. Chunk/complete blocking stays enforced.
+- ClassroomSender.SendReceiptAsync: recheck local source-block state before hello, after hello and on retry. Controlled hello peer blocks during the probe and proves zero receipt POSTs; an unblocked positive control sends/completes normally. Already-written network bytes remain outside cancellation guarantees.
+- ChatWindow.Inbox.cs: classroom stored-ACK history label is 「已送出」 (D-30), since that ACK no longer proves persistence. Frozen signed/v2 archive history stays unchanged. Native WPF display is not executed; cross-build only.
+- BlockingChecks covers public private-IP APIs plus isolated real TCP/SQLite sender/outbox and attachment flow. Test-only loopback DB mapping is explicitly documented; a negative assertion proves the product still rejects loopback contacts. No test-only product guard or assembly exception was added. All B table counts remain unchanged during blocked traffic; no notification, auto contact, unread, receipt or attachment records; exported diagnostics exclude source IP, UUIDs, body and filename. Private-IP same-id resend after unblock uses normal CT ownership; no backfill or ID blacklist.
+
+Scope: no frozen Wire/SchemaV1/artwork changes, no new migration beyond additive v15. No push/PR/merge/release/install/deploy. WPF runtime, physical Windows, two-machine/classroom, IME/DPI and native clipboard remain **未執行**; cross-build/Core results do not count as those acceptances.
+
+
+## 第 1 批完成 — 最終驗證（D-30）
+
+Local commits for this follow-up: f968b52 (Tom 3f35778 preserved verbatim), fc7f2a1 (approved historical attachment fixture), acecc54 (D-30 product/scenarios/spec/UI label). These build results cover the final product/test content; the final evidence commit changes documentation/config only.
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release console test build | 0 | 4.88 |
+| blocking | 54 assertions, BK-01..08 + D-30 | 0 | 1.75 |
+| contacts | 169 assertions, including Tom negative scenarios | 0 | 1.27 |
+| teacher | 31 assertions | 0 | 0.34 |
+| receipts | 22 assertions | 0 | 0.42 |
+| classroom-all | Prelude + all 15 suites, attachments 70 | 0 | 45.81 |
+| outbox | 63 assertions | 0 | 5.74 |
+| diagnostics | recovery 24 + journal 77 | 0 | 0.58 |
+| diagnostic-journal | 77 assertions | 0 | 0.55 |
+| diagnostic-recovery | 24 assertions | 0 | 0.06 |
+| diag-independent | 32 assertions | 0 | 2.99 |
+| win-x64-build | 0 warnings, 0 errors; cross-build only | 0 | 3.87 |
+
+Evidence: build/b1-followup/d30-final-results.json and d30-final-*.log. TMPDIR was this worktree's real build/tmp. Earlier failing diagnostic attempt is retained as a resolved regression in d30-diagnostics-repair.log; **no DiagnosticChecks assertions were changed**. Earlier version-14 fixture failure is resolved by the explicitly approved Take(14), not by weakening the version/backup check.
+
+Additional changed behavior / review anchors (current line numbers):
+
+| Area | File:line |
+|---|---|
+| Stored ACK without persistence; blocked receipt/legacy handling | NekoChat.Core/Classroom/Transport/ClassroomStoreSink.cs:36,52,109,132 |
+| Normal error UUID retained only when source is safely unblocked | ClassroomStoreSink.cs:38; ClassroomEndpointAdapter.cs:216,258 |
+| Offered-only attachment ACK after same-transaction block refusal | NekoChat.Core/Attachments/AttachmentService.cs:253 |
+| Outgoing receipt block fences | NekoChat.Core/Classroom/Transport/ClassroomSender.cs:505,594,602 |
+| User-visible classroom sent label | NekoChat.Windows/ChatWindow.Inbox.cs:380 |
+| Failure privacy negative cases | NekoChat.Tests/BlockingChecks.cs:67 |
+| Block-during-hello + positive control | NekoChat.Tests/BlockingChecks.cs:105 |
+| Isolated real TCP/SQLite two-sided send and attachment queue | NekoChat.Tests/BlockingChecks.cs:155 |
+| Private-IP same acknowledged ID after unblock / CT ownership | NekoChat.Tests/BlockingChecks.cs:270 |
+| Approved constant-14 upgrade fixture | NekoChat.Tests/AttachmentChecks.cs:111–112 |
+
+All paths in this anchor table are under windows-lite/. git diff --check and safety config strict validation passed. No Wire codec, SchemaV1 or artwork changed. WPF runtime, native Windows CI, physical Windows, two-machine LAN/classroom, IME/DPI, native clipboard remain **未執行**. No push, PR, merge, release, install or deployment. Next gate belongs to PM: Ben reviews v15/D-30 and Tom runs blocking mutants; this report does not claim their review is complete.
