@@ -281,3 +281,82 @@ Evidence: build/b1-followup/ben-final-results.json, ben-final-*.log and ben-fina
 Current regression anchors: BlockingChecks.cs:67 snapshot, :86 V15FailureRollback, :112 BlockedAuthorRelay; ClassroomFileService.cs:228/246/249 outward lookup, ChatStore.ClassroomFiles.cs:48 internal relay lookup; App.xaml.cs:478 Worker/Dispatcher helper. Old assertion table above records all three F1 string changes.
 
 No push, PR, merge, release, install or deployment. WPF runtime/Dispatcher visual behavior, native Windows CI, two physical Windows devices/LAN/classroom, IME/DPI and native clipboard remain **未執行**. Product changes are ready for PM/Ben follow-up review; this is not a claim that the new commits have already passed that independent review.
+
+
+## D-31 B1 CI 準備 — 原生 WPF smoke 與預設 Console 整備
+
+Tom bbef682 was cherry-picked without conflict as 5e27cbc, retaining original author/coauthor and all assertions. Blocking combines Tom's 54→79 with our F3/F5 11 assertions: --blocking = 90. The native smoke implementation and matrix are documented in windows-lite/docs/specs/contacts-ui-smoke.md; Windows runtime results remain pending PM push/Draft PR.
+
+- App.ContactsUiSmokeTest.cs drives the real ChatWindow, native list/body right-click, title/message ⋯ menus, actual IP/note form, teacher replacement/Settings projection, archives/blocking, disabled-delete reason, attachment action labels and persisted one-time receipt notice. Each stage captures only synthetic UI. The duplicate-IP case first selects another conversation, preventing a false pass from an already-selected existing row.
+- Per-window ContactPrompt/ContactDialog hooks require attached IsolatedData runtime plus the exact same Settings/DB root. Before any Save/Open the smoke asserts paths; it never loads or writes daily settings. MessageBox confirmations are auto-answered and recorded, while native IP/note forms are filled/clicked through Loaded hooks. Ordinary UI uses the original MessageBox/ShowDialog behavior.
+- The shared seed creates actual v13 via original migrations without changing Core friend access or frozen SQL. The cross-platform --contacts-ui-seed-check executes 7 assertions against the same source: v13 seed, overwrite refusal, real upgrade, received auto contact/old history/draft, one-time notice and backup. Input/profile guards and original migration semantics are preserved.
+- Incoming HTTP stays loopback; the fixture sink supplies a declared synthetic private source to actual storage via Worker (normal contacts reject loopback). Actual sessions/endpoint validation and receive/dedup transactions still run. JSON declares this mapping; it is not LAN identity proof. Only the loopback receiver starts; no outbox/receipt/classroom background send loops. Sending/receiving states are explicit synthetic Core fixtures for UI binding, not transfer acceptance.
+- windows-2025 runs both package/portable with --contacts-ui-smoke-test; exit/passed/isolation flags and capture existence are required. JSON/PNG upload via always() artifact nekochat-lite-contacts-ui-smoke. Local YAML parse validates syntax/runner; actual Actions/pwsh/WPF are not claimed run on macOS.
+- Existing App.MessageRecoverySmoke now locates current message ⋯ and local delete menu, and uses 編輯本機備註 names. It retains all data/retry/deletion/nickname assertions and adds fail-fast for disabled delete. Popup lookup waits for actual native popup/layout rather than assuming synchronous creation.
+
+### Consolidated old Console test adjustments (PM's latest ruling)
+
+All current-version checks use explicit constants 15 / 35, never Migration.Default.Count; the three extra STRICT tables are v14 ClassroomArchivedContact/ClassroomAutoSource plus v15 BlockedSource. Historical source/preimage versions (v1..13/v5/v13 backups, explicit v10→v14 AttachmentChecks) remain unchanged. No default-suite fixture was newly pinned or moved backward. Previously approved explicit historical Inbox/v13 and contact/v14 fixtures remain separate from the latest-schema checks.
+
+| Test file:line | Old fixture / assertion | New fixture / assertion | Basis; old contract retained? |
+|---|---|---|---|
+| StorageFoundationChecks.cs:39 | current user_version 13 | explicit 15 | migration 版本前進; no |
+| StorageFoundationChecks.cs:40 | SchemaVersion count 13 | explicit 15 | migration 版本前進; record completeness still checked |
+| StorageFoundationChecks.cs:42–43 | 32 total / STRICT application tables | 35 total / STRICT tables, includes all 3 new tables | migration 版本前進; STRICT invariant unchanged |
+| StorageFoundationChecks.cs:302 | CRLF frozen-v1 upgrades to 13 | upgrades to 15 | migration 版本前進; CRLF validation unchanged |
+| StorageTombstoneChecks.cs:26 | v1→current version 13 | 15; same body/draft/clear guards | migration 版本前進 |
+| StorageRosterChecks.cs:68 | current pre-import backup version 13 | 15; same original roster/chat checks | migration 版本前進; historical backups elsewhere unchanged |
+| StorageLegacyRosterChecks.cs:62 | v3→current version 13 | 15; bootstrap still pending | migration 版本前進 |
+| SecurityRevisionChecks.cs:114 | v4→current version 13 | 15; key/revision/pending-receipt/data checks unchanged | migration 版本前進; no signed wire change |
+| LegacyMessageChecks.cs:62 | v5→current 13 / 32 tables | 15 / 35; same original roster id and v5 backup | migration 版本前進 |
+| BackupRestoreChecks.cs:31,49 | restore target 13 | 15; source versions, hash, suspended trust and privacy reset unchanged | migration 版本前進; v1..13 source contracts retained |
+| UiEnhancementChecks.cs:73 | fresh policy disabled/gen0 | D-28 enabled/gen1 | D-28; old default retired |
+| UiEnhancementChecks.cs:77 | first UI startup enables gen1 | same true/gen1 value, now explicit idempotent call | D-28; disable gen2 and user-choice assertions unchanged |
+| StorageReadChecks.cs:42–44 | v2 upgrade disabled/gen0 | enabled/gen1; unsent old queue dropped, reads/history unchanged | D-28 |
+| StorageReadChecks.cs:49–50 | default off phase implicit | first assert new on/gen1, explicitly opt out before testing off/read/no-backfill | D-28; off guards retained as explicit choice |
+| StorageReadChecks.cs:57,61,65 | re-enable/token gen1, disable gen2 | explicit opt-out means re-enable/token gen3, disable gen4 | D-28; monotonic token/stale-ACK guards unchanged |
+| V2StorageFenceChecks.cs:91–95 | wire integration expected old default OFF | set explicit OFF before wire traffic; same off-state and signed/nonce/storage fences | D-28; no signed/v2 wire change |
+| ReceiptServiceChecks.cs:25–28,46 | implicit defaultOFF live-service phase | explicit SetReadReceiptPolicy(false), same no-send/no-backfill assertions | D-28; privacy-off contract retained, not old default |
+| ClassroomRosterChecks.cs:26,63,216 | unknown source supplied by old no-auto default | two merge-only fixtures inject CT-05 recoverable admission fault on latest schema | D-27; original stale-consent/conflict assertions preserved |
+| ClassroomRosterChecks.cs:68 | manual add merges0, 2 unknown legacy rows | merges2, 0 unknown, both rows preserved | D-27 / CT-02 |
+| ClassroomRosterChecks.cs:82,200 | old address queried as unknown scope | resolve source's current auto roster scope; original message/source separation assertion retained | D-27 |
+| LegacyMessageChecks.cs:42 | reuse unknown receive context after first message | recapture admitted scope as real listener does; same 2 unidentifiable arrivals | D-27; stale context rejection elsewhere retained |
+| LegacyMessageChecks.cs:82,85 | removed row read/cleared as unknown IP | original Bob row archive read/cleared; Carol still gets zero old messages | D-27; no cross-person transfer |
+| LegacyMessageChecks.cs:102 | clear former IP scope after auto admission | recapture current row scope before clear; same monotone sequence/count guards | D-27 |
+| LegacyMessageChecks.cs:121 | visibility fixture unknown source | known manual fixture, derives actual scope; same local-read-only/no-receipt guards | D-27 |
+| LegacyMessageChecks.cs:142,153 | other/overflow scope captured before auto admission | recapture after receive for subsequent operations; same isolation/overflow checks | D-27 |
+| LegacyMessageChecks.cs:160 | two concurrent arrivals share obsolete unknown context | known manual contact stabilizes both contexts; same 2 arrivals + 119 paging rows | D-27; concurrency/no-v1-dedup checks unchanged |
+| InboxWorkspaceChecks.cs:24 | unknown legacy id / fixed anonymous label | auto roster at source endpoint / its explicit IP display label | D-27; no identity/trust promotion |
+| InboxWorkspaceChecks.cs:38 | deleted student's unread read under unknown IP | read original student's archived row scope; same unread/no-read-mutation checks | D-27 |
+
+### Product source-guard repair (separately approved by PM)
+
+StorageFix_SourceRules was not changed. Contacts' communication observer and diagnostic sink catches now journal fixed NotificationFailed metadata without IP/content/message UUID. The sink's catch never invokes the sink again; journal errors remain nonblocking by the existing journal contract. A new CT-05 scenario proves throwing sink receives once, body persists without a partial contact, observer throw is isolated, same-session receive recovers and metadata has no identifying content (6 assertions, contacts total 175).
+
+The existing source scanner treats the first property-pattern brace in a catch filter as a catch body. The SQLite constraint filter was rewritten from `e is SqliteException { SqliteErrorCode: 19 }` to equivalent `e is SqliteException sqlite && sqlite.SqliteErrorCode == 19`; no guard relaxation or exception-classification change. Per PM, new product guard violations are fixed in product, not waived in tests.
+
+
+### B1 CI 準備完成 — 最終本機結果
+
+Commits: 5e27cbc (Tom bbef682), 8974fd3 (typed diagnostic isolation + scenario), 185fffc (consolidated version/D-27/D-28 Console adjustments), c4af924 (native smoke/shared seed/CI). The final evidence commit modifies docs/config only.
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release test build | 0 | 2.03 |
+| default-ci | full default Console: 6,570 checks, including unchanged SourceRules 321 | 0 | 70.59 |
+| contacts-ui-seed-check | 7 actual SQLite historical seed/upgrade/isolation checks | 0 | 0.22 |
+| blocking | 90 assertions, Tom + retained F3/F5 | 0 | 1.73 |
+| contacts | 175 assertions (169 retained + 6 diagnostic isolation) | 0 | 1.15 |
+| classroom-ui-policy | 133 checks | 0 | 0.07 |
+| classroom-files | 53 TCP/SQLite checks | 0 | 12.05 |
+| classroom-all | prelude + all 15 suites; attachments 70 | 0 | 44.86 |
+| outbox | 63 checks | 0 | 5.74 |
+| diagnostics | recovery24 + journal77 | 0 | 0.54 |
+| diagnostic-journal | 77 checks | 0 | 0.53 |
+| diagnostic-recovery | 24 checks | 0 | 0.05 |
+| diag-independent | 32 checks | 0 | 3.0 |
+| win-x64-build | cross-build, 0 warnings / 0 errors | 0 | 5.57 |
+
+Evidence: build/b1-followup/d31-final-results.json and d31-final-*.log. All tests used this worktree's real build/tmp as TMPDIR. YAML parsed with Ruby/Psych; windows job resolves to windows-2025 and the contacts artifact uses always(). git diff --check / safety-config strict validation pass. Product source guard, frozen wire/vector files, SchemaV1 and artwork were not weakened or rewritten.
+
+Native WPF smoke, pwsh Actions execution and screenshot artifacts are **未執行／待 Emily push＋Draft PR 的 Windows CI**. Source code and a cross-build are not those results. IME, physical DPI, real two-machine/LAN/classroom acceptance and native clipboard also remain unexecuted. No push/PR/merge/release/install/deploy was performed locally; PM owns push/Draft PR.

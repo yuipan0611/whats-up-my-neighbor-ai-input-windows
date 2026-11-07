@@ -5,7 +5,7 @@
     "name": "NekoChat Windows Lite",
     "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",
     "repo_root": ".",
-    "last_reviewed": "2026-11-07"
+    "last_reviewed": "2026-11-08"
   },
   "instructions": {
     "files": [
@@ -72,7 +72,8 @@
       "Schema v14 backs up pre-upgrade SQLite, atomically auto-adds bounded source-IP contacts with receive/legacy/attachment commits, preserves archive ids, merges v13 queue ownership without changing original targetIp, and enforces a single local teacher. Auto source is not file/pairing trust; label/IP edits preserve it until explicit confirmation.",
       "Migration15 adds explicit local source-IP blocking; immediate writer transactions gate ingress and queued work. Unblock never auto-resumes cancelled work. WPF reads authoritative teacher state, projects Settings with retry, separates archive/blocked lists, and exposes scoped local deletion. Cross-build evidence is separate from unexecuted native UI acceptance.",
       "D-30: blocked valid classroom sends get normal stored ACKs but no local persistence; legacy uses existing delivered and offers use offered, never complete. Blocked receipt ACK is discarded; outgoing receipts recheck local blocking after hello. Receive diagnostics omit identifiers before admission. Classroom UI labels this acknowledgement sent, not proof of remote storage.",
-      "Local hiding of blocked classroom-share authors is separate from serving already cached replicas to other permitted nodes. Relay lookup still excludes withdrawn content and keeps source/grant/range/ready checks. WPF notification block queries run on the storage Worker before Dispatcher notification; unknown state suppresses notification without identifiers."
+      "Local hiding of blocked classroom-share authors is separate from serving already cached replicas to other permitted nodes. Relay lookup still excludes withdrawn content and keeps source/grant/range/ready checks. WPF notification block queries run on the storage Worker before Dispatcher notification; unknown state suppresses notification without identifiers.",
+      "D-31 explicit native contacts smoke runs only in a new safe ui-test-data profile. Per-window auto-dialog hooks require the exact isolated settings/DB root; ordinary prompts retain MessageBox behavior. Shared historical-v13 seed is test-only and refuses overwrite; loopback synthetic sources and seeded transfer states are declared, not LAN/physical acceptance."
     ],
     "external_integrations": []
   },
@@ -231,6 +232,10 @@
     {
       "fact": "BK-08 explicitly injects failure after real v15 DDL and partial data writes, compares canonical v14 schema/data, reopens v14 and successfully retries v15. BK-03 proves exact cached-byte relay after author blocking while preserving local hiding, grants and signed withdrawal.",
       "source": "windows-lite/NekoChat.Tests/BlockingChecks.cs; windows-lite/docs/specs/blocking.md; docs/team/CODEX-VERIFICATION.md"
+    },
+    {
+      "fact": "Contacts native smoke drives actual forms/menus/teacher projection/archive/block/delete states and captures synthetic WPF UI. CI runs package and portable on windows-2025, requiring JSON isolation flags and captures; actual native results must be checked after PM push, separate from local cross-build.",
+      "source": "windows-lite/NekoChat.Windows/App.ContactsUiSmokeTest.cs; Shared/ContactsUiSmokeSeed.cs; .github/workflows/nekochat-windows-lite.yml; windows-lite/docs/specs/contacts-ui-smoke.md"
     }
   ]
 }
