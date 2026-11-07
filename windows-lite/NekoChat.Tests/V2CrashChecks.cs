@@ -169,7 +169,7 @@ internal static class V2CrashChecks
             foreach (string path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
             {
                 if (new FileInfo(path).Length > 4 * 1024 * 1024) return false;
-                byte[] bytes = File.ReadAllBytes(path);
+                byte[] bytes = NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes(path);
                 if (bytes.AsSpan().IndexOf(raw) >= 0 || bytes.AsSpan().IndexOf(encoded) >= 0) return false;
             }
             return true;

@@ -54,9 +54,9 @@ internal static class StorageTombstoneChecks
             {
                 c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = "DROP TABLE ClearedMessage; PRAGMA wal_checkpoint(TRUNCATE)"; cmd.ExecuteNonQuery();
             }
-            string before = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(db))); StoreException? failure = null;
+            string before = Convert.ToHexString(SHA256.HashData(NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes(db))); StoreException? failure = null;
             try { using var forged = ChatStore.Open(new(root)); } catch (StoreException e) { failure = e; }
-            Check(failure?.Kind == StoreErrorKind.UnrecognizedDatabase && Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(db))) == before,
+            Check(failure?.Kind == StoreErrorKind.UnrecognizedDatabase && Convert.ToHexString(SHA256.HashData(NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes(db))) == before,
                 "forged current schema rejected read-only without recovery or pragma writes");
         }
         finally { Directory.Delete(root, true); }

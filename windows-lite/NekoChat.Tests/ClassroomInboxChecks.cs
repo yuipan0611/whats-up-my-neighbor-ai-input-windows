@@ -154,7 +154,7 @@ internal static class ClassroomInboxChecks
     private static void Rx(ChatStore s, string ip, string id, string text)
     { if (s.ReceiveClassroomMessage(ip, new(id, text), () => true) is not ClassroomStored) throw new Exception("Classroom inbox fixture: not stored"); }
     private static long Count(string path, string sql) { using var c = new SqliteConnection("Data Source=" + path + ";Mode=ReadOnly;Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return Convert.ToInt64(cmd.ExecuteScalar()); }
-    private static string Hash(string path) { using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(s)); }
+    private static string Hash(string path) { using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete); return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(s)); }
 
     private sealed class Fixture : IDisposable
     {

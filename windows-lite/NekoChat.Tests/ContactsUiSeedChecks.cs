@@ -16,10 +16,10 @@ internal static class ContactsUiSeedChecks
             string db=Path.Combine(root,"data","nekochat.db");
             using(var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=db,Mode=SqliteOpenMode.ReadOnly,Pooling=false}.ToString()))
             {c.Open();using var q=c.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt64(q.ExecuteScalar())==13,"native fixture really starts at v13");}
-            byte[] original=File.ReadAllBytes(db);bool refused=false;
+            byte[] original=NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes(db);bool refused=false;
             try{ContactsUiSmokeSeed.CreateV13(root,Guard);}catch(InvalidOperationException){refused=true;}
-            Check(refused&&File.ReadAllBytes(db).SequenceEqual(original),"seed cannot overwrite an existing profile");
-            using var upgraded=ChatStore.Open(new(root+Path.DirectorySeparatorChar+"data"));
+            Check(refused&&NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes(db).SequenceEqual(original),"seed cannot overwrite an existing profile");
+            using var upgraded=ChatStore.Open(new(Path.Combine(root,"data")));
             Check(upgraded.GetRosterSnapshot().Count==0,"upgrade keeps old unknown history until a new receive triggers contact admission");
             upgraded.ReceiveClassroomMessage(ContactsUiSmokeSeed.OldIp,new(Guid.NewGuid().ToString("D"),"合成升級後來訊"),()=>true);
             var row=upgraded.GetRosterSnapshot().Single();var p=ClassroomPrincipalKey.ForRosterEntry(row.Entry.Id);

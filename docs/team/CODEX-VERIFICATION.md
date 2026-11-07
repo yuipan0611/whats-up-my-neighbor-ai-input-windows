@@ -360,3 +360,43 @@ Commits: 5e27cbc (Tom bbef682), 8974fd3 (typed diagnostic isolation + scenario),
 Evidence: build/b1-followup/d31-final-results.json and d31-final-*.log. All tests used this worktree's real build/tmp as TMPDIR. YAML parsed with Ruby/Psych; windows job resolves to windows-2025 and the contacts artifact uses always(). git diff --check / safety-config strict validation pass. Product source guard, frozen wire/vector files, SchemaV1 and artwork were not weakened or rewritten.
 
 Native WPF smoke, pwsh Actions execution and screenshot artifacts are **未執行／待 Emily push＋Draft PR 的 Windows CI**. Source code and a cross-build are not those results. IME, physical DPI, real two-machine/LAN/classroom acceptance and native clipboard also remain unexecuted. No push/PR/merge/release/install/deploy was performed locally; PM owns push/Draft PR.
+
+
+### PR #28 Windows file-sharing correction (2026-11-08)
+
+PM requested a test-only repair for run 42396110498. The retrieved Windows log confirms `ContactExperienceChecks.cs:82` called `File.ReadAllBytes` on a live SQLite WAL; the Mac baseline passed 175 assertions, so that baseline does not reproduce or clear the Windows failure. No Core/product behavior, protocol, schema, existing guard or workflow is changed.
+
+Impact/plan: retain the open-store before/after SHA-256 assertion; use a narrowly scoped shared test/smoke reader, audit all 87 Console test source files plus linked Shared fixtures and native smoke entrypoints, add positive/negative controls, then run contacts, blocking, default Console and win-x64. Risk is limited to test inspection and Windows handle lifetimes; native results still require PM's CI rerun.
+
+| Inspected file / location | Result / action |
+|---|---|
+| `Shared/TestFixtureFiles.cs:12` (new; linked by both test and WPF project manifests) | `FileStream(Open, Read, ReadWrite \| Delete)` for streamed SHA-256 and exact-byte inspection. No catch, missing-file fallback, newline normalization, DB checkpoint or owner disposal. Sharing does not claim an atomic snapshot of concurrent writes. |
+| `ContactExperienceChecks.cs:75` / `:102` | Keep store open across original WAL before/after read-only-inbox check; switch hash to shared stream. Add 5 exact-byte/open-owner/rename/delete/missing-file checks and 1 real SQLite-write negative control. All original 175 assertions retained: total 181. |
+| `ClassroomInboxChecks.cs:157` | Existing live DB streamed hash already shared ReadWrite; add Delete. Existing no-write and projection assertions unchanged. |
+| `PairingCrashChecks.cs:255`, `V2CrashChecks.cs:172` | Full-directory private-key leak scans can encounter live `.db`, `-wal`, `-shm` or journal files. Use exact shared bytes; preserve size bounds, raw/base64 search and zeroing. |
+| `StorageTombstoneChecks.cs:57,59`, `ContactsUiSeedChecks.cs:19,21` | Shared DB-byte inspection for schema-rejection/seed-overwrite invariants (normally after prior connection disposal). All byte/backup/schema assertions retained. Seed path construction now `Path.Combine(root,"data")`. |
+| `DiagnosticChecks.cs:146,161` | Both retained-generation/lock-file dictionaries use shared exact-byte reads. Owners are disposed before enumeration, so an exclusive live writer-lock is never bypassed. Same file-set and per-generation byte comparisons. |
+| `App.DiagnosticSmokeTest.cs:145,150` | Native retained-history before/after export dictionaries use the same reader; owner lifetime and all-generation preservation assertion unchanged. |
+| `App.AttachmentStartupSmoke.cs:112` | Corrupt DB preservation check uses shared exact bytes after rejected open; same fail-closed assertion. |
+| `BlockingChecks.cs` (Tom tests, F5 `DatabaseSnapshot` at `:67`, `RowCounts` at `:226`) | No unsafe raw DB/WAL read exists. F5 retains `Mode=ReadOnly`, `Pooling=false`, complete canonical schema/version/all-table values, after original store is disposed. Tom row-count checks use scoped SQLite connections. `ZipFile.OpenRead` at `:289` occurs only after awaited export completes and disposes its output. No assertion or product change. |
+| Existing storage/backup/history/security/legacy hash helpers | Already stream with `FileShare.ReadWrite \| FileShare.Delete`; left intact. Backup/report sentinel strings, static vectors/assets/source files, completed diagnostic ZIPs and committed attachment blobs are read after writers close; no sharing correction required. `StreamReader` calls over socket/ZIP-entry streams are not direct file opens. |
+| Native contacts smoke / `ChatWindow.ContactsSmokeFixture.cs` / shared v13 seed | No direct WAL/DB file hash or byte read exists in these files. Native contacts reads state through the Worker/SQLite API, and its captures are real WPF rendering. The existing native file-unchanged check is the diagnostic retained-history check above; no imaginary contacts WAL check is claimed. |
+
+Windows differences audited: filesystem paths use `Path.Combine`/platform-aware helpers; HTTP URL `/` separators and explicitly unsafe path vectors are intentional and unchanged. No additional filename-case bug identified in the audited tests/fixtures; existing intentional case-insensitive installer/Windows path checks remain. Existing DB/stream scopes dispose before recursive fixture deletion, with SQLite helpers using `Pooling=false`; no retry/forced unlock/suppressed cleanup failure introduced. New handle regression renames/deletes while inspection and owner handles are open with Delete sharing, reads the retained bytes, then closes **all** handles before asserting final removal (Windows may defer deletion). CRLF/non-ASCII/NUL bytes are compared without normalization. HTTP CRLF, chat raw-text CRLF and migration-CRLF fixtures test explicit formats, not host-generated newlines, and are unchanged.
+
+Raw audit evidence (local build artifacts): `build/b1-followup/windows-file-read-audit.txt`, `windows-file-read-audit-after.txt`, `windows-platform-audit.txt`; original CI log `windows-ci-42396110498-failed.log`. The latter is read-only GitHub evidence, not a new CI result.
+
+Final local verification (real worktree `build/tmp` used as TMPDIR):
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build-final | Release test build (after final Windows deferred-delete fixture adjustment), 0 warnings / 0 errors | 0 | 6.55 |
+| contacts-final | 181 assertions: 175 retained + 6 new controls | 0 | 2.05 |
+| blocking | 90 assertions, including Tom, F3 and F5 | 0 | 2.36 |
+| contacts-ui-seed-check | 7 real SQLite seed/isolation checks | 0 | 1.03 |
+| default-ci | 6,570 behavior checks; SourceRules 321 unchanged | 0 | 69.96 |
+| win-x64-build | 0 warnings / 0 errors | 0 | 9.63 |
+
+Evidence: `build/b1-followup/windows-wal-results.json`, `windows-wal-*.log`. The final source adjustment only closes the synthetic sharing-regression owner before asserting deletion completion; Release tests were rebuilt and contacts 181 rerun afterward. Default Console includes diagnostic, inbox, tombstone and signed crash/leak-scan regressions. Cross-build includes both modified native smoke fixtures and the linked test reader. `git diff --check` and existing strict safety-config validation pass (the two existing physical/native unknowns remain).
+
+**CI 修正完成（本機）**. No product semantics or existing assertions were weakened. Native Windows file-sharing behavior/WPF/PNG capture results are **未執行／待 Emily push 同一分支重跑 PR #28 CI**; Mac success and cross-compilation do not replace that evidence. IME/physical DPI/two-machine/classroom acceptance remain unexecuted. No push/new PR/merge/release/install/deploy performed.

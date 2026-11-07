@@ -142,12 +142,12 @@ public partial class App
                 await using var journal = new DiagnosticJournal(history, ChatRuntime.DiagnosticVersion);
                 journal.Record(DiagnosticStage.UiAction, DiagnosticOutcome.Failed, messageId: Guid.NewGuid().ToString("D"));
             }
-            var retained = Directory.GetFiles(history).ToDictionary(path => Path.GetFileName(path)!, File.ReadAllBytes);
+            var retained = Directory.GetFiles(history).ToDictionary(path => Path.GetFileName(path)!, NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes);
             Check(retained.Count == 5 && retained.ContainsKey("diagnostics-3.jsonl"), "native read-only export fixture has all four retained generations");
             window.DetachRuntime(); window.SetDiagnosticsDirectory(history);
             Check((await window.ExportDiagnosticsAsync(Path.Combine(output, "no-runtime-1.zip"))).Success, "actual no-runtime window exports retained diagnostic history");
             Check((await window.ExportDiagnosticsAsync(Path.Combine(output, "no-runtime-2.zip"))).Success, "actual no-runtime window exports repeatedly without starting a writer");
-            var afterExport = Directory.GetFiles(history).ToDictionary(path => Path.GetFileName(path)!, File.ReadAllBytes);
+            var afterExport = Directory.GetFiles(history).ToDictionary(path => Path.GetFileName(path)!, NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes);
             Check(afterExport.Count == retained.Count && retained.All(pair => afterExport.TryGetValue(pair.Key, out var bytes) && bytes.SequenceEqual(pair.Value)), "native export does not rotate, delete or write retained diagnostic files");
             Capture(window, Path.Combine(output, "diagnostics-recovered.png"));
         }

@@ -73,18 +73,40 @@ internal static class ContactExperienceChecks
     {
         _checks = 0;
         Scenario[] scenarios = [
+            Sync("CT-13 shared snapshot reads preserve exact bytes and detect changes with open handles", () => {
+                using var e=new Env();string path=Path.Combine(e.Root,"snapshot.db-wal"),moved=Path.Combine(e.Root,"renamed.db-wal");
+                byte[] first=Encoding.UTF8.GetBytes("before\r\n合成\0"),second=first.ToArray();second[0]^=1;
+                using var owner=new FileStream(path,FileMode.CreateNew,FileAccess.ReadWrite,FileShare.ReadWrite|FileShare.Delete);
+                owner.Write(first);owner.Flush(true);
+                string before=NekoChat.TestFixtures.TestFixtureFiles.Sha256(path);
+                Check(before==Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(first)) && NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes(path).SequenceEqual(first),"shared read includes exact CRLF/non-ASCII/NUL bytes while owner remains open");
+                owner.Position=0;owner.Write(second);owner.Flush(true);
+                Check(before!=NekoChat.TestFixtures.TestFixtureFiles.Sha256(path),"negative control: same-length content mutation changes hash");
+                using(var reader=NekoChat.TestFixtures.TestFixtureFiles.OpenRead(path))
+                {
+                    File.Move(path,moved);
+                    Check(File.Exists(moved)&&!File.Exists(path),"inspection handle permits owner-side rename on Windows");
+                    File.Delete(moved);var retained=new byte[second.Length];reader.ReadExactly(retained);
+                    Check(retained.SequenceEqual(second),"inspection handle permits delete and still reads exact held bytes");
+                }
+                owner.Dispose(); // Windows may defer final deletion until every shared handle closes.
+                bool missing=false;try{NekoChat.TestFixtures.TestFixtureFiles.Sha256(path);}catch(FileNotFoundException){missing=true;}
+                Check(missing&&!File.Exists(moved),"closed handles finish deletion; missing snapshot fails rather than substituting an equal empty hash");
+            }),
             Sync("CT-13 v14 inbox projects active queued unknown and archived rows without writes", () => {
                 using var e=new Env();string a=Add(e.Store,A,teacher:true);Receive(e.Store,A);
                 e.Store.ReceiveLegacyMessage(new("legacy",null),e.Store.GetLegacyReceiveContext(A),()=>true);
                 Receive(e.Store,B);string queue=Queue(e.Store,P(e.Store,B),"pending");
                 e.Store.SaveClassroomDraft(ClassroomPrincipalKey.ForSourceIp(C),"unknown draft",0,1);
                 var preview=e.Store.PreviewRosterDelete(a);e.Store.DeleteRosterEntry(a,preview.SnapshotToken,preview.ToConfirmation());
-                string Hash()=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(e.Store.DatabasePath+"-wal")));
+                string Hash()=>NekoChat.TestFixtures.TestFixtureFiles.Sha256(e.Store.DatabasePath+"-wal");
                 string before=Hash();var snapshot=e.Store.GetClassroomInboxSnapshot();
                 Check(snapshot.Entries.Count==3 && snapshot.TotalUnread==3 && snapshot.Entries.Select(r=>r.Principal).Distinct().Count()==3,"v14 inbox counts each active/archive/unknown stream once");
                 Check(snapshot.Entries.Single(r=>r.RosterEntryId==a) is {Removed:true,CanSend:false,LegacyUnread:1,ClassroomUnread:1},"archived teacher legacy and classroom stay read-only");
                 Check(snapshot.Entries.Single(r=>r.Endpoint==B).Attempt?.MessageId==queue && snapshot.Entries.Single(r=>r.Endpoint==C).Draft.RawText=="unknown draft","queued and draft-only projections retained");
                 Check(before==Hash(),"v14 inbox snapshot performs no writes");
+                var d=e.Store.GetClassroomDraftState(ClassroomPrincipalKey.ForSourceIp(C));
+                Check(e.Store.SaveClassroomDraft(ClassroomPrincipalKey.ForSourceIp(C),"deliberate WAL mutation",d.Epoch,d.Revision+1).Saved && before!=Hash(),"negative control: a real SQLite write changes the same live WAL hash");
             }),
             Sync("CT-02 normalization failure rolls back and retries on next startup", () => {
                 var faults=new Faults();var codes=new List<string>();using var e=new Env(13,faults:faults,diagnostic:codes.Add);

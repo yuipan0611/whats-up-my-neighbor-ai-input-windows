@@ -143,7 +143,7 @@ internal static class DiagnosticChecks
             await using var journal = new DiagnosticJournal(directory, "1.0.0");
             journal.Record(DiagnosticStage.UiAction, DiagnosticOutcome.Failed, messageId: Guid.NewGuid().ToString("D"));
         }
-        var before = Directory.GetFiles(directory).ToDictionary(path => Path.GetFileName(path)!, File.ReadAllBytes);
+        var before = Directory.GetFiles(directory).ToDictionary(path => Path.GetFileName(path)!, NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes);
         check(before.Count == 5 && before.ContainsKey("diagnostics-3.jsonl"), "export fixture retains four complete generations and writer lock");
         for (int pass = 0; pass < 2; pass++)
         {
@@ -158,7 +158,7 @@ internal static class DiagnosticChecks
                 check(bytes.ToArray().SequenceEqual(pair.Value), "read-only archive includes unchanged retained generation " + pair.Key);
             }
         }
-        var after = Directory.GetFiles(directory).ToDictionary(path => Path.GetFileName(path)!, File.ReadAllBytes);
+        var after = Directory.GetFiles(directory).ToDictionary(path => Path.GetFileName(path)!, NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes);
         check(after.Count == before.Count && before.All(pair => after.TryGetValue(pair.Key, out var bytes) && pair.Value.SequenceEqual(bytes)), "read-only export neither rotates, deletes nor writes diagnostic files");
         string missing = Path.Combine(root, "missing-read-only");
         await using var absent = DiagnosticJournal.OpenReadOnly(missing, "1.0.0");
