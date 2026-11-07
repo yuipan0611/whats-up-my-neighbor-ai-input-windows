@@ -11,6 +11,7 @@ public sealed record ClassroomInboxEntry(ClassroomPrincipalKey Principal, string
     string? Endpoint, bool CanSend, long ClassroomUnread, long LegacyUnread, string? LatestText, string? LatestUtc, bool LatestIsLegacy,
     DraftState Draft, ClassroomAttemptSummary? Attempt, LegacyHistoryScope? LegacyScope)
 {
+    public bool Blocked { get; init; }
     public long TotalUnread => checked(ClassroomUnread + LegacyUnread);
     /// <summary>CM-02 / CM-17: the roster name, "name（已從名單移除）" for a deleted row, or 名單外・IP.</summary>
     public string Label => Principal.IsRoster ? Removed ? (DisplayName ?? "") + "（已從名單移除）" : DisplayName ?? "" : "名單外・" + Principal.SourceIp;
@@ -18,6 +19,7 @@ public sealed record ClassroomInboxEntry(ClassroomPrincipalKey Principal, string
     {
         get
         {
+            if (Blocked) return "已封鎖，歷史唯讀";
             if (Removed) return "已從名單移除，不能發送，可查看對話";
             if (Endpoint is null) return "未設定位址";
             return LegacyUnread > 0 ? "舊版訊息・在線狀態待確認" : "在線狀態待確認";
@@ -69,7 +71,7 @@ public sealed class ClassroomInboxSnapshot
             e.LegacyScope,
             e.Removed,
             e.CanSend
-        ));
+        ) { Blocked = e.Blocked });
         return new InboxSnapshot(mapped);
     }
 }

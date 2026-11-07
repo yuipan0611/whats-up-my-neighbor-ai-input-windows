@@ -26,7 +26,7 @@ public sealed partial class ChatStore
             string classroomBefore = "principal=@p AND direction='incoming' AND localReadAt IS NULL AND (createdUtc<@utc OR (createdUtc=@utc AND (@legacy=1 OR localSeq<=@seq)))";
             var values = new (string Name, object? Value)[] { ("@p", principal.Value), ("@utc", utc), ("@seq", anchorSequence), ("@legacy", anchorLegacy ? 1 : 0), ("@now", ctx.NowUtc) };
             int queued = 0;
-            if (ReadPolicy(ctx).Enabled)
+            if (ReadPolicy(ctx).Enabled && !BlockedPrincipal(ctx,principal))
                 queued = ctx.Exec("INSERT OR IGNORE INTO ClassroomReceiptOutbox(originalLocalSeq,principal,receiptKind,createdUtc) SELECT localSeq,principal,'read',@now FROM ClassroomMessage WHERE " + classroomBefore, values);
             int marked = ctx.Exec("UPDATE ClassroomMessage SET localReadAt=@now WHERE " + classroomBefore, values);
             if (legacy is not null)

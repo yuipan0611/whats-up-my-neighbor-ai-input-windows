@@ -236,6 +236,7 @@ public sealed class AttachmentService : IAsyncDisposable
     {
         try
         {
+            if (_store.IsSourceBlocked(sourceIp)) throw new AttachmentException("source_not_allowed");
             if (_cacheClearing || !current() || !LanInvitation.PrivateIPv4(sourceIp)) throw new AttachmentException("receiver_not_ready");
             using var document = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = 4 }); var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() != root.EnumerateObject().Count() ||

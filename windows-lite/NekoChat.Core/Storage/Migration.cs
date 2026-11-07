@@ -99,7 +99,8 @@ internal sealed record Migration(int ToVersion, Action<WriteContext> Apply, bool
         ctx.Exec("UPDATE RosterEntry SET isTeacher=0 WHERE isTeacher=1 AND id<>coalesce((SELECT id FROM RosterEntry WHERE isTeacher=1 ORDER BY CASE WHEN endpoint=@ip THEN 0 ELSE 1 END,id LIMIT 1),'')", ("@ip", ctx.LegacyTeacherIp));
         ctx.Exec(ChatUxSchema.TeacherIndex);
     });
-    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14 };
+    internal static Migration V15 { get; } = new(15, ctx => ctx.Exec(BlockingSchema.Sql));
+    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15 };
 
     internal static string ReadSchemaV1()
     {

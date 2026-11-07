@@ -65,6 +65,7 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
         {
             string code = rejected.Reason switch
             {
+                "source-not-allowed" => ClassroomCodes.SourceNotAllowed,
                 "offroster-limit" => ClassroomCodes.RateLimited,
                 "receiver-not-ready" => ClassroomCodes.ReceiverNotReady,
                 "invalid-source" => ClassroomCodes.SourceNotAllowed,
@@ -86,6 +87,7 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
         CancellationToken cancellation)
     {
         var result = _store.ApplyClassroomReceipt(sourceIp, request.MessageId!, RemoteReceiptKind.Read);
+        if(result.Reason=="source-not-allowed") { var (blockedStatus,blockedBody)=ClassroomPacketWriter.Error(ClassroomCodes.SourceNotAllowed);return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(blockedStatus,blockedBody)); }
         if (!result.Changed && result.Reason == "pending-local-confirmation")
         {
             var (errStatus, body) = ClassroomPacketWriter.Error(ClassroomCodes.Transient);
@@ -120,7 +122,8 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
         }
         string errorCode = result.Reason switch
         {
-            "offroster-limit" => ClassroomCodes.RateLimited,
+            "source-not-allowed" => ClassroomCodes.SourceNotAllowed,
+                "offroster-limit" => ClassroomCodes.RateLimited,
             "stale-legacy-scope" => ClassroomCodes.ReceiverNotReady,
             "invalid-text" or "invalid-reaction" or "invalid-unicode" => ClassroomCodes.InvalidPayload,
             _ => ClassroomCodes.ReceiverNotReady // fail closed

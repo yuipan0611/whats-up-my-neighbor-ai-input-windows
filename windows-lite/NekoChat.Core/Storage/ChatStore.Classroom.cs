@@ -67,6 +67,7 @@ public sealed partial class ChatStore
 
     private ClassroomReceiveResult ClassroomReceiveTransaction(string ip, ClassroomIncoming message, byte[] fingerprint, Action<string> limitHit, Func<bool> stillCurrent) => Write<ClassroomReceiveResult>("classroom-receive", ctx =>
     {
+        if (Blocked(ctx, ip)) return (new ClassroomRejected("source-not-allowed"), false);
         var principal = ResolveClassroomPrincipal(ctx, ip);   // roster join and insert share one transaction: no stale attribution
         if (Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM ClassroomCleared WHERE principal=@p AND direction='incoming' AND messageId=@id", ("@p", principal.Value), ("@id", message.MessageId)), CultureInfo.InvariantCulture) != 0)
             return (new ClassroomClearedDuplicate(principal, message.MessageId), false);
@@ -165,9 +166,11 @@ public sealed partial class ChatStore
     // ---- manual send ------------------------------------------------------------------------------------------------------------------
 
     /// <summary>The address a send to this conversation goes to right now. Null when there is none (roster row without an address, or deleted).</summary>
-    private static string? ClassroomTarget(WriteContext ctx, ClassroomPrincipalKey principal) => principal.IsRoster
-        ? ctx.Scalar("SELECT endpoint FROM RosterEntry WHERE id=@id", ("@id", principal.RosterEntryId)) as string
-        : principal.SourceIp;
+    private static string? ClassroomTarget(WriteContext ctx, ClassroomPrincipalKey principal)
+    {
+        string? ip = principal.IsRoster ? ctx.Scalar("SELECT endpoint FROM RosterEntry WHERE id=@id", ("@id", principal.RosterEntryId)) as string : principal.SourceIp;
+        return Blocked(ctx,ip) ? null : ip;
+    }
     private static string NoTargetReason(WriteContext ctx, ClassroomPrincipalKey principal) =>
         !principal.IsRoster || Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM RosterEntry WHERE id=@id", ("@id", principal.RosterEntryId)), CultureInfo.InvariantCulture) != 0 ? "no-address"
         : _removedTableExists(ctx) && Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM RosterRemoved WHERE rosterEntryId=@id", ("@id", principal.RosterEntryId)), CultureInfo.InvariantCulture) != 0 ? "removed" : "not-found";
@@ -257,6 +260,7 @@ public sealed partial class ChatStore
         byte[]? ack = outcome is RemoteStoredOutcome remote ? remote.AckContentFingerprint?.ToArray() : null;
         var ackKey = ClassroomPrincipalKey.ForSource(ackSourceIp);
         return Write<CompleteResult>("classroom-complete-attempt", ctx => {
+            if (Blocked(ctx,ackSourceIp)) return (new Discarded("source-not-allowed"),false);
             var old = FindClassroomAttempt(ctx, messageId);
             if (old is null) return (new Discarded("not-found"), false);
             if (old.State == "superseded") return (new Discarded("superseded"), false);
@@ -348,6 +352,7 @@ public sealed partial class ChatStore
         if (expectedTryCount is <= 0) throw new ArgumentOutOfRangeException(nameof(expectedTryCount));
         var from = ClassroomPrincipalKey.ForSource(deliveredFromIp);
         return Write<CompleteResult>("classroom-legacy-delivered", ctx => {
+            if (Blocked(ctx,deliveredFromIp)) return (new Discarded("source-not-allowed"),false);
             var old = FindClassroomAttempt(ctx, messageId);
             if (old is null) return (new Discarded("not-found"), false);
             if (old.State == "superseded") return (new Discarded("superseded"), false);
@@ -400,6 +405,7 @@ public sealed partial class ChatStore
         ValidateMessageId(messageId); if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
         if (ClassroomPrincipalKey.ForSource(sourceIp) is not { } key) return new(false, "invalid-source");
         return Write("classroom-apply-receipt", ctx => {
+            if (Blocked(ctx,key.SourceIp!)) return (new ReceiptApplyResult(false,"source-not-allowed"),false);
             var principal = ResolveClassroomPrincipal(ctx, key.SourceIp!);
             var rows = ctx.Query("SELECT localSeq,remoteStoredAt,remoteReadAt,legacyDeliveredAt FROM ClassroomMessage WHERE principal=@p AND direction='outgoing' AND messageId=@id",
                 r => (Seq: r.GetInt64(0), Stored: !r.IsDBNull(1), Read: !r.IsDBNull(2), Legacy: !r.IsDBNull(3)), ("@p", principal.Value), ("@id", messageId));
@@ -432,7 +438,7 @@ public sealed partial class ChatStore
             {
                 if (Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM ClassroomMessage WHERE localSeq=@seq AND principal=@p AND direction='incoming' AND localReadAt IS NULL", ("@seq", seq), ("@p", principal.Value)), CultureInfo.InvariantCulture) == 0) continue;
                 marked += ctx.Exec("UPDATE ClassroomMessage SET localReadAt=@now WHERE localSeq=@seq AND localReadAt IS NULL", ("@now", ctx.NowUtc), ("@seq", seq));
-                if (policy.Enabled)   // D-10: outbound read receipts are opt-in; nothing is queued while off
+                if (policy.Enabled && !BlockedPrincipal(ctx,principal))   // D-10: outbound read receipts are opt-in; nothing is queued while off
                     queued += ctx.Exec("INSERT OR IGNORE INTO ClassroomReceiptOutbox(originalLocalSeq,principal,receiptKind,createdUtc) VALUES(@seq,@p,'read',@now)", ("@seq", seq), ("@p", principal.Value), ("@now", ctx.NowUtc));
             }
             return (new VisibleReadResult(marked, queued, marked > 0 ? "marked" : "unchanged"), marked > 0);
@@ -446,6 +452,7 @@ public sealed partial class ChatStore
         return Read(c => {
             using var cmd = c.CreateCommand();
             cmd.CommandText = "SELECT o.originalLocalSeq,m.messageId,o.principal,t.ip,s.generation FROM ClassroomReceiptOutbox o JOIN ClassroomMessage m ON m.localSeq=o.originalLocalSeq AND m.principal=o.principal AND m.direction='incoming' AND m.localReadAt IS NOT NULL JOIN ReadReceiptPolicy s ON s.singleton=1 AND s.enabled=1 JOIN (SELECT p.principal AS principal,CASE WHEN p.principal GLOB 'ip:*' THEN substr(p.principal,4) ELSE (SELECT r.endpoint FROM RosterEntry r WHERE 'roster:'||r.id=p.principal) END AS ip FROM ClassroomConversation p) t ON t.principal=o.principal AND t.ip IS NOT NULL AND (@after IS NULL OR o.originalLocalSeq>@after) ORDER BY o.originalLocalSeq LIMIT @limit";
+            if (_migrations.Count>=15) cmd.CommandText=cmd.CommandText.Replace("ORDER BY o.originalLocalSeq", "AND NOT EXISTS(SELECT 1 FROM BlockedSource b WHERE b.ip=t.ip) ORDER BY o.originalLocalSeq");
             cmd.Parameters.AddWithValue("@limit", limit); cmd.Parameters.AddWithValue("@after", (object?)afterLocalSeq ?? DBNull.Value); using var r = cmd.ExecuteReader(); var rows = new List<PendingClassroomReceipt>();
             while (r.Read()) if (ClassroomPrincipalKey.TryParse(r.GetString(2), out var key)) rows.Add(new(r.GetInt64(0), r.GetString(1), key, r.GetString(3), r.GetInt64(4)));
             return rows.AsReadOnly();

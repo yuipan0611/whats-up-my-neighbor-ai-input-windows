@@ -11,7 +11,7 @@ public sealed partial class ChatStore
     public void RecordClassroomCommunicationSuccess(string sourceIp)
     {
         if (ClassroomPrincipalKey.ForSource(sourceIp) is null) return;
-        try { ClassroomCommunicationSucceeded?.Invoke(sourceIp); } catch { }
+        try { if (!IsSourceBlocked(sourceIp)) ClassroomCommunicationSucceeded?.Invoke(sourceIp); } catch { }
     }
 
     private void ContactDiagnostic(string code) { try { _options.DiagnosticSink?.Invoke(code); } catch { } }
@@ -55,6 +55,7 @@ public sealed partial class ChatStore
     });
     public bool CanAutoReceiveAttachments(ClassroomPrincipalKey principal) => principal.IsRoster && Read(c => {
         using var cmd = c.CreateCommand(); cmd.CommandText = "SELECT count(*) FROM RosterEntry WHERE id=@id AND coalesce(source,'')<>'auto'";
+        if (_migrations.Count>=15) cmd.CommandText += " AND NOT EXISTS(SELECT 1 FROM BlockedSource b WHERE b.ip=RosterEntry.endpoint)";
         cmd.Parameters.AddWithValue("@id", principal.RosterEntryId); return Convert.ToInt64(cmd.ExecuteScalar()) != 0;
     });
 
@@ -94,6 +95,7 @@ public sealed partial class ChatStore
             if (token != actual) return (new RosterMutationResult(false, "roster_changed", id, actual), false);
             var row = rows.SingleOrDefault(r => r.Entry.Id == id)?.Entry;
             if (row is null) return (new RosterMutationResult(false, "not-found", id, actual), false);
+            if (teacher && Blocked(ctx,row.Endpoint)) return (new RosterMutationResult(false,"blocked",id,actual),false);
             if (teacher && row.Endpoint is null) return (new RosterMutationResult(false, "no-address", id, actual), false);
             if (teacher)
             {

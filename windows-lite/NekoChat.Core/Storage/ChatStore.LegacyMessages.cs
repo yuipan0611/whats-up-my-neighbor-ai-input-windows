@@ -36,6 +36,7 @@ public sealed partial class ChatStore
         bool Guard(WriteContext ctx) => stillCurrent() && ctx.Query(LegacyCaptureSql, r => MapLegacyCapture(r, expected.SourceIp), ("@ip", expected.SourceIp)).Single() == guarded;
         string? limit = null;
         var legacyResult = Write("legacy-receive", ctx => {
+            if (Blocked(ctx,expected.SourceIp)) return (new LegacyReceiveResult(false,"source-not-allowed"),false);
             // CM-11: v1 messages from sources that are not on the roster share the classroom off-roster budget; refuse the new one, never delete.
             if (UsesAutomaticBudget(ctx, ResolveClassroomPrincipal(ctx, expected.SourceIp)) && OffRosterLimit(ctx, expected.SourceIp, Encoding.UTF8.GetByteCount(message.Text)) is { } hit)
             { limit = hit; return (new LegacyReceiveResult(false, "offroster-limit"), false); }

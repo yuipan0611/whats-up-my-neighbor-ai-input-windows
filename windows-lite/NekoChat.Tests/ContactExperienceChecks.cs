@@ -56,7 +56,7 @@ internal static class ContactExperienceChecks
             Options = new(Root) { Faults = faults, OffRoster = limits ?? new(), DiagnosticSink = diagnostic };
             Store = ChatStore.Open(Options with { Migrations = Migration.Default.Take(version).ToArray() });
         }
-        internal void Upgrade(string? teacher = null) { Store.Dispose(); Store = ChatStore.Open(Options with { LegacyTeacherIp = teacher }); }
+        internal void Upgrade(string? teacher = null) { Store.Dispose(); Store = ChatStore.Open(Options with { LegacyTeacherIp = teacher, Migrations = Migration.Default.Take(14).ToArray() }); }
         internal object? Scalar(string sql)
         {
             using var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Store.DatabasePath, Mode = SqliteOpenMode.ReadWrite, Pooling = false }.ToString());

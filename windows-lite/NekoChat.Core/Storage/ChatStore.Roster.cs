@@ -35,6 +35,7 @@ public sealed partial class ChatStore
             if (token != expectedSnapshotToken) return (Refuse("roster_changed"), false);
             if (endpoint is not null && !AllowedRosterEndpoint(endpoint)) return (Refuse("invalid-endpoint"), false);
             var old = snapshot.SingleOrDefault(r => r.Entry.Id == entryId);
+            if (Blocked(ctx,endpoint) && edit.IsTeacher || old is not null && old.Entry.Endpoint!=endpoint && Blocked(ctx,old.Entry.Endpoint)) return (Refuse("blocked"),false);
             if (entryId is not null && old is null) return (Refuse("not-found"), false);
             if (snapshot.Any(r => r.Entry.Id != entryId && number is not null && r.Entry.StudentNumberKey == RosterFields.StudentKey(number)))
                 return (Refuse("duplicate-student-number"), false);
@@ -183,6 +184,7 @@ public sealed partial class ChatStore
             {
                 var row = item.Row!;
                 bool teacherFlag = _migrations.Count < 14 ? row.IsTeacher : teacher is not null ? teacher == item.TargetId : row.IsTeacher;
+                teacherFlag &= !Blocked(ctx,row.Endpoint);
                 if (_migrations.Count >= 14 && row.IsTeacher && !teacherFlag) ContactDiagnostic("multiple-teachers-ignored");
                 if (item.Action == RosterImportAction.Add)
                 {

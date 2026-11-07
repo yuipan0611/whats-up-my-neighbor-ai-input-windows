@@ -43,6 +43,9 @@ public interface IChatStore : IDisposable
     ClearResult ClearConversation(string conversationId);
     event Action<string>? ClassroomCommunicationSucceeded;
     void RecordClassroomCommunicationSuccess(string sourceIp);
+    bool IsSourceBlocked(string ip);
+    IReadOnlyList<BlockedContact> GetBlockedContacts();
+    RosterMutationResult SetSourceBlocked(string ip, bool blocked, string? expectedSnapshotToken = null);
     ReadReceiptPreferences GetReadReceiptPreferences();
     void AcknowledgeReadReceiptNotice();
     string? GetClassroomTeacherIp();

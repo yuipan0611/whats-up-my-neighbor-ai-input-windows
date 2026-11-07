@@ -6,6 +6,7 @@ public sealed record InboxEntry(string Id, string? RosterId, string DisplayName,
     string? LastText, string? LastUtc, bool LastIsLegacy, DraftState? Draft, PendingSendSummary? Attempt, LegacyHistoryScope? LegacyScope,
     bool Removed = false, bool CanSend = true)
 {
+    public bool Blocked { get; init; }
     public long TotalUnread => checked(Unread + LegacyUnread);
     public string NotificationName => RosterId is not null ? DisplayName : PeerId is not null ? "未命名同學" : "未驗證來源";
 }

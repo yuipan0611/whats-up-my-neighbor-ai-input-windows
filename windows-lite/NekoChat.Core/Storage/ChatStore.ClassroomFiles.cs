@@ -38,12 +38,14 @@ public sealed partial class ChatStore
         if (limit is < 1 or > 1024) throw new ArgumentOutOfRangeException(nameof(limit));
         using var cmd = c.CreateCommand();
         cmd.CommandText = "SELECT a.json,l.protectedKey IS NOT NULL,l.blobId,coalesce(l.state,'available'),l.problem,a.seq FROM ClassroomFileOperation a LEFT JOIN ClassroomFileLocal l ON l.shareId=a.shareId WHERE a.kind='add' AND NOT EXISTS(SELECT 1 FROM ClassroomFileOperation w WHERE w.shareId=a.shareId AND w.kind='withdraw') AND (@b IS NULL OR a.seq<@b) ORDER BY a.seq DESC LIMIT @n";
+        if (_migrations.Count>=15) cmd.CommandText=cmd.CommandText.Replace("ORDER BY a.seq", "AND NOT EXISTS(SELECT 1 FROM BlockedSource b WHERE b.ip=json_extract(a.json,'$.File.UploaderIp')) ORDER BY a.seq");
         cmd.Parameters.AddWithValue("@b", (object?)before ?? DBNull.Value); cmd.Parameters.AddWithValue("@n", limit); using var r = cmd.ExecuteReader(); var list = new List<SharedFile>();
         while (r.Read()) list.Add(new(JsonSerializer.Deserialize<ShareOperation>(r.GetString(0))!.File, r.GetInt32(1) != 0, r.IsDBNull(2) ? null : r.GetString(2), r.GetString(3), r.IsDBNull(4) ? null : r.GetString(4), 0, r.GetInt64(5))); return list.AsReadOnly();
     });
     public SharedFile? GetClassroomFile(string id) => ListClassroomFileById(id);
     private SharedFile? ListClassroomFileById(string id) => Read(c => {
         using var cmd = c.CreateCommand(); cmd.CommandText = "SELECT a.json,l.protectedKey IS NOT NULL,l.blobId,coalesce(l.state,'available'),l.problem,a.seq FROM ClassroomFileOperation a LEFT JOIN ClassroomFileLocal l ON l.shareId=a.shareId WHERE a.shareId=@id AND a.kind='add' AND NOT EXISTS(SELECT 1 FROM ClassroomFileOperation w WHERE w.shareId=a.shareId AND w.kind='withdraw')";
+        if (_migrations.Count>=15) cmd.CommandText += " AND NOT EXISTS(SELECT 1 FROM BlockedSource b WHERE b.ip=json_extract(a.json,'$.File.UploaderIp'))";
         cmd.Parameters.AddWithValue("@id", id); using var r = cmd.ExecuteReader(); return r.Read() ? new SharedFile(JsonSerializer.Deserialize<ShareOperation>(r.GetString(0))!.File,r.GetInt32(1)!=0,r.IsDBNull(2)?null:r.GetString(2),r.GetString(3),r.IsDBNull(4)?null:r.GetString(4),0,r.GetInt64(5)) : null;
     });
     public byte[]? ClassroomFileKey(string id) => Read(c => { using var cmd=c.CreateCommand(); cmd.CommandText="SELECT protectedKey FROM ClassroomFileLocal WHERE shareId=@id"; cmd.Parameters.AddWithValue("@id",id); return cmd.ExecuteScalar() is byte[] b ? b : null; });

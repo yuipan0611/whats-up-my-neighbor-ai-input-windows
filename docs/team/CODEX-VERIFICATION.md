@@ -112,3 +112,11 @@ A concurrently created `windows-lite/docs/specs/LINE-PARITY.md` is not this task
 - teacher.md documents explicit teacher selection changes csv to manual.
 - Step 2 focused results: --contacts 156 assertions, --classroom-store 122, --message-recovery 32, all PASS. Full step2 classroom result recorded after completion. Logs: build/b1-followup/step2-*.log.
 - Step 2 full `--classroom-all`: exit 0, all prelude and 15 focused suites passed; no older outcome assertions removed. v14 adaptation additionally updates automatic-source row counts, D-27 restore/duplicate-add expectations and the explicit v14 migration version. Historical Inbox v13 is paired with the new v14 projection/orphan scenarios above.
+
+## Follow-up step 3 — D-29 blocking Core
+
+Additive v15 preserves reviewed v14. BlockedSource stores only explicit local block actions. Receive/legacy/attachment/receipt admission checks share their writer transaction with mutation; source-not-allowed reuses existing errors. Blocking preserves history, cancels queued/active retry work, fences late ACK/attachment writes and demotes teacher atomically; unblock never automatically resumes cancelled work. Auto-download and classroom-file author/node access are filtered. Inbox exposes a Blocked flag without duplicating an empty IP subject for an existing contact.
+
+BK-01..08 Core scenarios: BlockingChecks.cs via --blocking, 25 assertions PASS, including persistent read-only projection, no ingress records/notifications, author/node filtering, queued preservation/manual retry, removal distinction, teacher demotion, v14→v15 backup and two-connection serialized receive. --contacts (explicit v14 contract) 156, --outbox 63, --diagnostics recovery24/journal77 PASS. Logs build/b1-followup/step3-*.log.
+
+S0 blocking clarification: no local backfill; after unblock a new explicit transmission can be accepted because rejected IDs/content are not retained. Network bytes already in flight cannot be recalled. Signed catalog operations received from an unblocked replica remain available for monotone withdrawal semantics, while blocked authors are hidden locally. WPF remains unexecuted. Historical AttachmentChecks v10→v14 fixture version setting has been reported to PM before alteration; approval pending.
