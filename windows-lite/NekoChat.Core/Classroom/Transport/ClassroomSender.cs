@@ -24,6 +24,8 @@ public sealed record ClassroomReceiptSendResult(bool Completed, string Status, s
 
 public sealed class ClassroomSender
 {
+    public event Action<string>? CommunicationSucceeded;
+    private void ReportCommunication(string ip) { try { CommunicationSucceeded?.Invoke(ip); } catch { } }
     private readonly IChatStore _store;
     private readonly DiagnosticJournal? _diagnostics;
     private readonly HttpClient _http;
@@ -198,6 +200,7 @@ public sealed class ClassroomSender
                         return (false, null, null, helloResult.RemoteCode ?? helloResult.Code, false);
                     }
 
+                    ReportCommunication(targetIp);
                     return (true, helloResult.Hello.Session, ClassroomRoute.Classroom, null, false);
                 }
                 else if (helloStatus == 400 && helloRespBytes.AsSpan().SequenceEqual(ExactLegacyBody))

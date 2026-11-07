@@ -78,8 +78,9 @@ public sealed partial class ChatStore
             bool same = old.Text == message.Text && old.Reaction == message.Reaction && CryptographicOperations.FixedTimeEquals(old.Fingerprint, fingerprint);
             return (same ? new ClassroomDuplicate(principal, message.MessageId, old.Seq) : new ClassroomConflict(principal, message.MessageId), false);
         }
-        if (!principal.IsRoster && OffRosterLimit(ctx, principal.SourceIp!, Encoding.UTF8.GetByteCount(message.Text)) is { } hit)
+        if (UsesAutomaticBudget(ctx, principal) && OffRosterLimit(ctx, ip, Encoding.UTF8.GetByteCount(message.Text)) is { } hit)
         { limitHit(hit); return (new ClassroomRejected("offroster-limit"), false); }   // CM-11: refuse the new message, never delete stored rows
+        principal = AutoContact(ctx, ip);
         EnsureClassroomConversation(ctx, principal);
         ctx.Exec("INSERT INTO ClassroomMessage(principal,direction,messageId,rawText,kind,reaction,contentFingerprint,sourceIp,createdUtc) VALUES(@p,'incoming',@id,@text,'text',@reaction,@fp,@ip,@now)",
             ("@p", principal.Value), ("@id", message.MessageId), ("@text", message.Text), ("@reaction", message.Reaction), ("@fp", fingerprint), ("@ip", ip), ("@now", ctx.NowUtc));
@@ -95,9 +96,11 @@ public sealed partial class ChatStore
     private string? OffRosterLimit(WriteContext ctx, string ip, int newBytes)
     {
         var limits = _options.OffRoster;
+        string legacyFilter = _migrations.Count >= 14 ? "(rosterEntryId IS NULL OR rosterEntryId IN (SELECT id FROM RosterEntry WHERE source='auto'))" : "rosterEntryId IS NULL";
+        string classroomFilter = _migrations.Count >= 14 ? "(principal GLOB 'ip:*' OR principal IN (SELECT 'roster:'||id FROM RosterEntry WHERE source='auto') OR principal IN (SELECT 'roster:'||rosterEntryId FROM ClassroomArchivedContact WHERE source='auto'))" : "principal GLOB 'ip:*'";
         var (sources, perSource, total, bytes, known) = ctx.Query(
-            "WITH u AS (SELECT sourceIp AS ip,length(CAST(rawText AS BLOB)) AS n FROM LegacyMessage WHERE rosterEntryId IS NULL" + (_migrations.Count >= 7 ? " UNION ALL SELECT substr(principal,4),length(CAST(rawText AS BLOB)) FROM ClassroomMessage WHERE direction='incoming' AND principal GLOB 'ip:*'" : "") + ") SELECT count(DISTINCT ip),coalesce(sum(CASE WHEN ip=@ip THEN 1 ELSE 0 END),0),count(*),coalesce(sum(n),0),coalesce(max(ip=@ip),0) FROM u",
-            r => (r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), r.GetInt64(3), r.GetInt64(4) == 1), ("@ip", ip)).Single();
+            "WITH u AS (SELECT sourceIp AS ip,length(CAST(rawText AS BLOB)) AS n FROM LegacyMessage WHERE " + legacyFilter + (_migrations.Count >= 7 ? " UNION ALL SELECT sourceIp,length(CAST(rawText AS BLOB)) FROM ClassroomMessage WHERE direction='incoming' AND " + classroomFilter : "") + ") SELECT (SELECT count(*) FROM (SELECT DISTINCT ip FROM u" + (_migrations.Count >= 14 ? " UNION SELECT ip FROM ClassroomAutoSource UNION SELECT endpoint FROM RosterEntry WHERE source='auto' AND endpoint IS NOT NULL" : "") + ")),coalesce(sum(CASE WHEN ip=@ip THEN 1 ELSE 0 END),0),count(*),coalesce(sum(n),0),coalesce(max(ip=@ip),0)" + (_migrations.Count >= 14 ? "+(SELECT count(*) FROM ClassroomAutoSource WHERE ip=@ip)+(SELECT count(*) FROM RosterEntry WHERE endpoint=@ip AND source='auto')" : "") + " FROM u",
+            r => (r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), r.GetInt64(3), r.GetInt64(4) > 0), ("@ip", ip)).Single();
         if (!known && sources >= limits.MaxSources) return "sources";
         if (perSource >= limits.MaxMessagesPerSource) return "source";
         if (total >= limits.MaxMessagesTotal) return "total";
@@ -437,13 +440,13 @@ public sealed partial class ChatStore
     }
 
     /// <summary>Receipts to send, each with the conversation's CURRENT address; ones without an address are skipped (they stay queued).</summary>
-    public IReadOnlyList<PendingClassroomReceipt> ListPendingClassroomReceipts(int limit = 50)
+    public IReadOnlyList<PendingClassroomReceipt> ListPendingClassroomReceipts(int limit = 50, long? afterLocalSeq = null)
     {
         if (limit is < 1 or > 200) throw new ArgumentOutOfRangeException(nameof(limit));
         return Read(c => {
             using var cmd = c.CreateCommand();
-            cmd.CommandText = "SELECT o.originalLocalSeq,m.messageId,o.principal,t.ip,s.generation FROM ClassroomReceiptOutbox o JOIN ClassroomMessage m ON m.localSeq=o.originalLocalSeq AND m.principal=o.principal AND m.direction='incoming' AND m.localReadAt IS NOT NULL JOIN ReadReceiptPolicy s ON s.singleton=1 AND s.enabled=1 JOIN (SELECT p.principal AS principal,CASE WHEN p.principal GLOB 'ip:*' THEN substr(p.principal,4) ELSE (SELECT r.endpoint FROM RosterEntry r WHERE 'roster:'||r.id=p.principal) END AS ip FROM ClassroomConversation p) t ON t.principal=o.principal AND t.ip IS NOT NULL ORDER BY o.originalLocalSeq LIMIT @limit";
-            cmd.Parameters.AddWithValue("@limit", limit); using var r = cmd.ExecuteReader(); var rows = new List<PendingClassroomReceipt>();
+            cmd.CommandText = "SELECT o.originalLocalSeq,m.messageId,o.principal,t.ip,s.generation FROM ClassroomReceiptOutbox o JOIN ClassroomMessage m ON m.localSeq=o.originalLocalSeq AND m.principal=o.principal AND m.direction='incoming' AND m.localReadAt IS NOT NULL JOIN ReadReceiptPolicy s ON s.singleton=1 AND s.enabled=1 JOIN (SELECT p.principal AS principal,CASE WHEN p.principal GLOB 'ip:*' THEN substr(p.principal,4) ELSE (SELECT r.endpoint FROM RosterEntry r WHERE 'roster:'||r.id=p.principal) END AS ip FROM ClassroomConversation p) t ON t.principal=o.principal AND t.ip IS NOT NULL AND (@after IS NULL OR o.originalLocalSeq>@after) ORDER BY o.originalLocalSeq LIMIT @limit";
+            cmd.Parameters.AddWithValue("@limit", limit); cmd.Parameters.AddWithValue("@after", (object?)afterLocalSeq ?? DBNull.Value); using var r = cmd.ExecuteReader(); var rows = new List<PendingClassroomReceipt>();
             while (r.Read()) if (ClassroomPrincipalKey.TryParse(r.GetString(2), out var key)) rows.Add(new(r.GetInt64(0), r.GetString(1), key, r.GetString(3), r.GetInt64(4)));
             return rows.AsReadOnly();
         });

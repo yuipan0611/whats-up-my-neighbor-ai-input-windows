@@ -14,19 +14,26 @@ public sealed partial class ChatStore
     /// </summary>
     public ClassroomInboxSnapshot GetClassroomInboxSnapshot() => Read(c => {
         using var cmd = c.CreateCommand();
-        cmd.CommandText = """
+        bool archive = _migrations.Count >= 14;
+        string removedSubject = archive
+            ? "SELECT 'roster:'||d.rosterEntryId,'removed',d.rosterEntryId,d.rosterEntryId,NULL,d.displayName,NULL,0,NULL FROM RosterRemoved d WHERE NOT EXISTS(SELECT 1 FROM RosterEntry r WHERE r.id=d.rosterEntryId)"
+            : "SELECT cc.principal,'removed',substr(cc.principal,8),NULL,NULL,d.displayName,NULL,0,NULL FROM ClassroomConversation cc LEFT JOIN RosterRemoved d ON d.rosterEntryId=substr(cc.principal,8) WHERE cc.principal GLOB 'roster:*' AND NOT EXISTS(SELECT 1 FROM RosterEntry r WHERE 'roster:'||r.id=cc.principal)";
+        string legacyOwner = archive ? "(x.rosterEntryId=s.legacyRow OR (x.rosterEntryId IS NULL AND x.scopeKey='legacy-row:'||s.legacyRow))" : "x.rosterEntryId=s.legacyRow";
+        string unknownLegacyFilter = archive ? " AND scopeKey='legacy-ip:'||sourceIp" : "";
+        string unknownLegacyOwner = archive ? " AND x.scopeKey='legacy-ip:'||s.legacyIp" : "";
+        string keptKinds = archive ? "s.kind IN ('roster','removed')" : "s.kind='roster'";
+        cmd.CommandText = $"""
             WITH subjects(principal,kind,rosterId,legacyRow,legacyIp,displayName,studentNumber,isTeacher,endpoint) AS (
               SELECT 'roster:'||r.id,'roster',r.id,r.id,NULL,coalesce(r.displayName,'未命名同學'),r.studentNumber,r.isTeacher,r.endpoint FROM RosterEntry r
               UNION ALL
-              SELECT cc.principal,'removed',substr(cc.principal,8),NULL,NULL,d.displayName,NULL,0,NULL FROM ClassroomConversation cc LEFT JOIN RosterRemoved d ON d.rosterEntryId=substr(cc.principal,8)
-                WHERE cc.principal GLOB 'roster:*' AND NOT EXISTS(SELECT 1 FROM RosterEntry r WHERE 'roster:'||r.id=cc.principal)
+              {removedSubject}
               UNION ALL
               SELECT 'ip:'||u.ip,'ip',NULL,NULL,u.ip,NULL,NULL,0,u.ip FROM (SELECT substr(principal,4) AS ip FROM ClassroomConversation WHERE principal GLOB 'ip:*'
-                UNION SELECT sourceIp FROM LegacyMessage WHERE rosterEntryId IS NULL) u
+                UNION SELECT sourceIp FROM LegacyMessage WHERE rosterEntryId IS NULL{unknownLegacyFilter}) u
             )
             SELECT s.principal,s.kind,s.rosterId,s.displayName,s.studentNumber,s.isTeacher,s.endpoint,
               (SELECT count(*) FROM ClassroomMessage x WHERE x.principal=s.principal AND x.direction='incoming' AND x.localReadAt IS NULL),
-              (SELECT count(*) FROM LegacyMessage x WHERE x.localReadAt IS NULL AND ((s.legacyRow IS NOT NULL AND x.rosterEntryId=s.legacyRow) OR (s.legacyIp IS NOT NULL AND x.rosterEntryId IS NULL AND x.sourceIp=s.legacyIp))),
+              (SELECT count(*) FROM LegacyMessage x WHERE x.localReadAt IS NULL AND ((s.legacyRow IS NOT NULL AND {legacyOwner}) OR (s.legacyIp IS NOT NULL AND x.rosterEntryId IS NULL AND x.sourceIp=s.legacyIp{unknownLegacyOwner}))),
               m.rawText,m.createdUtc,l.rawText,l.receivedUtc,
               d.rawText,coalesce(cc.draftEpoch,0),coalesce(cc.draftRevision,0),
               a.messageId,a.attemptState,a.rawSnapshot,a.tryCount,a.draftEpoch,a.draftRevision,
@@ -36,9 +43,9 @@ public sealed partial class ChatStore
               LEFT JOIN ClassroomConversation cc ON cc.principal=s.principal
               LEFT JOIN ClassroomDraft d ON d.principal=s.principal
               LEFT JOIN ClassroomMessage m ON m.localSeq=(SELECT x.localSeq FROM ClassroomMessage x WHERE x.principal=s.principal ORDER BY x.localSeq DESC LIMIT 1)
-              LEFT JOIN LegacyMessage l ON l.legacySeq=(SELECT x.legacySeq FROM LegacyMessage x WHERE (s.legacyRow IS NOT NULL AND x.rosterEntryId=s.legacyRow) OR (s.legacyIp IS NOT NULL AND x.rosterEntryId IS NULL AND x.sourceIp=s.legacyIp) ORDER BY x.legacySeq DESC LIMIT 1)
+              LEFT JOIN LegacyMessage l ON l.legacySeq=(SELECT x.legacySeq FROM LegacyMessage x WHERE (s.legacyRow IS NOT NULL AND {legacyOwner}) OR (s.legacyIp IS NOT NULL AND x.rosterEntryId IS NULL AND x.sourceIp=s.legacyIp{unknownLegacyOwner}) ORDER BY x.legacySeq DESC LIMIT 1)
               LEFT JOIN ClassroomAttempt a ON a.messageId=(SELECT x.messageId FROM ClassroomAttempt x WHERE x.principal=s.principal AND x.attemptState IN ('sending','unconfirmed','failed','cancelled') ORDER BY x.updatedUtc DESC,x.rowid DESC LIMIT 1)
-            WHERE s.kind='roster' OR m.localSeq IS NOT NULL OR l.legacySeq IS NOT NULL OR d.principal IS NOT NULL OR a.messageId IS NOT NULL
+            WHERE {keptKinds} OR m.localSeq IS NOT NULL OR l.legacySeq IS NOT NULL OR d.principal IS NOT NULL OR a.messageId IS NOT NULL
             """;
         if (_migrations.Count >= 13) cmd.CommandText = cmd.CommandText.Replace("a.attemptState,a.rawSnapshot", "coalesce((SELECT state FROM ClassroomOutbox o WHERE o.messageId=a.messageId),a.attemptState),a.rawSnapshot");
         using var r = cmd.ExecuteReader(); var rows = new List<(ClassroomInboxEntry Entry, string Kind)>();

@@ -52,13 +52,16 @@ public sealed partial class ChatStore
                 if (CountUnknownSource(ctx, endpoint) != mergeConsent.ExpectedMessages) return (Refuse("legacy_merge_changed"), false);
             }
             string id = entryId ?? NewRosterId(ctx);
+            if (_migrations.Count >= 14 && edit.IsTeacher) ctx.Exec("DELETE FROM ClassroomAutoSource WHERE rosterEntryId=@id", ("@id", id));
+            if (_migrations.Count >= 14 && edit.IsTeacher) ctx.Exec("UPDATE RosterEntry SET isTeacher=0 WHERE isTeacher=1 AND id<>@id", ("@id", id));
             if (entryId is null)
                 ctx.Exec("INSERT INTO RosterEntry(id,displayName,studentNumber,isTeacher,endpoint,source) VALUES(@id,@name,@number,@teacher,@endpoint,'manual')",
                     ("@id", id), ("@name", name), ("@number", number), ("@teacher", edit.IsTeacher ? 1 : 0), ("@endpoint", endpoint));
             else
-                ctx.Exec("UPDATE RosterEntry SET displayName=@name,studentNumber=@number,isTeacher=@teacher,endpoint=@endpoint,source='manual',importBatchId=NULL WHERE id=@id",
+                ctx.Exec("UPDATE RosterEntry SET displayName=@name,studentNumber=@number,isTeacher=@teacher,endpoint=@endpoint,source=CASE WHEN source='auto' AND @teacher=0 THEN 'auto' ELSE 'manual' END,importBatchId=NULL WHERE id=@id",
                     ("@id", id), ("@name", name), ("@number", number), ("@teacher", edit.IsTeacher ? 1 : 0), ("@endpoint", endpoint));
-            int merged = mergeConsent is { ExpectedMessages: > 0 } ? MergeUnknownSource(ctx, id, mergeConsent.Endpoint) : 0;
+            int merged = _migrations.Count >= 14 && endpoint is not null && (entryId is null || old!.Entry.Endpoint != endpoint || edit.IsTeacher)
+                ? MergeUnknownSource(ctx, id, endpoint) : mergeConsent is { ExpectedMessages: > 0 } ? MergeUnknownSource(ctx, id, mergeConsent.Endpoint) : 0;
             return (new RosterSaveResult(new(true, entryId is null ? "added" : "updated", id, RosterImportPreview.ComputeSnapshotToken(ReadRoster(ctx))), merged), true);
         });
     }
@@ -110,6 +113,9 @@ public sealed partial class ChatStore
             {
                 // CM-17: keep the name the row had, in the same transaction, so its conversation stays labelled and readable.
                 ctx.Exec("INSERT OR REPLACE INTO RosterRemoved(rosterEntryId,displayName,removedUtc) VALUES(@id,@name,@now)", ("@id", entryId), ("@name", old.Entry.DisplayName), ("@now", ctx.NowUtc));
+                if (_migrations.Count >= 14)
+                    ctx.Exec("INSERT OR REPLACE INTO ClassroomArchivedContact(rosterEntryId,endpoint,studentNumber,source) VALUES(@id,@ip,@number,@source)",
+                        ("@id", entryId), ("@ip", old.Entry.Endpoint), ("@number", old.Entry.StudentNumber), ("@source", old.Source));
                 ctx.Exec("DELETE FROM RosterEntry WHERE id=@id", ("@id", entryId));
             }
             else ctx.Exec("UPDATE RosterEntry SET peerId=@peer WHERE id=@id", ("@peer", peer), ("@id", entryId));
@@ -171,15 +177,19 @@ public sealed partial class ChatStore
                 if (old.Entry.Endpoint != RosterImportPreview.EffectiveEndpoint(item.Row!, old.Entry))
                     ctx.Exec("UPDATE RosterEntry SET endpoint=NULL WHERE id=@id", ("@id", item.TargetId));
             }
+            string? teacher = snapshot.FirstOrDefault(r => r.Entry.IsTeacher)?.Entry.Id;
             int added = 0, updated = 0;
             foreach (var item in preview.Changes)
             {
                 var row = item.Row!;
+                bool teacherFlag = _migrations.Count < 14 ? row.IsTeacher : teacher is not null ? teacher == item.TargetId : row.IsTeacher;
+                if (_migrations.Count >= 14 && row.IsTeacher && !teacherFlag) ContactDiagnostic("multiple-teachers-ignored");
                 if (item.Action == RosterImportAction.Add)
                 {
                     string newId = newIds[item.Line] = NewRosterId(ctx);
                     ctx.Exec("INSERT INTO RosterEntry(id,displayName,studentNumber,isTeacher,endpoint,source,importBatchId) VALUES(@id,@name,@number,@teacher,@endpoint,'csv',@batch)",
-                        ("@id", newId), ("@name", row.Name), ("@number", row.StudentNumber), ("@teacher", row.IsTeacher ? 1 : 0), ("@endpoint", row.Endpoint), ("@batch", batch));
+                        ("@id", newId), ("@name", row.Name), ("@number", row.StudentNumber), ("@teacher", teacherFlag ? 1 : 0), ("@endpoint", row.Endpoint), ("@batch", batch));
+                    if (teacherFlag) teacher = newId;
                     added++;
                 }
                 else
@@ -187,7 +197,8 @@ public sealed partial class ChatStore
                     // No ip column in the file: keep the stored address (CM-05); an empty ip cell is the only thing that clears it.
                     string? endpoint = RosterImportPreview.EffectiveEndpoint(row, snapshot.Single(s => s.Entry.Id == item.TargetId).Entry);
                     ctx.Exec("UPDATE RosterEntry SET displayName=@name,studentNumber=@number,isTeacher=@teacher,endpoint=@endpoint,source='csv',importBatchId=@batch WHERE id=@id",
-                        ("@id", item.TargetId), ("@name", row.Name), ("@number", row.StudentNumber), ("@teacher", row.IsTeacher ? 1 : 0), ("@endpoint", endpoint), ("@batch", batch));
+                        ("@id", item.TargetId), ("@name", row.Name), ("@number", row.StudentNumber), ("@teacher", teacherFlag ? 1 : 0), ("@endpoint", endpoint), ("@batch", batch));
+                    if (teacherFlag) teacher = item.TargetId;
                     updated++;
                 }
             }
@@ -226,7 +237,7 @@ public sealed partial class ChatStore
         for (int i = 0; i < 3; i++)
         {
             string id = NewUuid();
-            if (Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM RosterEntry WHERE id=@id", ("@id", id)), System.Globalization.CultureInfo.InvariantCulture) == 0) return id;
+            if (Convert.ToInt64(ctx.Scalar("SELECT (SELECT count(*) FROM RosterEntry WHERE id=@id)" + (_migrations.Count >= 8 ? "+(SELECT count(*) FROM RosterRemoved WHERE rosterEntryId=@id)" : ""), ("@id", id)), System.Globalization.CultureInfo.InvariantCulture) == 0) return id;
         }
         throw new InvalidOperationException("Roster id allocation failed.");
     }

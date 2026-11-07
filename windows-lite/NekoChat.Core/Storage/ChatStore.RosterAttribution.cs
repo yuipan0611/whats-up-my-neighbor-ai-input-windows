@@ -106,12 +106,12 @@ public sealed partial class ChatStore
     private static int CountUnknownSource(SqliteConnection c, string ip)
     {
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT (SELECT count(*) FROM LegacyMessage WHERE rosterEntryId IS NULL AND sourceIp=@ip)+(SELECT count(*) FROM ClassroomMessage WHERE principal=@p)";
+        cmd.CommandText = "SELECT (SELECT count(*) FROM LegacyMessage WHERE rosterEntryId IS NULL AND sourceIp=@ip AND (scopeKey='legacy-ip:'||@ip OR NOT EXISTS(SELECT 1 FROM sqlite_master WHERE name='ClassroomArchivedContact')))+(SELECT count(*) FROM ClassroomMessage WHERE principal=@p)";
         cmd.Parameters.AddWithValue("@ip", ip); cmd.Parameters.AddWithValue("@p", "ip:" + ip);
         return (int)Convert.ToInt64(cmd.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
     }
     private static int CountUnknownSource(WriteContext ctx, string ip) => (int)Convert.ToInt64(
-        ctx.Scalar("SELECT (SELECT count(*) FROM LegacyMessage WHERE rosterEntryId IS NULL AND sourceIp=@ip)+(SELECT count(*) FROM ClassroomMessage WHERE principal=@p)", ("@ip", ip), ("@p", "ip:" + ip)),
+        ctx.Scalar("SELECT (SELECT count(*) FROM LegacyMessage WHERE rosterEntryId IS NULL AND sourceIp=@ip AND (scopeKey='legacy-ip:'||@ip OR NOT EXISTS(SELECT 1 FROM sqlite_master WHERE name='ClassroomArchivedContact')))+(SELECT count(*) FROM ClassroomMessage WHERE principal=@p)", ("@ip", ip), ("@p", "ip:" + ip)),
         System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>Only after the user confirmed the count. Messages already owned by a roster row never move.</summary>
@@ -119,7 +119,7 @@ public sealed partial class ChatStore
     {
         string scope = "legacy-row:" + rowId;
         ctx.Exec("INSERT OR IGNORE INTO LegacyScopeRevision(scopeKey) VALUES(@scope)", ("@scope", scope));
-        int moved = ctx.Exec("UPDATE LegacyMessage SET rosterEntryId=@row,scopeKey=@scope WHERE rosterEntryId IS NULL AND sourceIp=@ip", ("@row", rowId), ("@scope", scope), ("@ip", ip));
+        int moved = ctx.Exec("UPDATE LegacyMessage SET rosterEntryId=@row,scopeKey=@scope WHERE rosterEntryId IS NULL AND sourceIp=@ip AND (scopeKey='legacy-ip:'||@ip OR NOT EXISTS(SELECT 1 FROM sqlite_master WHERE name='ClassroomArchivedContact'))", ("@row", rowId), ("@scope", scope), ("@ip", ip));
         return moved + MergeClassroomConversation(ctx, ClassroomPrincipalKey.ForSourceIp(ip), ClassroomPrincipalKey.ForRosterEntry(rowId));
     }
 
@@ -136,6 +136,12 @@ public sealed partial class ChatStore
         string from = "ip:" + ip, to = "roster:" + rowId;
         if (scalar("SELECT count(*) FROM sqlite_master WHERE name='AttachmentDraft'", from, to) != 0 &&
             scalar("SELECT count(*) FROM AttachmentDraft f JOIN AttachmentDraft t ON t.principal=@to WHERE f.principal=@from AND (f.name<>t.name OR f.size<>t.size OR f.sha256<>t.sha256)", from, to) != 0) return MergeConflicts.Draft;
+        if (scalar("SELECT count(*) FROM sqlite_master WHERE name='ClassroomArchivedContact'", from, to) != 0 && scalar("SELECT count(*) FROM ClassroomAttempt f JOIN ClassroomAttempt t ON t.principal=@to AND t.attemptState='sending' WHERE f.principal=@from AND f.attemptState='sending'", from, to) != 0) return "active-send-conflict";
+        if (scalar("SELECT count(*) FROM sqlite_master WHERE name='ClassroomArchivedContact'", from, to) != 0)
+        {
+            if (scalar("SELECT count(*) FROM ClassroomMessage f JOIN ClassroomMessage t ON t.principal=@to AND t.direction=f.direction AND t.messageId=f.messageId WHERE f.principal=@from AND (f.legacyDeliveredAt IS NULL)<>(t.legacyDeliveredAt IS NULL)", from, to) != 0) return MergeConflicts.Message;
+            if (scalar("SELECT count(*) FROM ClassroomMessage f JOIN ClassroomMessage t ON t.principal=@to AND t.direction=f.direction AND t.messageId=f.messageId JOIN Attachment af ON af.localSeq=f.localSeq JOIN Attachment at ON at.localSeq=t.localSeq WHERE f.principal=@from AND (af.state<>at.state OR af.state IN ('receiving','sending'))", from, to) != 0) return MergeConflicts.Message;
+        }
         if (scalar(DraftConflictSql, from, to) != 0) return MergeConflicts.Draft;
         if (scalar(MessageConflictSql, from, to) != 0) return MergeConflicts.Message;
         return null;
@@ -156,12 +162,22 @@ public sealed partial class ChatStore
         ctx.Exec("INSERT OR IGNORE INTO ClassroomConversation(principal,createdUtc) VALUES(@to,@now)", ("@to", to.Value), ("@now", ctx.NowUtc));
         ctx.Exec("INSERT OR IGNORE INTO ClassroomCleared(principal,direction,messageId,clearedUtc) SELECT @to,direction,messageId,clearedUtc FROM ClassroomCleared WHERE principal=@from", ("@to", to.Value), ("@from", from.Value));
         ctx.Exec("DELETE FROM ClassroomCleared WHERE principal=@from", ("@from", from.Value));
+        if (ctx.Scalar("SELECT count(*) FROM sqlite_master WHERE name='ClassroomArchivedContact'") is long modern && modern != 0)
+        {
+            // A duplicate is one logical message: preserve monotone read/stored evidence before deleting its extra row.
+            const string match = "f.principal=@from AND f.direction=ClassroomMessage.direction AND f.messageId=ClassroomMessage.messageId";
+            ctx.Exec("UPDATE ClassroomMessage SET localReadAt=coalesce(localReadAt,(SELECT f.localReadAt FROM ClassroomMessage f WHERE " + match + ")) WHERE principal=@to AND EXISTS(SELECT 1 FROM ClassroomMessage f WHERE " + match + ")", ("@from", from.Value), ("@to", to.Value));
+            ctx.Exec("UPDATE ClassroomMessage SET remoteStoredAt=coalesce(remoteStoredAt,(SELECT f.remoteStoredAt FROM ClassroomMessage f WHERE " + match + ")),remoteReadAt=coalesce(remoteReadAt,(SELECT f.remoteReadAt FROM ClassroomMessage f WHERE " + match + ")) WHERE principal=@to AND legacyDeliveredAt IS NULL AND EXISTS(SELECT 1 FROM ClassroomMessage f WHERE " + match + ")", ("@from", from.Value), ("@to", to.Value));
+            ctx.Exec("INSERT OR IGNORE INTO ClassroomReceiptOutbox(originalLocalSeq,principal,receiptKind,createdUtc) SELECT t.localSeq,@to,o.receiptKind,o.createdUtc FROM ClassroomReceiptOutbox o JOIN ClassroomMessage f ON f.localSeq=o.originalLocalSeq AND f.principal=@from JOIN ClassroomMessage t ON t.principal=@to AND t.direction=f.direction AND t.messageId=f.messageId", ("@from", from.Value), ("@to", to.Value));
+        }
         ctx.Exec("DELETE FROM ClassroomMessage WHERE principal=@from AND EXISTS(SELECT 1 FROM ClassroomMessage t WHERE t.principal=@to AND t.direction=ClassroomMessage.direction AND t.messageId=ClassroomMessage.messageId)", ("@from", from.Value), ("@to", to.Value));
         ctx.Exec("UPDATE ClassroomMessage SET principal=@to WHERE principal=@from", ("@to", to.Value), ("@from", from.Value));
         ctx.Exec("UPDATE ClassroomReceiptOutbox SET principal=@to WHERE principal=@from", ("@to", to.Value), ("@from", from.Value));
         if (Convert.ToInt64(ctx.Scalar("SELECT count(*) FROM ClassroomAttempt WHERE principal=@to AND attemptState='sending'", ("@to", to.Value)), System.Globalization.CultureInfo.InvariantCulture) != 0)
             ctx.Exec("UPDATE ClassroomAttempt SET attemptState='superseded',updatedUtc=@now WHERE principal=@from AND attemptState='sending'", ("@now", ctx.NowUtc), ("@from", from.Value));
         ctx.Exec("UPDATE ClassroomAttempt SET principal=@to WHERE principal=@from", ("@to", to.Value), ("@from", from.Value));
+        if (ctx.Scalar("SELECT count(*) FROM sqlite_master WHERE name='ClassroomOutbox'") is long outbox && outbox != 0)
+            ctx.Exec("UPDATE ClassroomOutbox SET principal=@to WHERE principal=@from", ("@to", to.Value), ("@from", from.Value));
         // Not a conflict here: only one side has a draft, or both are identical. Keep the non-empty one (once).
         if (ctx.Scalar("SELECT rawText FROM ClassroomDraft WHERE principal=@from", ("@from", from.Value)) is string draft)
         {

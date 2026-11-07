@@ -12,7 +12,7 @@
 - Then 改為開啟，並在設定頁與首次開啟聊天視窗時提示一次「已讀回條現在預設開啟，可在設定關閉」
 - Given 舊版 enabled=false 且 generation>0（工程上視為使用者關閉）
 - Then 升級後維持關閉；既有 enabled=true 也維持開啟
-- And 新版起持久記錄 explicitChoice 與 noticeShown；Core 提供待提示／確認已顯示 API，WPF 提示另驗
+- And 新版起持久記錄 explicitChoice 與 noticeShown；Core 僅對此次由預設關閉改為開啟的升級提供待提示／確認已顯示 API；新安裝不顯示「升級變更」通知，既有明確選擇不重複提示，WPF 提示另驗
 - And 已知限制：舊版點選原本已關閉的選項但 generation 未增加無法識別，依 PM 裁決仍視為從未設定並開啟；不聲稱可還原不存在的使用者操作歷史
 
 **RR-03 對方回線後自動補送**

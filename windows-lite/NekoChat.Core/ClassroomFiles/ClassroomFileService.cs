@@ -36,7 +36,7 @@ public sealed class ClassroomFileService : IAsyncDisposable
         _store=store; _attachments=attachments; _secrets=secrets; _peers=peers; _ownIp=ownIp;
         NodeId=store.EnsureClassroomFileNode(); store.RecoverClassroomFiles();
     }
-    private SharePeer[] Peers() => _peers().Where(p=>LanInvitation.PrivateIPv4(p.Ip)&&p.Port is >0 and <=65535).Distinct().OrderByDescending(p=>p.Teacher).ThenBy(p=>p.Ip,StringComparer.Ordinal).Take(64).ToArray();
+    private SharePeer[] Peers() => _peers().Where(p=>!_store.IsAutomaticContact(p.Ip)&&LanInvitation.PrivateIPv4(p.Ip)&&p.Port is >0 and <=65535).Distinct().OrderByDescending(p=>p.Teacher).ThenBy(p=>p.Ip,StringComparer.Ordinal).Take(64).ToArray();
     private bool Allowed(string ip) => Peers().Any(p=>p.Ip==ip);
     public bool IsTeacherNode { get; set; }
     public string HostStatus => IsTeacherNode ? "本機提供課堂檔案 · 同學協助備援" : Peers().Any(p=>p.Teacher&&Recent(_online.GetValueOrDefault(p))) ? "老師電腦在線" : _online.Any(p=>Recent(p.Value)) ? "同學備援接管中" : "本機模式 · 等待其他節點上線";

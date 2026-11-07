@@ -41,6 +41,16 @@ public interface IChatStore : IDisposable
     ReceiptApplyResult ApplyRemoteReceipt(string verifiedPeerId, string messageId, RemoteReceiptKind kind, string? originalSenderId = null);
     MessagePage ListMessages(string conversationId, long? beforeLocalSeq = null, int pageSize = 50);
     ClearResult ClearConversation(string conversationId);
+    event Action<string>? ClassroomCommunicationSucceeded;
+    void RecordClassroomCommunicationSuccess(string sourceIp);
+    ReadReceiptPreferences GetReadReceiptPreferences();
+    void AcknowledgeReadReceiptNotice();
+    string? GetClassroomTeacherIp();
+    RosterMutationResult ConfirmAutomaticContact(string entryId, string expectedSnapshotToken);
+    RosterMutationResult SetClassroomTeacher(string entryId, string expectedSnapshotToken);
+    RosterMutationResult SetClassroomTeacherByIp(string ip, string expectedSnapshotToken);
+    RosterMutationResult ClearClassroomTeacher(string entryId, string expectedSnapshotToken);
+    bool CanAutoReceiveAttachments(ClassroomPrincipalKey principal);
     ReadReceiptPolicy GetReadReceiptPolicy();
     ReadPolicyChange SetReadReceiptPolicy(bool enabled);
     VisibleReadResult MarkVisibleRead(string conversationId, IReadOnlyList<long> visibleLocalSeqs, VisibleReadContext context, Func<bool>? visibilityStillCurrent = null);
@@ -68,7 +78,7 @@ public interface IChatStore : IDisposable
     CancelResult CancelClassroomAttempt(string messageId, int? expectedTryCount = null);
     ReceiptApplyResult ApplyClassroomReceipt(string sourceIp, string messageId, RemoteReceiptKind kind);
     VisibleReadResult MarkClassroomVisibleRead(ClassroomPrincipalKey principal, IReadOnlyList<long> visibleLocalSeqs, VisibleReadContext context, Func<bool>? visibilityStillCurrent = null);
-    IReadOnlyList<PendingClassroomReceipt> ListPendingClassroomReceipts(int limit = 50);
+    IReadOnlyList<PendingClassroomReceipt> ListPendingClassroomReceipts(int limit = 50, long? afterLocalSeq = null);
     bool CompleteClassroomReadReceipt(PendingClassroomReceipt receipt);
     ClassroomMessagePage ListClassroomMessages(ClassroomPrincipalKey principal, long? beforeLocalSeq = null, int pageSize = 50);
     IReadOnlyList<ClassroomConversationSummary> ListClassroomConversations(int limit = 200);

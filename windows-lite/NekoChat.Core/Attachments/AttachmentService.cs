@@ -255,7 +255,7 @@ public sealed class AttachmentService : IAsyncDisposable
                 {
                     try { MessageStored?.Invoke(sourceIp, record.Caption.Length == 0 ? "附件：" + file.Name : record.Caption); } catch { }
                     Notify();
-                    if (ClassroomPrincipalKey.TryParse(record.Principal, out var principal) && AttachmentLimits.Automatic(principal.IsRoster, file.Size))
+                    if (ClassroomPrincipalKey.TryParse(record.Principal, out var principal) && AttachmentLimits.Automatic(_store.CanAutoReceiveAttachments(principal), file.Size))
                     {
                         _store.EnqueueAttachmentDownload(record);
                         try { _ = DownloadAsync(record.LocalSeq).ContinueWith(task => { _ = task.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default); }

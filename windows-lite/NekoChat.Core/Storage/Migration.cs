@@ -10,10 +10,12 @@ internal sealed class WriteContext
     internal SqliteTransaction Tx { get; }
     internal string NowUtc { get; }
     internal string AppVersion { get; }
+    internal string? LegacyTeacherIp { get; }
+    internal bool FreshInstall { get; }
 
-    internal WriteContext(SqliteConnection conn, SqliteTransaction tx, string nowUtc, string appVersion)
+    internal WriteContext(SqliteConnection conn, SqliteTransaction tx, string nowUtc, string appVersion, string? legacyTeacherIp = null, bool freshInstall = false)
     {
-        Conn = conn; Tx = tx; NowUtc = nowUtc; AppVersion = appVersion;
+        Conn = conn; Tx = tx; NowUtc = nowUtc; AppVersion = appVersion; LegacyTeacherIp = legacyTeacherIp; FreshInstall = freshInstall;
     }
 
     internal SqliteCommand Make(string sql, params (string Name, object? Value)[] parameters)
@@ -91,7 +93,13 @@ internal sealed record Migration(int ToVersion, Action<WriteContext> Apply, bool
     internal static Migration V11 { get; } = new(11, ctx => ctx.Exec(AttachmentSchema.Sql));
     internal static Migration V12 { get; } = new(12, ctx => ctx.Exec(ClassroomFilesSchema.Sql));
     internal static Migration V13 { get; } = new(13, ctx => ctx.Exec(ClassroomOutboxSchema.Sql));
-    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13 };
+    internal static Migration V14 { get; } = new(14, ctx => {
+        ctx.Exec(ChatUxSchema.Sql);
+        ctx.Exec("UPDATE ReadReceiptPolicy SET noticeShown=CASE WHEN @fresh=1 OR generation>0 OR enabled=1 THEN 1 ELSE 0 END, explicitChoice=CASE WHEN generation>0 THEN 1 ELSE 0 END, enabled=CASE WHEN enabled=0 AND generation=0 THEN 1 ELSE enabled END, generation=CASE WHEN enabled=0 AND generation=0 THEN 1 ELSE generation END", ("@fresh", ctx.FreshInstall ? 1 : 0));
+        ctx.Exec("UPDATE RosterEntry SET isTeacher=0 WHERE isTeacher=1 AND id<>coalesce((SELECT id FROM RosterEntry WHERE isTeacher=1 ORDER BY CASE WHEN endpoint=@ip THEN 0 ELSE 1 END,id LIMIT 1),'')", ("@ip", ctx.LegacyTeacherIp));
+        ctx.Exec(ChatUxSchema.TeacherIndex);
+    });
+    internal static IReadOnlyList<Migration> Default { get; } = new[] { V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14 };
 
     internal static string ReadSchemaV1()
     {

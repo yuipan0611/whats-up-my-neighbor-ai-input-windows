@@ -15,6 +15,8 @@ public sealed record ChatStoreOptions(string DataDirectory)
     public Func<DateTime> UtcNow { get; init; } = () => DateTime.UtcNow;
     public Func<string> NewId { get; init; } = () => Guid.NewGuid().ToString("D");
     public string AppVersion { get; init; } = "";
+    /// <summary>Legacy JSON hint used only to choose among pre-v14 teacher rows.</summary>
+    public string? LegacyTeacherIp { get; init; }
     /// <summary>Receives size-only diagnostics (never message content).</summary>
     public Action<string>? DiagnosticSink { get; init; }
     public DiagnosticJournal? Diagnostics { get; init; }

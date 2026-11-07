@@ -13,6 +13,8 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
     private readonly IChatStore _store;
     private readonly DiagnosticJournal? _diagnostics;
 
+    public void OnCommunicationSucceeded(string sourceIp) => _store.RecordClassroomCommunicationSuccess(sourceIp);
+
     public event Action<string, string, string?>? MessageStored;
     public event Action<string, string>? ReceiptStored;
     public event Action<LegacyDeliveryNotice>? LegacyMessageStored;
@@ -36,6 +38,7 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
 
         if (result is ClassroomStored stored)
         {
+            OnCommunicationSucceeded(sourceIp);
             _diagnostics?.Record(DiagnosticStage.ReceiveCommit, DiagnosticOutcome.Succeeded, messageId: request.MessageId);
             byte[] ack = ClassroomPacketWriter.MessageAck("stored", request.MessageId!, request.Session!, sourceIp, localIp, request.Reaction, request.Text!);
             try { MessageStored?.Invoke(sourceIp, request.Text!, request.Reaction); }
@@ -45,6 +48,7 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
 
         if (result is ClassroomDuplicate or ClassroomClearedDuplicate)
         {
+            OnCommunicationSucceeded(sourceIp);
             _diagnostics?.Record(DiagnosticStage.ReceiveCommit, DiagnosticOutcome.Succeeded, DiagnosticCode.Duplicate, messageId: request.MessageId);
             byte[] ack = ClassroomPacketWriter.MessageAck("duplicate", request.MessageId!, request.Session!, sourceIp, localIp, request.Reaction, request.Text!);
             return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(200, ack));
@@ -105,10 +109,11 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
         var result = _store.ReceiveLegacyMessage(message, captured, stillCurrent);
         if (result.Stored)
         {
+            OnCommunicationSucceeded(sourceIp);
             _diagnostics?.Record(DiagnosticStage.ReceiveCommit, DiagnosticOutcome.Succeeded);
             if (result.LegacySeq is { } seq)
             {
-                try { LegacyMessageStored?.Invoke(new(sourceIp, captured.Scope, seq, message.Reaction ?? ClassroomReactions.MatchText(message.Text)?.Id)); } catch (Exception error) when (DiagnosticFault.Catchable(error)) { _diagnostics?.Record(DiagnosticStage.ReceiveNotify, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, error); }
+                try { LegacyMessageStored?.Invoke(new(sourceIp, _store.GetLegacyReceiveContext(sourceIp).Scope, seq, message.Reaction ?? ClassroomReactions.MatchText(message.Text)?.Id)); } catch (Exception error) when (DiagnosticFault.Catchable(error)) { _diagnostics?.Record(DiagnosticStage.ReceiveNotify, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, error); }
             }
             byte[] response = "{\"status\":\"delivered\"}"u8.ToArray();
             return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(200, response));

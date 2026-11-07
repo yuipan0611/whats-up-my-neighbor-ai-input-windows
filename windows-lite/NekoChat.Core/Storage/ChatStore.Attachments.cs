@@ -89,7 +89,8 @@ public sealed partial class ChatStore
                 return ((prior, false), false);
             }
             if (ctx.Scalar("SELECT count(*) FROM ClassroomMessage WHERE principal=@p AND direction='incoming' AND messageId=@id", ("@p", principal.Value), ("@id", messageId)) is long collision && collision != 0) throw new AttachmentException("conflict");
-            if (!principal.IsRoster && OffRosterLimit(ctx, sourceIp, Encoding.UTF8.GetByteCount(caption) + 512) is not null) throw new AttachmentException("rate_limited");
+            if (UsesAutomaticBudget(ctx, principal) && OffRosterLimit(ctx, sourceIp, Encoding.UTF8.GetByteCount(caption) + 512) is not null) throw new AttachmentException("rate_limited");
+            principal = AutoContact(ctx, sourceIp);
             EnsureClassroomConversation(ctx, principal);
             long epoch = Convert.ToInt64(ctx.Scalar("SELECT attachmentEpoch FROM ClassroomConversation WHERE principal=@p", ("@p", principal.Value)), CultureInfo.InvariantCulture);
             var localFile = wireFile with { BlobId = Guid.NewGuid().ToString("N") };

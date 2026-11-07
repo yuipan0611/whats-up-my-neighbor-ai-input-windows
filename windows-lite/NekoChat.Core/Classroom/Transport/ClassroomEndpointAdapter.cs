@@ -10,6 +10,7 @@ namespace NekoChat.Core.Classroom.Transport;
 /// </summary>
 public interface IClassroomTransportSink
 {
+    void OnCommunicationSucceeded(string sourceIp) { }
     Task<ClassroomTransportResponse?> OnMessageAsync(string sourceIp, string localIp, ClassroomRequest request, Func<bool> stillCurrent, CancellationToken cancellation);
     Task<ClassroomTransportResponse?> OnReceiptAsync(string sourceIp, string localIp, ClassroomRequest request, Func<bool> stillCurrent, CancellationToken cancellation);
     Task<ClassroomTransportResponse?> OnLegacyDirectAsync(string sourceIp, DirectMessage message, Func<bool> stillCurrent, CancellationToken cancellation);
@@ -170,6 +171,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         }
 
         string session = _sessions.Issue(sourceIp);
+        try { _sink?.OnCommunicationSucceeded(sourceIp); } catch { }
         byte[] ack = ClassroomPacketWriter.HelloOk(v.Request!.ClientNonce!, session, localIp, sourceIp, _capabilities);
         return new ClassroomTransportResponse(200, ack);
     }
