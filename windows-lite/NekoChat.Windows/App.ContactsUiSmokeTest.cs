@@ -37,16 +37,51 @@ public partial class App
 
     private static ContextMenu[] ContactsOpenMenus() => PresentationSource.CurrentSources.OfType<HwndSource>()
         .Where(source => source.RootVisual is not null).SelectMany(source => SmokeVisuals<ContextMenu>(source.RootVisual!)).Where(menu => menu.IsOpen).Distinct().ToArray();
-    private static MenuItem ContactsDeleteItem(ContextMenu menu) => menu.Items.OfType<MenuItem>().Single(item =>
+    private static bool ContactsIsDeleteItem(MenuItem item) =>
         (item.Header as string)?.StartsWith("從這台電腦刪除", StringComparison.Ordinal) == true ||
-        (item.Header as string)?.StartsWith("停止傳送並刪除", StringComparison.Ordinal) == true);
-    private static async Task<ContextMenu> ContactsOpenMessageMoreAsync(MessageCard card, CancellationToken cancellation)
+        (item.Header as string)?.StartsWith("停止傳送並刪除", StringComparison.Ordinal) == true;
+    private static MenuItem ContactsDeleteItem(ContextMenu menu) => menu.Items.OfType<MenuItem>().Single(ContactsIsDeleteItem);
+    private static async Task<ContextMenu> ContactsOpenMessageMoreAsync(MessageHistoryView history, MessageView message,
+        Func<Func<bool>, Func<string>, Task> wait)
     {
-        var more = SmokeVisuals<Button>(card).Single(button => System.Windows.Automation.AutomationProperties.GetName(button) == "訊息操作");
-        more.Focus(); more.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation); timeout.CancelAfter(TimeSpan.FromSeconds(8));
-        await UntilAsync(() => ContactsOpenMenus().Any(menu => menu.ActualWidth > 0 && menu.ActualHeight > 0 && menu.Items.OfType<MenuItem>().Any(item => (item.Header as string)?.Contains("刪除", StringComparison.Ordinal) == true)), timeout.Token);
-        return ContactsOpenMenus().Single(menu => menu.Items.OfType<MenuItem>().Any(item => (item.Header as string)?.Contains("刪除", StringComparison.Ordinal) == true));
+        MessageCard[] cards = []; Button[] buttons = []; Button? clicked = null; ContextMenu? opened = null;
+        string lastObserved = "not polled";
+        string CurrentItems() => "cards=" + cards.Length + "; buttons=[" + string.Join(", ", buttons.Select(button =>
+            $"{button.Content} ({System.Windows.Automation.AutomationProperties.GetName(button)}; enabled={button.IsEnabled})")) +
+            "]; open menus=[" + string.Join("; ", ContactsOpenMenus().Select(menu =>
+                "target=" + (menu.PlacementTarget as Button)?.Content + ": " + string.Join(", ", menu.Items.OfType<MenuItem>().Select(item => item.Header?.ToString())))) + "]";
+        string ActualItems() => "last observed: " + lastObserved + "; current: " + CurrentItems();
+        bool Observe(bool ready) { lastObserved = CurrentItems(); return ready; }
+        history.ScrollIntoView(message);
+        await wait(() => {
+            // MessageCard.Build replaces Content on an action/delivery refresh. A realized card
+            // can still have an old visual subtree until WPF applies its next layout/template.
+            history.UpdateLayout();
+            buttons = [];
+            cards = SmokeVisuals<MessageCard>(history).Where(card => ReferenceEquals(card.Message, message)).ToArray();
+            if (cards.Length > 1) throw new InvalidOperationException("Ambiguous message card: " + ActualItems());
+            if (cards.Length == 0) return Observe(false);
+            var card = cards.Single(); card.ApplyTemplate(); card.UpdateLayout();
+            if (card.Content is not DependencyObject body) return Observe(false);
+            buttons = SmokeVisuals<Button>(body).ToArray();
+            var candidates = buttons.Where(button => System.Windows.Automation.AutomationProperties.GetName(button) == "訊息操作").ToArray();
+            if (candidates.Length > 1) throw new InvalidOperationException("Ambiguous message more button: " + ActualItems());
+            if (candidates.Length == 0) return Observe(false);
+            var more = candidates.Single();
+            if (!more.IsLoaded || !more.IsVisible || !more.IsEnabled || more.ActualWidth <= 0 || more.ActualHeight <= 0) return Observe(false);
+            if (!ReferenceEquals(clicked, more))
+            {
+                if (clicked is not null) foreach (var stale in ContactsOpenMenus().Where(menu => menu.PlacementTarget == clicked)) stale.IsOpen = false;
+                more.Focus(); more.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); clicked = more;
+            }
+            var menus = ContactsOpenMenus().Where(menu => menu.PlacementTarget == clicked && menu.ActualWidth > 0 && menu.ActualHeight > 0 &&
+                menu.Items.OfType<MenuItem>().Count(ContactsIsDeleteItem) == 1 &&
+                menu.Items.OfType<MenuItem>().Count(item => Equals(item.Header, "複製整則原文")) == 1).ToArray();
+            if (menus.Length > 1) throw new InvalidOperationException("Ambiguous message action menu: " + ActualItems());
+            if (menus.Length == 0) return Observe(false);
+            opened = menus.Single(); return Observe(true);
+        }, ActualItems);
+        return opened ?? throw new InvalidOperationException("Message action menu missing after wait: " + ActualItems());
     }
     private static void CaptureContactsElement(FrameworkElement element, string file)
     {
@@ -56,6 +91,16 @@ public partial class App
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(element);
         var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var output = File.Create(file); encoder.Save(output);
+    }
+    private static bool ContactsSameBitmap(ImageSource? actual, BitmapSource expected)
+    {
+        if (actual is not BitmapSource bitmap || bitmap.PixelWidth != expected.PixelWidth || bitmap.PixelHeight != expected.PixelHeight) return false;
+        var left = new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+        var right = new FormatConvertedBitmap(expected, PixelFormats.Bgra32, null, 0);
+        int stride = checked(left.PixelWidth * 4);
+        byte[] first = new byte[checked(stride * left.PixelHeight)], second = new byte[first.Length];
+        left.CopyPixels(first, stride, 0); right.CopyPixels(second, stride, 0);
+        return first.SequenceEqual(second);
     }
 
     private async Task<int> RunContactsUiSmokeAsync(string outputDirectory)
@@ -81,17 +126,26 @@ public partial class App
                 throw new InvalidOperationException("Smoke refuses any settings/runtime profile mismatch before opening data.");
         }
         void Check(bool condition, string label) { if (!condition) throw new InvalidOperationException(label); checks.Add(label); }
-        async Task Wait(Func<bool> condition, string label)
+        async Task Wait(Func<bool> condition, string label, Func<string>? details = null)
         {
             using var step = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token); step.CancelAfter(TimeSpan.FromSeconds(12));
             try { while (!condition()) await Task.Delay(25, step.Token); }
-            catch (OperationCanceledException) { throw new TimeoutException(label); }
+            catch (OperationCanceledException) { throw new TimeoutException(label + (details is null ? "" : "; " + details())); }
         }
         void Shot(string name, FrameworkElement? element = null)
         {
             string file = $"{captures.Count + 1:D2}-{name}.png"; CaptureContactsElement(element ?? window!, Path.Combine(output, file)); captures.Add(file);
         }
         void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        void ReadOnlyTools(string stage)
+        {
+            Check(!window!.AttachFileButton.IsEnabled && !window.InsertCodeButton.IsEnabled && !window.CodeLanguage.IsEnabled && !window.StickerButton.IsEnabled,
+                stage + " read-only attachment/code/sticker entrypoints are disabled");
+            window.AttachFileButton.ApplyTemplate(); window.UpdateLayout();
+            var border = window.AttachFileButton.Template.FindName("border", window.AttachFileButton) as Border;
+            Check(border is not null && border.Opacity <= 0.5 && window.AttachFileButton.Cursor == System.Windows.Input.Cursors.Arrow,
+                stage + " disabled paperclip has a real dimmed template and normal cursor");
+        }
         ByteArrayContent Packet(byte[] bytes) { var content = new ByteArrayContent(bytes); content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json"); return content; }
         InboxRowView Row(string ip) => window!.InboxList.Items.OfType<InboxRowView>().Single(row => row.Entry.Endpoint == ip);
         void RightClick(FrameworkElement element)
@@ -146,6 +200,8 @@ public partial class App
             await Wait(() => window.SmokeContactsViewIdle && SmokeVisuals<MessageCard>(window.History).Any(card => ReferenceEquals(card.Message, message)), "message card/read/autosave view not settled");
             return SmokeVisuals<MessageCard>(window.History).Single(card => ReferenceEquals(card.Message, message));
         }
+        Task<ContextMenu> More(MessageView message) => ContactsOpenMessageMoreAsync(window!.History, message,
+            (condition, details) => Wait(condition, "message more menu/button/items did not become ready", details));
         try
         {
             AssertProfile(source); Check(source.Save(), "isolated Settings saved"); ContactsUiSmokeSeed.CreateV13(profile, UiTestOptions.AssertSafeDataDirectory);
@@ -160,7 +216,14 @@ public partial class App
             Check(window.InboxList.Items.OfType<InboxRowView>().Count(row => row.Entry.Endpoint == ContactsOldIp) == 1, "CT-02 upgrade retains one unknown history before new ingress");
             await window.SmokeOpenEntryAsync(entry => entry.Endpoint == ContactsOldIp);
             Check(window.History.Rows.Any(row => row.RawText == "合成舊版歷史：保留這則訊息") && window.Draft.Text == "合成升級前草稿", "CT-02 actual WPF preserves history and draft after migration");
-            window.SettingsPane.Visibility = Visibility.Visible; Shot("upgrade-notice-once-and-settings"); window.SettingsPane.Visibility = Visibility.Collapsed;
+            window.SettingsPane.Visibility = Visibility.Visible; window.UpdateLayout();
+            double Top(FrameworkElement element) => element.TranslatePoint(new Point(), window).Y;
+            Check(window.ReadReceiptSettingsGroup.Children.IndexOf(window.ReadReceiptToggle) == 0 && window.ReadReceiptSettingsGroup.Children.IndexOf(window.ReadReceiptHelp) == 1 &&
+                Top(window.ReadReceiptHelp) >= Top(window.ReadReceiptToggle) + window.ReadReceiptToggle.ActualHeight &&
+                Top(window.ClearAttachmentCacheButton) >= Top(window.ReadReceiptHelp) + window.ReadReceiptHelp.ActualHeight &&
+                Top(window.AttachmentCacheHelp) >= Top(window.ClearAttachmentCacheButton) + window.ClearAttachmentCacheButton.ActualHeight,
+                "settings receipt explanation is directly below its toggle, before cache button and separate attachment help");
+            Shot("upgrade-notice-once-and-settings"); window.SettingsPane.Visibility = Visibility.Collapsed;
             // Read state is still exercised locally; outbound LAN loops were not started.
             var mapped = new ContactsSmokeSink(runtime);
             synthetic = new(new ClassroomEndpointAdapter(mapped, capabilities: ["msg.plain", "receipt.read"]), new() { BindAddress = IPAddress.Loopback, Port = 0 }); synthetic.Start();
@@ -186,7 +249,14 @@ public partial class App
             await Incoming("合成陌生來訊，重送也只能一條");
             await synthetic.DisposeAsync(); synthetic = null;
             await Wait(() => window.InboxList.Items.OfType<InboxRowView>().Count(row => row.Entry.Endpoint == ContactsIncomingIp) == 1, "CT-01 auto contact not projected");
-            Check(await runtime.Worker.Run(s => s.GetRosterSnapshot().Single(row => row.Entry.Endpoint == ContactsIncomingIp).Source == "auto" && s.ListClassroomMessages(s.ResolveClassroomPrincipal(ContactsIncomingIp)!.Value).Items.Count == 1), "CT-01 real stored automatic contact and deduplicated body"); Shot("incoming-one-auto-contact");
+            Check(await runtime.Worker.Run(s => s.GetRosterSnapshot().Single(row => row.Entry.Endpoint == ContactsIncomingIp).Source == "auto" && s.ListClassroomMessages(s.ResolveClassroomPrincipal(ContactsIncomingIp)!.Value).Items.Count == 1), "CT-01 real stored automatic contact and deduplicated body");
+            window.UpdateLayout();
+            var avatars = SmokeVisuals<Image>(window.InboxList).Where(image => image.DataContext is InboxRowView).ToArray();
+            Check(avatars.Length == window.InboxList.Items.Count && avatars.All(image => {
+                var entry = ((InboxRowView)image.DataContext).Entry;
+                int index = NekoChat.Core.Presentation.PeerAvatarPolicy.PresetIndex(entry.PeerId ?? entry.RosterId, entry.StudentNumber ?? entry.DisplayName, CatArtwork.KnownPresets.Length);
+                return ContactsSameBitmap(image.Source, CatArtwork.Preset(CatArtwork.KnownPresets[index]));
+            }), "CT-14 actual list avatar pixels match stable identity mapping and existing coat assets, not presence state"); Shot("incoming-one-auto-contact");
             await AddContact(false);
             await window.SmokeOpenEntryAsync(entry => entry.Endpoint == ContactsOldIp);
             Check(window.SmokeSelectedEntry?.Endpoint != ContactsManualIp, "CT-11 starts on a different conversation before duplicate add");
@@ -203,7 +273,8 @@ public partial class App
             await runtime.Worker.Run(s => s.ReceiveClassroomMessage(ContactsManualIp, new(Guid.NewGuid().ToString("D"), "合成正文：測試訊息選單"), () => true));
             await window.SmokeOpenEntryAsync(entry => entry.Endpoint == ContactsManualIp);
             var stored = window.History.Rows.Single(row => row.RawText == "合成正文：測試訊息選單"); var card = await Card(stored);
-            var moreMenu = await ContactsOpenMessageMoreAsync(card, deadline.Token); Check(ContactsDeleteItem(moreMenu).IsEnabled, "MD-01 visible message more menu offers local deletion"); Shot("message-more-delete", moreMenu); moreMenu.IsOpen = false;
+            var moreMenu = await More(stored); Check(ContactsDeleteItem(moreMenu).IsEnabled, "MD-01 visible message more menu offers local deletion"); Shot("message-more-delete", moreMenu); moreMenu.IsOpen = false;
+            card = await Card(stored);
             RightClick(SmokeVisuals<TextBox>(card).Single(box => box.Text == stored.RawText));
             await Wait(() => ContactsOpenMenus().Any(menu => menu.ActualWidth > 0 && menu.ActualHeight > 0 && menu.Items.OfType<MenuItem>().Any(item => Equals(item.Header, "從這台電腦刪除…"))), "body right-click did not expose local delete");
             var bodyMenu = ContactsOpenMenus().Single(menu => menu.Items.OfType<MenuItem>().Any(item => Equals(item.Header, "從這台電腦刪除…")));
@@ -212,7 +283,9 @@ public partial class App
             var attempt = await runtime.Worker.Run(s => { var p = s.ResolveClassroomPrincipal(ContactsManualIp)!.Value; var d = s.GetClassroomDraftState(p); return (AttemptStarted)s.BeginClassroomSend(p, d.RawText!, d.Epoch, d.Revision); });
             await window.SmokeOpenEntryAsync(entry => entry.Endpoint == ContactsManualIp);
             var pending = window.History.Rows.Single(row => row.AttemptId == attempt.MessageId);
-            var disabledMenu = await ContactsOpenMessageMoreAsync(await Card(pending), deadline.Token); var disabled = ContactsDeleteItem(disabledMenu);
+            await Card(pending);
+            pending.RefreshActions(); // Exercise the real deferred Content rebuild before inspecting its new button tree.
+            var disabledMenu = await More(pending); var disabled = ContactsDeleteItem(disabledMenu);
             Check(!disabled.IsEnabled && (disabled.ToolTip as string)?.Contains("傳送中", StringComparison.Ordinal) == true, "MD-03 real sending attempt disables deletion with a reason"); Shot("sending-delete-disabled", disabledMenu); disabledMenu.IsOpen = false;
             await runtime.Worker.Run(s => s.CompleteClassroomAttempt(attempt.MessageId, new FailedOutcome("offline"), null, attempt.TryCount));
             await window.SmokeOpenEntryAsync(entry => entry.Endpoint == ContactsManualIp);
@@ -248,16 +321,20 @@ public partial class App
                 "CT-13 archived composer shows only a read-only prompt, never the retained editable-looking draft");
             await window.SmokeFlushContactDraftAsync();
             Check(await runtime.Worker.Run(s => s.GetClassroomDraftState(removedPrincipal)) == retainedDraft && window.SmokeContactDraft(removedPrincipal.Value) == retainedDraft.RawText,
-                "CT-13 archive rendering/flush preserves exact SQLite draft epoch/revision/text and memory buffer"); Shot("removed-archive-readonly-prompt-draft-retained");
+                "CT-13 archive rendering/flush preserves exact SQLite draft epoch/revision/text and memory buffer");
+            ReadOnlyTools("CT-13 archive");
+            await Wait(() => SmokeVisuals<Button>(window.History).Any(button => Equals(button.Content, "停止後續重試") && button.IsEnabled), "archived failed attempt lost its local stop action");
+            Check(window.CancelAttemptButton.IsEnabled && window.History.Rows.Any(row => row.AttemptId == attempt.MessageId && row.CancelSend is not null),
+                "CT-13 local stop remains available for an old failed attempt; read-only does not authorize a new send"); Shot("removed-archive-readonly-prompt-draft-retained");
             window.InboxFilter.SelectedIndex = 0;
             await Wait(() => window.InboxList.Items.OfType<InboxRowView>().All(row => row.Entry.Id != removedId), "CT-13 removed row leaked back into general filter");
             await Action(ContactsOldIp, "封鎖", () => window.InboxFilter.SelectedIndex == 3 && window.InboxList.Items.OfType<InboxRowView>().Any(row => row.Entry.Endpoint == ContactsOldIp && row.Entry.Blocked));
-            Check(window.Draft.IsReadOnly && !window.SendButton.IsEnabled && window.Draft.Text.Length == 0 && window.DraftPlaceholder.IsVisible && window.DraftPlaceholder.Text.Contains("已封鎖", StringComparison.Ordinal), "BK-01/06 blocked conversation is separate with an explicit read-only prompt"); Shot("blocked-readonly");
+            Check(window.Draft.IsReadOnly && !window.SendButton.IsEnabled && window.Draft.Text.Length == 0 && window.DraftPlaceholder.IsVisible && window.DraftPlaceholder.Text.Contains("已封鎖", StringComparison.Ordinal), "BK-01/06 blocked conversation is separate with an explicit read-only prompt"); ReadOnlyTools("BK-01/06 blocked"); Shot("blocked-readonly");
             await Action(ContactsOldIp, "解除封鎖", () => window.InboxFilter.SelectedIndex == 0 && window.SmokeContactsViewIdle && window.SmokeSelectedEntry is { Blocked: false } && window.Draft.IsEnabled);
             Check(window.Draft.Text == "合成升級前草稿", "CT-13/BK-06 restoring an editable contact restores the retained draft projection"); Shot("unblocked-retained-draft-restored");
             await Action(ContactsOldIp, "封鎖", () => window.InboxFilter.SelectedIndex == 3 && window.SmokeContactsViewIdle && window.SmokeSelectedEntry is { Blocked: true } && window.Draft.IsReadOnly);
             await Action(ContactsIncomingIp, "封鎖", () => window.TeachersList.Items.Count == 0 && window.SetTeacherButton.IsVisible && window.InboxList.Items.OfType<InboxRowView>().Any(row => row.Entry.Endpoint == ContactsIncomingIp && row.Entry.Blocked));
-            Check(hooks.Prompts.Any(p => p.Text.Contains("取消此對象的老師身分", StringComparison.Ordinal)) && Settings.LoadWithStatus(source.PersistencePath).Value.TeacherIp == "", "BK-07 teacher block warns, clears pinned teacher and Settings projection"); Shot("blocked-teacher-add-teacher-visible");
+            Check(hooks.Prompts.Any(p => p.Text.Contains("取消此對象的老師身分", StringComparison.Ordinal)) && Settings.LoadWithStatus(source.PersistencePath).Value.TeacherIp == "", "BK-07 teacher block warns, clears pinned teacher and Settings projection"); ReadOnlyTools("BK-07 blocked teacher"); Shot("blocked-teacher-add-teacher-visible");
             // Empty filtered-list branch: use the real contact form and removal menu, not synthetic selection state.
             window.InboxFilter.SelectedIndex = 0;
             const string lastIp = "10.251.232.13";
@@ -276,7 +353,7 @@ public partial class App
             window.InboxList.SelectedItem = window.InboxList.Items.OfType<InboxRowView>().Single(row => row.Entry.Id == lastId);
             await Wait(() => window.SmokeContactsViewIdle && window.SmokeSelectedEntry?.Id == lastId && window.Draft.IsReadOnly, "CT-13 last archived conversation did not settle");
             Check(!window.Draft.IsEnabled && !window.SendButton.IsEnabled && window.Draft.Text.Length == 0 && window.DraftPlaceholder.IsVisible,
-                "CT-13 last contact remains readable only through explicit archive selection"); Shot("removed-last-contact-explicit-archive");
+                "CT-13 last contact remains readable only through explicit archive selection"); ReadOnlyTools("CT-13 last archive"); Shot("removed-last-contact-explicit-archive");
             await window.PrepareForShutdownAsync(); window.DetachRuntime(); window.Hide(); await runtime.DisposeAsync(); runtime = null;
             source = Settings.LoadWithStatus(source.PersistencePath).Value; AssertProfile(source);
             runtime = await ChatRuntime.OpenAsync(new(source, SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true);

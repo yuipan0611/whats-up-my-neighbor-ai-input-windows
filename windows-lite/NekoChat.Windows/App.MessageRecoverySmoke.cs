@@ -31,8 +31,11 @@ public partial class App
         async Task DeleteViaMenu(MessageView row)
         {
             window!.History.ScrollIntoView(row); window.UpdateLayout();
-            var card = FindDndVisuals<MessageCard>(window.History).Single(c => ReferenceEquals(c.Message, row));
-            var menu = await ContactsOpenMessageMoreAsync(card, deadline.Token);
+            var menu = await ContactsOpenMessageMoreAsync(window.History, row, async (condition, details) => {
+                using var step = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token); step.CancelAfter(TimeSpan.FromSeconds(12));
+                try { await UntilAsync(condition, step.Token); }
+                catch (OperationCanceledException) { throw new TimeoutException("Recovery message menu did not become ready; " + details()); }
+            });
             await Wait(() => menu.IsOpen);
             var deletion = ContactsDeleteItem(menu);
             if (!deletion.IsEnabled) throw new InvalidOperationException("Native delete is disabled: " + deletion.ToolTip);

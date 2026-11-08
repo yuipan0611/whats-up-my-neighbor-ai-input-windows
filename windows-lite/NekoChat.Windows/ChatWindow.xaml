@@ -82,6 +82,7 @@
       <ControlTemplate.Triggers>
        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="border" Property="Background" Value="#DCE3EC"/></Trigger>
        <Trigger Property="IsPressed" Value="True"><Setter TargetName="border" Property="Background" Value="#CBD5E1"/></Trigger>
+       <Trigger Property="IsEnabled" Value="False"><Setter TargetName="border" Property="Opacity" Value="0.4"/><Setter Property="Cursor" Value="Arrow"/></Trigger>
       </ControlTemplate.Triggers>
      </ControlTemplate>
     </Setter.Value>
@@ -297,7 +298,9 @@
      <Button x:Name="ExportDiagnosticsButton" Content="匯出診斷記錄" Click="ExportDiagnosticsClick" HorizontalAlignment="Left" Margin="0,12,0,0" IsEnabled="False"/>
      <TextBlock Text="診斷只保存在本機，不含聊天或附件內容。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
      <TextBlock x:Name="DiagnosticsStatus" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
-     <StackPanel><CheckBox x:Name="ReadReceiptToggle" IsChecked="True" Content="傳送對外已讀回條（預設開啟）" Click="ReadReceiptToggleClick" Margin="0,20,0,4"/></StackPanel><Button x:Name="ClearAttachmentCacheButton" Content="清理附件空間" Click="ClearAttachmentCacheClick" HorizontalAlignment="Left" Margin="0,8,0,0"/><TextBlock Text="本機看過才標已讀。關閉不影響本機未讀，未送出的回條會移除；已送出的回條無法撤回。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/>
+     <StackPanel x:Name="ReadReceiptSettingsGroup"><CheckBox x:Name="ReadReceiptToggle" IsChecked="True" Content="傳送對外已讀回條（預設開啟）" Click="ReadReceiptToggleClick" Margin="0,20,0,4"/><TextBlock x:Name="ReadReceiptHelp" Text="本機看過才標已讀。關閉不影響本機未讀，未送出的回條會移除；已送出的回條無法撤回。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap"/></StackPanel>
+     <Button x:Name="ClearAttachmentCacheButton" Content="清理附件空間" Click="ClearAttachmentCacheClick" HorizontalAlignment="Left" Margin="0,16,0,0"/>
+     <TextBlock x:Name="AttachmentCacheHelp" Text="清理本機附件快取以釋出空間；聊天文字與未送出的附件草稿會保留。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"/>
     </StackPanel></ScrollViewer>
    </DockPanel>
   </Border>

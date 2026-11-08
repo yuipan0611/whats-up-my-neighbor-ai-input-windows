@@ -305,6 +305,11 @@ public partial class ChatWindow
         bool hasAttachment = _attachmentDraft is not null;
         bool valid = hasAttachment ? Encoding.UTF8.GetByteCount(Draft.Text) <= (_runtime?.MaximumTextBytes ?? 65536) : !string.IsNullOrWhiteSpace(Draft.Text) && (_runtime?.MaximumTextBytes is not { } limit || V2Text.Check(Draft.Text, limit) == V2TextProblem.None);
         AttachFileButton.IsEnabled = Draft.IsEnabled && !_sending && !_attachmentDraftLoading && !_attachmentBusy && _runtime?.Attachments is not null;
+        InsertCodeButton.IsEnabled = Draft.IsEnabled && !isRemoved;
+        CodeLanguage.IsEnabled = InsertCodeButton.IsEnabled;
+        AttachFileButton.ToolTip = isRemoved ? "此對話為唯讀，無法附加檔案或相片。" : "附加檔案或相片 · 每則 1 個，最多 25 MiB";
+        InsertCodeButton.ToolTip = isRemoved ? "此對話為唯讀，無法插入程式碼。" : "插入程式碼";
+        ToolTipService.SetShowOnDisabled(AttachFileButton, true); ToolTipService.SetShowOnDisabled(InsertCodeButton, true);
         RemoveAttachmentButton.IsEnabled = !_sending && !_attachmentBusy;
         SendButton.IsEnabled = !_attachmentDraftLoading && (!hasAttachment || _runtime?.Attachments is not null) &&
             !_attachmentBusy && !_closingRequested && !_sending && _activeSend.IsCompleted && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
@@ -313,7 +318,8 @@ public partial class ChatWindow
         TeacherReactions.Visibility = teacher ? Visibility.Visible : Visibility.Collapsed;
         PeerReactions.Visibility = Visibility.Collapsed;
         StickerButton.Visibility = !_showTeacherFiles && _selected is not null && !teacher ? Visibility.Visible : Visibility.Collapsed;
-        StickerButton.IsEnabled = CanSendReaction && _selected?.CanSend == true;
+        StickerButton.IsEnabled = Draft.IsEnabled && !isRemoved && CanSendReaction && _selected?.CanSend == true;
+        StickerButton.ToolTip = isRemoved ? "此對話為唯讀，無法傳送貼圖。" : "傳送貼圖"; ToolTipService.SetShowOnDisabled(StickerButton, true);
         TeacherReactions.IsEnabled = ScrollReaction.IsEnabled = CanSendReaction && _selected?.CanSend == true && !isRemoved;
         var attempt = _selected?.Attempt; AttemptBanner.Visibility = Visibility.Collapsed;
         bool cancelling = attempt is not null && _runtime?.IsAttemptCancellationRequested(attempt.MessageId, attempt.TryCount) == true;
@@ -321,6 +327,8 @@ public partial class ChatWindow
         RetryAttempt.IsEnabled = ready && !_sending && !_attachmentDraftLoading && !hasAttachment && attempt is { State: not "sending" } && attempt.RawSnapshot == Draft.Text;
         CancelAttemptButton.IsEnabled = !_closingRequested && attached && !cancelling && attempt is { State: not ("cancelled" or "confirmed" or "superseded") } &&
             (attempt.State != "sending" || _runtime!.CanCancelAttempt(attempt.MessageId, attempt.TryCount));
+        // A local stop remains useful for pre-existing attempts, even in a read-only archive.
+        CancelAttemptButton.ToolTip = "停止本機後續重試，不會向對方傳送訊息，也不會收回已送出的訊息。";
         ClearConversationButton.IsEnabled = attached && _selected is not null && buffer?.Clearing != true;
         CheckIdentityButton.IsEnabled = _runtime?.ArchivedIdentityFixture == true && !_identityRecoveryBusy && !_closingRequested;
         int byteCount = Encoding.UTF8.GetByteCount(Draft.Text);

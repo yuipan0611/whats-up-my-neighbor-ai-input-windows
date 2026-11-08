@@ -236,6 +236,10 @@
     {
       "fact": "Contacts native smoke drives actual forms/menus/teacher projection/archive/block/delete states and captures synthetic WPF UI. CI runs package and portable on windows-2025, requiring JSON isolation flags and captures; actual native results must be checked after PM push, separate from local cross-build.",
       "source": "windows-lite/NekoChat.Windows/App.ContactsUiSmokeTest.cs; Shared/ContactsUiSmokeSeed.cs; .github/workflows/nekochat-windows-lite.yml; windows-lite/docs/specs/contacts-ui-smoke.md"
+    },
+    {
+      "fact": "Fallback peer avatars use stable identity-first UTF-8 SHA-256 and explicit big-endian indexing; distinct real child processes lock mapping and distribution. Existing custom-avatar lookup and nine-coat assets remain first priority; unsynchronized local roster IDs are not shared peer identity.",
+      "source": "windows-lite/NekoChat.Core/Presentation/PeerAvatarPolicy.cs; windows-lite/NekoChat.Tests/PeerAvatarChecks.cs; windows-lite/NekoChat.Windows/CatArtwork.cs"
     }
   ]
 }

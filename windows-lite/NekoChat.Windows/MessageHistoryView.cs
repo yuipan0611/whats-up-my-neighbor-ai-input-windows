@@ -233,7 +233,7 @@ public sealed class MessageCard : UserControl
                 ToolTip = message.RetryDisabledReason ?? (message.RetrySend is null ? "請先傳送或清空正在編輯的其他內容，再重試這則訊息。" : "重試這則訊息，不會重複建立新的訊息") };
             retry.Click += async (_,_) => { if (message.RetrySend is { } invoke) await invoke(); }; actions.Children.Add(retry);
             if (message.CancelSend is { } cancel)
-            { var button = new Button { Content = "停止後續重試", FontSize = 12 }; button.Click += async (_,_) => await cancel(); actions.Children.Add(button); }
+            { var button = new Button { Content = "停止後續重試", FontSize = 12, ToolTip = "停止本機後續重試，不會向對方傳送訊息，也不會收回已送出的訊息。" }; button.Click += async (_,_) => await cancel(); actions.Children.Add(button); }
             body.Children.Add(actions);
         }
 

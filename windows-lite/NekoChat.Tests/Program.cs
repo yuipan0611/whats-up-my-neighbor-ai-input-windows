@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using NekoChat.Core;
 
+if (NekoChat.Tests.PeerAvatarChecks.RunChild(args)) return;
 if (await NekoChat.Tests.AttachmentChecks.RunChildAsync(args)) return;
 if (NekoChat.Tests.ClassroomKillChecks.RunChild(args)) return;
 if (NekoChat.Tests.IdentityRecoveryChecks.RunChild(args)) return;

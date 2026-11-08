@@ -73,6 +73,7 @@ internal static class ContactExperienceChecks
     {
         _checks = 0;
         Scenario[] scenarios = [
+            new("CT-14 contact avatar mapping is stable across processes and local note edits", () => PeerAvatarChecks.Run(Check)),
             Sync("CT-13 shared snapshot reads preserve exact bytes and detect changes with open handles", () => {
                 using var e=new Env();string path=Path.Combine(e.Root,"snapshot.db-wal"),moved=Path.Combine(e.Root,"renamed.db-wal");
                 byte[] first=Encoding.UTF8.GetBytes("before\r\n合成\0"),second=first.ToArray();second[0]^=1;
