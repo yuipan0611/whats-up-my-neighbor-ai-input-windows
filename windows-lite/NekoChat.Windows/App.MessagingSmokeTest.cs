@@ -33,7 +33,17 @@ public partial class App
         {
             Require(chatRuntime?.CanSend == true && directListener?.Running == true, "Signed app runtime failed to start");
             Require(chat.IsVisible && pet.IsVisible && messagingPeerId is not null, "Actual fixture windows or pinned identity missing");
-            Require(!settings.ShowReactionPreviews && chat.ReadReceiptToggle.IsChecked == false, "Privacy defaults changed");
+            Require(!settings.ShowReactionPreviews, "Reaction preview privacy default changed");
+            var defaults = await chatRuntime!.Worker.Run(s => (Policy: s.GetReadReceiptPolicy(), Preferences: s.GetReadReceiptPreferences()));
+            Require(chat.ReadReceiptToggle.IsChecked == true && defaults.Policy.Enabled && !defaults.Preferences.ExplicitChoice,
+                "D-28 fresh read-receipt default must be ON in UI and storage, without a manual choice");
+            // Preserve the opt-out privacy contract below. Both peers make an explicit UI choice
+            // before either writes .ready, so no message can race the opt-out transition.
+            chat.ReadReceiptToggle.IsChecked = false;
+            chat.ReadReceiptToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            while (await chatRuntime.Worker.Run(s => s.GetReadReceiptPolicy().Enabled || !s.GetReadReceiptPreferences().ExplicitChoice))
+                await Task.Delay(25, timeout.Token);
+            Require(chat.ReadReceiptToggle.IsChecked == false && chat.ReadReceiptToggle.IsEnabled, "Explicit read-receipt opt-out did not reach the UI");
             await chat.SmokeOpenEntryAsync(e => e.PeerId == messagingPeerId);
             string conversation = chat.SmokeSelectedEntry!.ConversationId!;
             File.WriteAllText(prefix + ".ready", "ready");
@@ -54,7 +64,9 @@ public partial class App
             var persisted = await chatRuntime!.Worker.Run(s => s.ListMessages(conversation).Items);
             Require(persisted.Count == 2 && persisted.All(m => m.RawText == first || m.RawText == reply) &&
                 persisted.Single(m => m.Direction == "outgoing").RemoteStoredAt is not null &&
-                persisted.Single(m => m.Direction == "outgoing").RemoteReadAt is null, "Signed storage ACK or default-off remote read state incorrect");
+                persisted.Single(m => m.Direction == "outgoing").RemoteReadAt is null, "Signed storage ACK or explicit-opt-out remote read state incorrect");
+            Require(await chatRuntime.Worker.Run(s => !s.GetReadReceiptPolicy().Enabled && s.GetReadReceiptPreferences().ExplicitChoice && s.ListPendingReadReceipts().Count == 0 && s.ListPendingClassroomReceipts().Count == 0),
+                "Explicit opt-out must remain OFF and queue no outbound read receipts");
             Capture(chat, prefix + "-chat.png");
             File.WriteAllText(prefix + ".received", "received");
             await UntilAsync(() => File.Exists(Path.Combine(options.Directory, other + ".received")), timeout.Token);
@@ -93,11 +105,12 @@ public partial class App
                 Require(reopened.GetDraftState(conversation)?.RawText == failed, "Orderly close did not persist the failed draft");
                 Require(reopened.ListMessages(conversation).Items.Count == 2, "Reopen lost or invented signed messages");
                 Require(reopened.GetInboxSnapshot().Entries.Single(e => e.PeerId == messagingPeerId).Attempt is { TryCount: 1 }, "Unconfirmed send retried automatically or lost its attempt");
-                Require(!reopened.GetReadReceiptPolicy().Enabled, "Read-receipt privacy default changed on reopen");
+                Require(!reopened.GetReadReceiptPolicy().Enabled && reopened.GetReadReceiptPreferences().ExplicitChoice,
+                    "Explicit read-receipt opt-out was not preserved on reopen");
             }
             File.WriteAllText(prefix + "-result.txt",
                 "PASS: two independent real WPF processes; archived signed fixture with synthetic identity pins and D-06 L=65536; Enter/button → SQLite attempt → signed loopback HTTP/TCP → persisted incoming message → verified storage ACK → durable draft clear; " +
-                "Unicode/code raw text, default name/new-message notification without body/IP, opaque peer reply context, remote-read default off, separate unverified legacy history; timeout retains draft and one manual attempt; orderly close/reopen. " +
+                "Unicode/code raw text, default name/new-message notification without body/IP, opaque peer reply context, D-28 default ON verified before explicit UI opt-out; no remote read or queued receipts while opted out; persisted explicit choice, separate unverified legacy history; timeout retains draft and one manual attempt; orderly close/reopen. " +
                 "Same-host loopback only; no classroom LAN, real pairing consent or product L decision is established.");
             Environment.Exit(0);
         }

@@ -468,3 +468,50 @@ Final local verification (TMPDIR = this worktree’s real `build/tmp`):
 Evidence: `build/b1-followup/ci-r3-results.json`, `ci-r3-*.log`; final current-source cross-build is `ci-r3-win-x64-verified.log`. The initial signature-consumer compile failure remains in the log and was corrected. Source timestamps were checked against the final WPF DLL to ensure the deliberate pending-card rebuild is included. git diff --check and safety-config strict validation pass. No schema, migration, wire, coat asset, existing guard or CI time-limit changes.
 
 **CI 第 3 輪修正完成（本機）**. Native package/portable execution and the modified settings/tool/avatar screenshots still require Emily to push this local commit and rerun PR #28. The previous package 51-check success is retained as historical evidence, not substituted for acceptance of these new changes. IME, physical DPI, two-device/LAN/classroom acceptance remain unexecuted. No push/new PR/merge/release/install/deploy performed.
+
+
+### Classroom manual EXE first, then PR #28 CI round 4 (2026-11-08)
+
+Step 1 finished **before any round4 source edit**. Source was clean `07ab266b4421e5936bb65a868b128b8747f18fd3` before and after publish. Delivered exactly three files under desktop workspace `reports/lite-b1-test-build/`: `NekoChat-Lite.exe`, `NekoChat-Lite.exe.sha256`, `BUILD-INFO.txt`. The EXE is **225613962 bytes**, SHA-256 **11D52DAB20CFF26BA715758F65DB8B1C1DF253E6BB3F04228012076478DCF3B3**. BUILD-INFO records source, actual command, start/end time and “本機 Mac 交叉發布、非 CI 產物、僅供教室手動試用”. No release, installation or deployment was performed. The later round4 commit does not replace/relabel this immutable 07ab266 test EXE.
+
+Publish uses the CI's Release / win-x64 / self-contained / PublishSingleFile / IncludeNativeLibrariesForSelfExtract settings, including the existing project IncludeAllContentForSelfExtract setting. Initial absolute PublishDir failed SDK Copy with MSB3094 (three sources / one transformed destination) in this apostrophe-containing workspace. Without changing source or bundle flags, a project-relative PublishDir succeeded; the exact output-path-only workaround is disclosed in BUILD-INFO. Logs: `build/b1-followup/classroom-test-publish-07ab266*.log`. `verify_bundle.py` subsequently passed: PE/bundle/assets proof, 415 files, same SHA; `classroom-test-bundle-07ab266.json` explicitly records windowsExecuted=false. This is not a CI-produced binary or proof of physical Windows acceptance.
+
+Immediately reported “測試版 exe 已就緒” + path/size/SHA to Emily's workspace through cmux (message fcc8f1ea-90c2-4ea4-9e92-3cc7f234cb71), then started source edits. Workspace UUID was used after the title alias failed to resolve. Static bundle proof was reported afterward; no silent file replacement.
+
+Round4 baseline: retrieved run42436270908 log confirms `Privacy defaults changed` from alice; `scripts/test-lite-messaging.ps1:64` is the wrapper's FAIL-report reader, not the policy owner. PM reports package and portable contacts smoke each passed62/27PNG; this does not turn the whole failed job green. The stale assumption is in `App.MessagingSmokeTest.cs`; it incorrectly conflated the unchanged preview-OFF default with read-receipt-OFF, which D-28 changed to ON.
+
+#### D-28 old-test comparison table
+
+| Current file:line | Old assertion / report | New assertion / setup | Decision | Historical contract retained? |
+|---|---|---|---|---|
+| App.MessagingSmokeTest.cs:36–46 | `!ShowReactionPreviews && ReadReceiptToggle==false` as privacy defaults | Preview remains OFF; fresh UI and DB must both be ON and ExplicitChoice=false. Then exercise the actual checkbox Click to explicitly opt out, wait for durable OFF + ExplicitChoice=true **before** either peer's .ready rendezvous. No traffic can precede both opt-outs. | D-28 | Old universal OFF default retired; explicit opt-out privacy retained. Historical v13 default remains covered by seed/migration tests. |
+| App.MessagingSmokeTest.cs:64–69 | Outgoing RemoteStoredAt!=null / RemoteReadAt==null described as “default-off” | Same exact persisted-message/ACK/no-remote-read assertion retained, now after explicit UI opt-out. Add OFF/ExplicitChoice and both receipt queues empty. No permissive “null or non-null” replacement. | D-28 | Non-disclosure while user opts out remains fully enforced. |
+| App.MessagingSmokeTest.cs:108–109 | Reopened Enabled=false called a default check | Reopened Enabled=false **and** ExplicitChoice=true after the preceding real user choice; reopening must preserve that choice. | D-28 | Explicit disabled preference persists; not a fresh-install default assertion. |
+| App.MessagingSmokeTest.cs:113 | PASS text advertised “remote-read default off” | PASS text says default ON checked first, explicit UI OFF before traffic, no remote read/queued receipts while opted out, persisted explicit choice. Wrapper still requires PASS and exit0. | D-28 | Report corrected; no success/exit guard weakened. |
+| App.MessagingFixture.cs:27,47 | No dedicated fresh/reopen default assertion | Add ON + ExplicitChoice=false at fresh provisioning and the next unmodified reopen, before UI opt-out. | D-28 | Strengthens default persistence coverage. |
+
+Unchanged guards include preview privacy, no body/IP in notifications, opaque peer reply target, exact two stored messages/raw Unicode/code, signed durable ACK/draft clear, separate unverified legacy scope, timeout retaining one attempt/draft, no invented outgoing history, retry visibility, clipping and orderly restart. No product default, Core, schema, migration, wire or script time limit changed.
+
+Full-repository code/script grep: `build/b1-followup/ci-r4-full-repo-receipt-audit.txt`; initial targeted inventory `ci-r4-receipt-default-audit.txt`. No additional stale default-OFF assertion was found in executable smoke/scripts. Remaining OFF cases are intentional and unchanged:
+
+- `App.DragDropSmokeTest.cs:64` and `ChatWindow.Ui4Preview.cs:25`: explicit fixture policy choice, not a claimed default.
+- `App.UnreadSmokeTest.cs:98–108`: actual UI opt-out, then local-unread-clearing/no-queued-receipt contract.
+- `Shared/ContactsUiSmokeSeed.cs:29`: **historical v13** enabled=false / generation0 seed, required for real v13→current D-28 upgrade. Do not rewrite history into ON.
+- Identity replacement/recovery and offline restore deliberately disable outbound receipts; they are privacy reset flows, not fresh-install default claims.
+- Runtime-unavailable UI fallback can show unchecked/disabled, without asserting a default. Console explicit-OFF and archived migration fixtures remain covered by the previously reviewed D-28 changes.
+
+Raw failing CI log: `build/b1-followup/windows-ci-42436270908-failed.log`. Native two-process WPF messaging and PowerShell execution cannot run on this Mac (pwsh unavailable; Windows WPF unavailable); they require Emily's next same-branch CI push. Physical IME/DPI/two-machine/classroom acceptance remains separate and unverified. The authorized classroom EXE remains the original clean-source 07ab266 file above.
+
+Final local checks (real worktree `build/tmp` as TMPDIR):
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release test build 0 warnings / 0 errors | 0 | 9.58 |
+| contacts | 194 assertions (D-28 default/choice/receipt regressions included) | 0 | 3.08 |
+| receipt-privacy | 7 actual signed service/TCP/SQLite opt-out, disable, no-backfill checks | 0 | 1.1 |
+| default-ci | 6,570 behavior checks; source guards unchanged | 0 | 70.48 |
+| win-x64-build | WPF / both edited fixture files compile, 0 warnings / 0 errors | 0 | 7.23 |
+
+Logs: `build/b1-followup/ci-r4-results.json`, `ci-r4-*.log`. Final `git diff --check` / existing strict safety-config validation pass. Rehashed the delivered 07ab266 EXE after all round4 work: size and SHA unchanged. No blanket OFF→ON replacement, guard deletion, product change or time-limit extension.
+
+**CI 第 4 輪修正完成（本機）**. Await Emily's push to rerun the native packaged/portable signed messaging smoke and PowerShell wrapper. Native success of this changed fixture is not claimed from Mac Core checks or a cross-build. No push/new PR/merge/release/install/deploy performed.

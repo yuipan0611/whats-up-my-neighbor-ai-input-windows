@@ -24,6 +24,7 @@ public partial class App
             string root = ChatRuntime.RootDirectory(settings, isolated: true);
             var mine = await Task.Run(() => {
                 using var store = ChatStore.Open(new(Path.Combine(root, "data")) { TextValidator = text => V2Text.Check(text, MessagingFixtureLimit) == V2TextProblem.None });
+                Require(store.GetReadReceiptPolicy().Enabled && !store.GetReadReceiptPreferences().ExplicitChoice, "D-28 fresh messaging fixture default must be ON");
                 var coordinator = new LocalIdentityCoordinator(store, WindowsIdentityVault.Create(Path.Combine(root, "identity")));
                 Require(coordinator.Provision(store.GetLocalIdentitySnapshot(), () => true), "Synthetic identity was not freshly provisioned");
                 var identity = store.GetLocalIdentitySnapshot();
@@ -43,6 +44,7 @@ public partial class App
             Require(peer.Role == other && canonical is not null && V2Crypto.PeerId(spki) == peer.PeerId && peer.PeerId != mine.PeerId, "Invalid public fixture key");
             await Task.Run(() => {
                 using var store = ChatStore.Open(new(Path.Combine(root, "data")));
+                Require(store.GetReadReceiptPolicy().Enabled && !store.GetReadReceiptPreferences().ExplicitChoice, "D-28 unmodified ON default must survive fixture reopen");
                 Require(store.RegisterPeer(peer.PeerId, PairingState.Paired, spki) is PeerRegistered, "Fixture key pin failed");
                 store.TouchPeerSeen(peer.PeerId, "127.0.0.1"); // Route hint only, not a presence or LAN ownership assertion.
             });
