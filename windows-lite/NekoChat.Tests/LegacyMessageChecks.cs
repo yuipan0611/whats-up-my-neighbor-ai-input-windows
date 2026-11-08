@@ -81,6 +81,8 @@ internal static class LegacyMessageChecks
             store.DeleteRosterEntry(bob, Token(store)); string carol = AddRow(store, "Carol", "10.0.0.1");
             Check(store.ListLegacyMessages(new(bob, null)).Items.Count == 2 && store.ListLegacyMessages(new(carol, null)).Items.Count == 0,
                 "D-27 deletion retains original row-scoped archive rather than assigning replacement row");
+            Check(store.ListLegacyMessages(new(null, "10.0.0.1")).Items.Count == 0,
+                "old IP unknown scope stays empty after deletion and replacement; archived Bob bytes never leak into it");
             Check(store.ListLegacyHistories().Single().Scope == new LegacyHistoryScope(null, "10.0.0.1"), "roster deletion changes display scope without promoting trust");
             var afterDelete = store.ClearLegacyHistory(new(bob, null)); Check(afterDelete.Messages == 2 && store.ListLegacyHistories().Count == 0, "anonymous clear also covers retained arrival scope keys");
         }

@@ -515,3 +515,39 @@ Final local checks (real worktree `build/tmp` as TMPDIR):
 Logs: `build/b1-followup/ci-r4-results.json`, `ci-r4-*.log`. Final `git diff --check` / existing strict safety-config validation pass. Rehashed the delivered 07ab266 EXE after all round4 work: size and SHA unchanged. No blanket OFF→ON replacement, guard deletion, product change or time-limit extension.
 
 **CI 第 4 輪修正完成（本機）**. Await Emily's push to rerun the native packaged/portable signed messaging smoke and PowerShell wrapper. Native success of this changed fixture is not claimed from Mac Core checks or a cross-build. No push/new PR/merge/release/install/deploy performed.
+
+
+### Batch 1 closing hardening for CI round 6 (2026-11-08)
+
+Read-only baseline: GitHub run42437612644 is completed/success at ea1ee583eb80e56f30a2915df66af78c3b09d802; Lite Windows and Relay succeeded, release staging was skipped. That is the pre-hardening baseline, not acceptance of this commit. Viewed actual round5 package `12-teacher-replaced.png` under desktop `reports/lite-b1-ci-screenshots-20261108/第5輪-全部通過/`: selected teacher badge1 and time followed by an orphan separator are present. The old smoke captured immediately after the management action, without waiting for the 180ms viewport read/actual foreground. Screenshot alone cannot distinguish a pending guarded read from unavailable foreground, and is not evidence to bypass RR-06.
+
+| Request | Implemented evidence / boundary |
+|---|---|
+| A1 No paths | Per-window hook has a one-shot `(expected text, answer)` choice; remove, block and teacher replacement each consume No once, then the original Yes path follows. Stable idle/flush baseline compares complete UI students/teachers/selection/filter/search, in-memory/disk/SQLite TeacherIp, stored drafts and every memory buffer ticket/dirty/clearing state. JSON logs each answer and asserts exactly three No responses. This does not manufacture a successful product mutation. |
+| A2 archive/blocked text and retry | Archive title and subtitle exact text are asserted; both the old compatibility retry control and every visible message-card retry must be disabled, while the existing meaningful local stop remains available. Blocked title/subtitle are checked separately. |
+| A3 reachability | Add-contact, title more and cancel-transfer are visible, sized in both dimensions and enabled immediately before activation. Add-contact uses the existing real left-button down/up mechanism with same-process native target guard; dialog form automation is still the original actual form/Loaded hook. |
+| A4 complete menus | General/manual contact, teacher, blocked and archived each compare right-click **and** title against an independent full expected sequence: edit note, edit IP, confirm ordinary contact, teacher action, remove, separator, block/unblock, separator, clear; enabled states are pinned per case. Separators are not dropped. Duplicate/missing/extra/reordered labels fail, even if both menus share the same bug. |
+| A5 prompt window | Install now accepts a declared isolated runtime before AttachRuntimeAsync while still checking Settings/DB exact profile and IsolatedData. Every hook call verifies `_runtime` identity; another runtime/daily profile cannot use it. Constructor has no attached runtime or visible notice; installation now also covers any future prompt during Attach. Reopen checks prompt count from before Attach, actual view idle and a **continuous 500ms** quiet interval within the same12-second Wait before asserting no second notice. |
+| B foreground badge | Real same-process synthetic cover window takes native foreground, then a fresh teacher message is inserted and rendered. Assert main inactive + exactly1 unread (negative control); after closing cover, activate actual main, explicitly open teacher and require native foreground handle match, IsActive, view idle and unread0/badge collapsed. No direct MarkRead or visibility/generation guard changes. JSON records both proof flags and native/window/read-state observations; failure to obtain foreground is a failure with evidence, not a silent pass. This fresh control prevents A1's earlier baseline read from making the foreground check vacuous. |
+| B orphan separator | Confirmed formatting bug: old StringFormat unconditionally appended ` · ` to a valid clock even for empty Delivery. New pure Core MessageMetadataPolicy emits a separator only with both clock and nonblank delivery. WPF binds MetadataText and notifies on delivery/time changes; original raw text and delivery state/semantics stay unchanged. 6 Core cases cover empty/null/blank status, real status, invalid time and both empty; native additionally asserts actual metadata TextBlocks have no trailing dot. |
+| C N1 stale refresh | CompleteContactRemovalAsync now takes the removed RosterId and excludes that id from even a stale list candidate; an empty safe list clears selection. The isolated hook injects one inbox-read IOException **only after** real removal commits. Native must prove the stale list still contains that id yet selected=null/send disabled and typed diagnostic visible, then explicitly recover refresh. No Core/storage/wire failure or mutation is faked. Ordinary profiles have no installed hook. |
+| C N3 old IP | Add one assertion in LegacyMessageChecks after Bob removal/Carol replacement: actual old-IP unknown scope returns0, while the existing Bob archive2/Carol0 assertions remain intact. Historical scope/trust logic not changed. |
+
+N2/N4/N5 and notification-title semantics were not changed. Existing assertion bodies were retained or expanded; no guard/time limit relaxed. New Core assertions add7 total (format6 + old-IP1), so default Console6570→6577; contacts194 and blocking90 remain unchanged. No schema/migration/envelope, receipt policy, network behavior, file sharing or cat asset changes. No republish/replacement of the already-delivered clean07ab266 classroom EXE.
+
+All new native screenshots/foreground/cancellation/error-injection tests are **未執行／待 Emily push 第6輪 Windows CI**. RenderTargetBitmap captures the synthetic main visual, not the whole desktop/cover; foreground is established by native handle and IsActive evidence rather than inferred from a screenshot. Physical classroom/LAN, IME, physical DPI and two-device acceptance remain unexecuted. Only local commits are authorized; no push/PR/merge/release/install/deploy performed.
+
+Final local checks (real worktree `build/tmp` as TMPDIR):
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release Console build, 0 warnings / 0 errors | 0 | 6.74 |
+| default-ci | 6,577 behavior checks: previous6570 + metadata6 + old-IP negative1 | 0 | 73.11 |
+| contacts | 194 assertions retained | 0 | 3.59 |
+| blocking | 90 assertions retained | 0 | 2.6 |
+| contacts-ui-seed-check | 7 actual SQLite seed/upgrade/isolation checks | 0 | 0.91 |
+| win-x64-build-final | final current WPF source, 0 warnings / 0 errors | 0 | 9.37 |
+
+Logs: `build/b1-followup/b1-final-results.json`, `b1-final-*.log`; final cross-build is `b1-final-win-x64-build-final.log`. Final WPF DLL is newer than the last changed WPF source, covering the fresh background unread control. Source guard unchanged; diff-check and strict safety-config validation pass. A1–A5, B, N1 and N3 are all prepared; nothing deferred due to quota. Native assertions and new screenshots remain pending round6, not locally claimed as passed.
+
+**第 1 批收尾強化完成（本機）**. Local commit only; Emily owns same-branch push/round6. No push/new PR/merge/release/install/deploy or classroom EXE replacement.

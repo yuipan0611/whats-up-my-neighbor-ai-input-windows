@@ -9,13 +9,14 @@ public partial class ChatWindow
     private const string ContactArchivedNotice = "已移到封存區，可在篩選切換查看";
     private bool _showRemovalNotice;
 
-    private async Task CompleteContactRemovalAsync()
+    private async Task CompleteContactRemovalAsync(string removedRosterId)
     {
         // A coalesced refresh must finish before choosing from the actual filtered list.
+        ContactsSmokeBeforeRemovalRefresh();
         await RefreshInboxAsync(true, waitForCompletion: true);
         if (_runtime is null || _closingRequested || _stopping) return;
         ApplyInboxFilter();
-        if (_inbox.FirstOrDefault(row => !row.Entry.Removed && !row.Entry.Blocked) is { } first)
+        if (_inbox.FirstOrDefault(row => row.Entry.RosterId != removedRosterId && !row.Entry.Removed && !row.Entry.Blocked) is { } first)
             await SelectEntryAsync(first.Entry, true);
         else
         {
@@ -97,7 +98,7 @@ public partial class ChatWindow
         if(!result.Changed&&result.Reason!="unchanged"){SetStatus(RosterFailure(result.Reason));return;}
         await runtime.InvalidatePairingAsync("contact_management");
         await SyncTeacherProjectionAsync();ResetRecipientProtocolHints();
-        if(action=="remove"){await CompleteContactRemovalAsync();return;}
+        if(action=="remove"){await CompleteContactRemovalAsync(entry.RosterId!);return;}
         await RefreshInboxAsync(true);
         InboxFilter.SelectedIndex=action=="block"&&!entry.Blocked?3:0;
         var updated=_snapshot?.Entries.FirstOrDefault(e=>e.Id==entry.Id||entry.Endpoint is not null&&e.Endpoint==entry.Endpoint);

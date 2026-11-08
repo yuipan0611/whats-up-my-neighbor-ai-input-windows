@@ -240,6 +240,10 @@
     {
       "fact": "Fallback peer avatars use stable identity-first UTF-8 SHA-256 and explicit big-endian indexing; distinct real child processes lock mapping and distribution. Existing custom-avatar lookup and nine-coat assets remain first priority; unsynchronized local roster IDs are not shared peer identity.",
       "source": "windows-lite/NekoChat.Core/Presentation/PeerAvatarPolicy.cs; windows-lite/NekoChat.Tests/PeerAvatarChecks.cs; windows-lite/NekoChat.Windows/CatArtwork.cs"
+    },
+    {
+      "fact": "Message metadata formatting is pure and omits orphan separators; native contacts hardening uses pre-Attach exact-runtime/profile hooks, complete cancellation snapshots, real-input reachability and foreground/read negative-positive controls. Removed roster IDs are excluded from stale UI selection; native additions still require CI execution.",
+      "source": "windows-lite/NekoChat.Core/Presentation/MessageMetadataPolicy.cs; windows-lite/NekoChat.Tests/MessageFormattingChecks.cs; windows-lite/NekoChat.Windows/ChatWindow.ContactsSmokeFixture.cs; windows-lite/NekoChat.Windows/App.ContactsUiSmokeTest.cs; docs/team/CODEX-VERIFICATION.md"
     }
   ]
 }

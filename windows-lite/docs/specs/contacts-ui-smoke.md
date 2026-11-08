@@ -16,10 +16,13 @@ D-31 授權在 GitHub `windows-2025` runner 自動驗證 UI。本次交付只準
 - Shared fixture 反射取得 Core 原有的前 13 個 migration，建立真正的 v13 舊資料，再由正式 Open 升級。反射僅用於建立新的合成資料；不新增 Core friend/API、不複製 frozen SQL，不可覆寫既有 data。`--contacts-ui-seed-check` 在 macOS/Linux/Windows 可驗證相同來源的種子、升級、草稿／歷史、提示、備份及覆寫拒絕。
 - TCP 一律 loopback；fixture sink 將觀察到的 loopback 對應到固定合成私人 IP，因產品刻意禁止把 loopback 當聯絡人。正式 endpoint/session validator、存入交易與去重照常執行，不放寬產品 IP 規則。這不是實體 LAN／身分驗證證據。
 - 只啟動 loopback 接收器以讓 UI 具備正常操作能力；不啟動背景 outbox、回條或課堂 LAN 同步迴圈。傳送中與附件傳輸中狀態由真 Core API 寫入隔離資料庫，測 UI 綁定；不宣稱完成真實檔案傳輸。
+- Hook 在 AttachRuntimeAsync **之前**以明確 runtime/profile 安裝；允許待綁定視窗，但驗證 IsolatedData、Settings／DB 完整路徑。每次使用 hook 再驗證當前 runtime 就是該實例，不提供日常 profile 或錯 runtime 的回退。
 - 新增／重複 IP 的原生 Window 表單由 Loaded 掛鉤填入並觸發真正按鈕。確認與已讀提示由每視窗掛鉤記錄原文並自動回答，不彈阻塞 MessageBox；截圖不冒稱是原生 MessageBox 圖像。
 - 每一步等待真實視圖／Popup 尺寸，不從未完成的 refresh 猜測畫面。單步 12 秒、整體取消 100 秒、獨立 watchdog 115 秒寫失敗 JSON 並 exit 1；CI 再以 150 秒強制失敗，沒有逾時通過。
 - 聯絡人動作掛鉤只觀察真選單啟動的 Task，不代替操作；在原本同一個 12 秒 Wait 內等動作完成與 UI 條件，完成的錯誤會直接傳出。CT-13 封存列以穩定 principal／id 比對，不以其刻意清空的 endpoint 比對；列表 idle 還須等歷史與附件草稿載入完成。
 - 訊息 ⋯ 也沿用同一個 12 秒 Wait：重取目前訊息卡／Content 的已載入按鈕，再等該按鈕的 popup 已開啟、有尺寸、且「複製整則原文」與刪除項目都存在。保留 Single 的唯一性檢查；缺項會逾時失敗並列出最近／目前按鈕與選單文字，不用 FirstOrDefault 略過。MD-03 會先觸發真 RefreshActions→Build，覆蓋 Content 重建後的視覺樹時序；舊 message-recovery smoke 也使用同一 helper。
+- 移除／封鎖／取代老師各先回答一次 No，對照 UI 完整列／選取、Settings 記憶體／磁碟／SQLite 老師與全部草稿 text/epoch/revision/edit/dirty，再回答 Yes。No 回答有預期 prompt 文字配對、必須恰好消耗三次並寫入 JSON。
+- 新增對象、標題 ⋯、取消傳輸在觸發前驗證 IsVisible、實際尺寸及 IsEnabled；新增對象使用既有原生左鍵機制並檢查目標程序，非只 RaiseEvent。
 - 右鍵只作用在已確認屬於本程序的視窗位置；最後還原游標。截圖來自 WPF RenderTargetBitmap 96，不是桌面實體 DPI 截圖。
 
 ## BDD 驗證與圖像
@@ -31,13 +34,18 @@ D-31 授權在 GitHub `windows-2025` runner 自動驗證 UI。本次交付只準
 | 設定頁 | 實際座標驗證已讀說明直接跟在勾選框下方，附件清理按鈕與附件說明排在之後 | upgrade-notice-once-and-settings |
 | CT-14 頭貼 | 真列表 Image 的 pixels 必須符合穩定識別鍵選出的既有花色；不是在線／離線顏色。Core 另跑兩個 child process 驗證固定向量、一致性、多花色分布 | incoming-one-auto-contact |
 | CT-10/11 | 真表單輸入 IP＋備註，儲存後選取；先換到別人，再重複新增並點「開啟既有對話」，不得建第二筆 | add-ip-note、added-selected、duplicate-* |
-| CT-12 | 原生滑鼠右鍵與標題 ⋯ 各開真正 ContextMenu，比對項目順序與啟用狀態 | contact-right-click、contact-title-menu |
+| CT-12 | 一般聯絡人／老師／已封鎖／封存四種狀態，右鍵與標題 ⋯ 分別比對完整固定標籤、順序、分隔線與 disabled 狀態，不只兩選單彼此相等 | contact-*、teacher-*、blocked-*、archive-* |
+| 取消路徑 | 取代老師／移除／封鎖先 No，完整 UI／老師投影／草稿快照不變，再 Yes 繼續 | TC-02-teacher-replacement-cancel-unchanged、CT-13-remove-cancel-unchanged、BK-01-block-cancel-unchanged |
 | TC-01/02/03 | 從真選單設／取代老師，老師一筆且同學區無副本，舊老師回一般區，Settings 檔與 SQLite 一致 | teacher-single-pinned、teacher-replaced |
 | MD-01/03 | 真訊息 ⋯ 與正文右鍵有本機刪除；真 Core sending attempt 的刪除停用且有理由 | message-more-delete、message-body-right-click、sending-delete-disabled |
 | MD-05 | 草稿「移除附件」、傳輸卡「取消傳輸」、已存訊息「從這台電腦刪除」分開；真取消操作更新卡片 | draft-remove-attachment、transfer-cancel-distinct |
-| CT-13 | 真移除後保留一般篩選、改選第一位／空狀態並顯示封存提示；手動切封存後依穩定 principal 選取（封存列無 endpoint），輸入框只顯示唯讀提示；附件／程式碼／貼圖停用、迴紋針模板變淡，仍可停止舊待送；SQLite 草稿的文字／epoch／revision、記憶體 buffer、reopen 不變 | removed-stays-general-first-contact、removed-archive-readonly-prompt-draft-retained、removed-last-contact-general-empty、removed-last-contact-explicit-archive |
+| CT-13 | 真移除後保留一般篩選、改選第一位／空狀態並顯示封存提示；手動切封存後依穩定 principal 選取（封存列無 endpoint），輸入框只顯示唯讀提示；附件／程式碼／貼圖停用、迴紋針模板變淡，所有重試傳送控制停用、標題／副標明示移除；仍可停止舊待送；SQLite 草稿的文字／epoch／revision、記憶體 buffer、reopen 不變 | removed-stays-general-first-contact、removed-archive-readonly-prompt-draft-retained、removed-last-contact-general-empty、removed-last-contact-explicit-archive |
 | BK-01/06/07 | 真封鎖後獨立分區／唯讀提示，附件／程式碼／貼圖停用並顯示停用外觀；解除後原草稿重現；封鎖老師先有警告，老師區清空、加入老師按鈕可見、Settings 投影清空 | blocked-readonly、unblocked-retained-draft-restored、blocked-teacher-add-teacher-visible |
-| RR-02 | 真 v13 未設定偏好升級後顯示一次提示並持久化，dispose/reopen 同 profile 不再提示 | upgrade-notice-once-and-settings、reopen-no-second-notice |
+| RR-02 | 真 v13 未設定偏好升級後顯示一次提示並持久化；reopen 前裝好 hook，等 view idle 並連續 500ms 沒有新 prompt，才判定同 profile 不再提示 | upgrade-notice-once-and-settings、reopen-no-second-notice |
+| RR-06 | 真合成子視窗取得 foreground，fresh incoming 保持 1 未讀作負控；回到真主視窗，驗證 GetForegroundWindow、IsActive、view idle、未讀0與 badge collapsed；不可直接改 read 或放寬 generation guards | teacher-background-unread-control、teacher-replaced |
+| N1 | 移除最後一位後注入一次 UI inbox read 失敗，確認清單真的仍有 stale removed id、但沒有選取／可送；明確刷新後復原正常空清單 | removal-refresh-failure-no-stale-selection、removed-last-contact-general-empty |
+
+JSON 額外記 foregroundVerified、backgroundReadGuardVerified、foregroundObservation、removalRefreshFailureExercised、hooksInstalledBeforeAttach；若平台不能取得真前景會明確失敗並留下觀察值，不把未驗證的前景判為通過。截圖序號因新步驟增加會改變，以名稱識別。
 
 JSON 逐條記 checks、截圖檔名、實際提示文字、合成狀態旗標、GitHub SHA/run id。所有資料皆合成。
 

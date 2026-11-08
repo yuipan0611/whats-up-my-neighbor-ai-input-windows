@@ -131,6 +131,7 @@ public partial class ChatWindow
             do
             {
                 _refreshAgain = false;
+                ContactsSmokeBeforeInboxRead();
                 if (_runtime.ArchivedIdentityFixture)
                 {
                     _snapshot = await _runtime.Worker.Run(s => s.GetInboxSnapshot());
@@ -602,7 +603,7 @@ public partial class ChatWindow
             await _runtime.InvalidatePairingAsync("roster_delete");
             var result = await _runtime.Worker.Run(s => s.DeleteRosterEntry(id, preview.SnapshotToken, preview.ToConfirmation()));
             if (!result.Changed) { SetStorageNotice(RosterFailure(result.Reason)); return; }
-            await SyncTeacherProjectionAsync();await LoadManualFormAsync(null); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await CompleteContactRemovalAsync();
+            await SyncTeacherProjectionAsync();await LoadManualFormAsync(null); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await CompleteContactRemovalAsync(id);
         }
         catch (Exception ex) { ShowStorageError(ex); }
     }

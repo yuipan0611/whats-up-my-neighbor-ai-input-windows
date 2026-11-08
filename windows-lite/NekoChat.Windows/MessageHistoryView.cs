@@ -18,10 +18,12 @@ internal sealed class MessageView(string key, string rawText, bool outgoing, boo
     public bool Outgoing { get; } = outgoing;
     public bool Legacy { get; } = legacy;
     public long Sequence { get; } = sequence;
-    public string Utc { get; set; } = utc;
+    private string _utc = utc;
+    public string Utc { get => _utc; set { if (_utc != value) { _utc = value; PropertyChanged?.Invoke(this, new(nameof(MetadataText))); } } }
+    public string MetadataText => MessageMetadataPolicy.Format(Utc, Delivery);
     public ImageSource? PeerAvatar { get; } = peerAvatar;
     private string _delivery = delivery;
-    public string Delivery { get => _delivery; set { if (_delivery != value) { _delivery = value; PropertyChanged?.Invoke(this, new(nameof(Delivery))); } } }
+    public string Delivery { get => _delivery; set { if (_delivery != value) { _delivery = value; PropertyChanged?.Invoke(this, new(nameof(Delivery))); PropertyChanged?.Invoke(this, new(nameof(MetadataText))); } } }
     private AttachmentRecord? _attachment;
     public AttachmentRecord? Attachment { get => _attachment; set { if (_attachment != value) { _attachment = value; PropertyChanged?.Invoke(this, new(nameof(Attachment))); } } }
     private int _progress;
@@ -223,8 +225,7 @@ public sealed class MessageCard : UserControl
             Margin = new(0, 4, 0, 0),
             HorizontalAlignment = message.Outgoing ? HorizontalAlignment.Right : HorizontalAlignment.Left
         };
-        string prefix = DateTimeOffset.TryParse(message.Utc, out var utc) ? utc.ToLocalTime().ToString("HH:mm") + " · " : "";
-        metadata.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(MessageView.Delivery)) { Source = message, StringFormat = prefix + "{0}" });
+        metadata.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(MessageView.MetadataText)) { Source = message });
         body.Children.Add(metadata);
         if (message.AttemptId is not null)
         {
