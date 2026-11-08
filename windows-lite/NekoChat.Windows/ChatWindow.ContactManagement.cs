@@ -6,6 +6,32 @@ using NekoChat.Core.Roster;
 namespace NekoChat.Windows;
 public partial class ChatWindow
 {
+    private const string ContactArchivedNotice = "已移到封存區，可在篩選切換查看";
+    private bool _showRemovalNotice;
+
+    private async Task CompleteContactRemovalAsync()
+    {
+        // A coalesced refresh must finish before choosing from the actual filtered list.
+        await RefreshInboxAsync(true, waitForCompletion: true);
+        if (_runtime is null || _closingRequested || _stopping) return;
+        ApplyInboxFilter();
+        if (_inbox.FirstOrDefault(row => !row.Entry.Removed && !row.Entry.Blocked) is { } first)
+            await SelectEntryAsync(first.Entry, true);
+        else
+        {
+            ++_selectionRequest; ++_teacherFilesRequest;
+            _selected = null; _selectionClearedAfterRemoval = true; _replyLookupPending = false; _userOpened = false; _showInbox = true;
+            _showTeacherFiles = false; _historyLoaded = false; _beforeMessage = _beforeLegacy = _beforePending = null;
+            _pendingMessages = []; _pendingConversation = null;
+            History.Visibility = Visibility.Visible; History.Rows.Clear(); OlderMessages.Visibility = Visibility.Collapsed;
+            HistoryState.Text = "選擇一位同學，或新增名單。"; HistoryState.Visibility = Visibility.Visible;
+            RecipientIp.Text = ""; SetDraftText("");
+            await RefreshAttachmentDraftAsync();
+            ApplyInboxFilter(); UpdateHeader(); ViewChanged();
+        }
+        SetStatus(ContactArchivedNotice); _showRemovalNotice = true; UpdateComposer();
+    }
+
     private bool _readNoticeShowing;
     private bool _teacherProjectionPending;
     private async Task SyncTeacherProjectionAsync()
@@ -32,7 +58,7 @@ public partial class ChatWindow
     private ContextMenu ContactMenu(InboxEntry entry)
     {
         var menu=new ContextMenu();
-        void Item(string label,bool enabled,Func<Task> action){var item=new MenuItem{Header=label,IsEnabled=enabled};item.Click+=async(_,_)=>{try{await action();}catch(Exception error){ShowStorageError(error);}};menu.Items.Add(item);}
+        void Item(string label,bool enabled,Func<Task> action){var item=new MenuItem{Header=label,IsEnabled=enabled};item.Click+=async(_,_)=>{try{var pending=action();if(_contactsUiSmoke is{} hook)hook.ContactAction=pending;await pending;}catch(Exception error){ShowStorageError(error);}};menu.Items.Add(item);}
         bool active=_runtime is{ArchivedIdentityFixture:false}&&!_closingRequested;
         Item("編輯本機備註…",active&&entry.RosterId is not null&&!entry.Removed,()=>{RenameNicknameClick(new MenuItem{CommandParameter=new InboxRowView(entry,StateOf(entry))},new RoutedEventArgs());return Task.CompletedTask;});
         Item("編輯 IP…",active&&entry.RosterId is not null&&!entry.Removed&&!entry.Blocked,async()=>{await SelectEntryAsync(entry,true);SettingsPane.Visibility=Visibility.Visible;ContactSettingsPanel.Visibility=Visibility.Visible;ViewChanged();await LoadManualFormAsync(entry.RosterId);});
@@ -70,10 +96,12 @@ public partial class ChatWindow
         });
         if(!result.Changed&&result.Reason!="unchanged"){SetStatus(RosterFailure(result.Reason));return;}
         await runtime.InvalidatePairingAsync("contact_management");
-        await SyncTeacherProjectionAsync();ResetRecipientProtocolHints();await RefreshInboxAsync(true);
-        InboxFilter.SelectedIndex=action=="remove"?2:action=="block"&&!entry.Blocked?3:0;
+        await SyncTeacherProjectionAsync();ResetRecipientProtocolHints();
+        if(action=="remove"){await CompleteContactRemovalAsync();return;}
+        await RefreshInboxAsync(true);
+        InboxFilter.SelectedIndex=action=="block"&&!entry.Blocked?3:0;
         var updated=_snapshot?.Entries.FirstOrDefault(e=>e.Id==entry.Id||entry.Endpoint is not null&&e.Endpoint==entry.Endpoint);
         if(updated is not null)await SelectEntryAsync(updated,true);
-        SetStatus(action=="remove"?"聯絡人已移到封存，歷史保留。":action=="block"?entry.Blocked?"已解除封鎖；待送需手動重送。":"已封鎖此 IP，歷史保留；待送已停止。":"聯絡人已更新。");
+        SetStatus(action=="block"?entry.Blocked?"已解除封鎖；待送需手動重送。":"已封鎖此 IP，歷史保留；待送已停止。":"聯絡人已更新。");
     }
 }

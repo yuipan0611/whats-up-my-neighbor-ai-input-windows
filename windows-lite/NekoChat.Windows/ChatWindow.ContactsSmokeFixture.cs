@@ -10,6 +10,7 @@ internal sealed class ContactsUiSmokeHooks
     internal Func<Window, Task>? DriveDialog;
     internal readonly List<(string Title, string Text)> Prompts = [];
     internal Exception? DialogFailure;
+    internal Task? ContactAction;
 }
 
 public partial class ChatWindow
@@ -50,8 +51,10 @@ public partial class ChatWindow
         if (_contactsUiSmoke?.DialogFailure is { } failure) throw new InvalidOperationException("Contact dialog automation failed.", failure);
         return result;
     }
-    internal bool SmokeContactsViewIdle => !_refreshing && !_readBusy && !_readTimer.IsEnabled && !_saveTimer.IsEnabled;
+    internal bool SmokeContactsViewIdle => !_refreshing && !_readBusy && !_readTimer.IsEnabled && !_saveTimer.IsEnabled && !_attachmentDraftLoading && (_selected is null || _historyLoaded);
     internal bool SmokeReadNoticeIdle => !_readNoticeShowing;
     internal Task SmokeFlushContactDraftAsync() => FlushDraftsAsync();
+    internal string? SmokeContactDraft(string conversation) => _drafts.TryGetValue(conversation, out var buffer) ? buffer.Text : null;
+    internal Task SmokeRefreshContactsAsync() => RefreshInboxAsync(true, waitForCompletion: true);
     internal Task SmokeStageContactAttachmentAsync(string path) => AddAttachmentPathsAsync([path]);
 }

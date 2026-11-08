@@ -400,3 +400,37 @@ Final local verification (real worktree `build/tmp` used as TMPDIR):
 Evidence: `build/b1-followup/windows-wal-results.json`, `windows-wal-*.log`. The final source adjustment only closes the synthetic sharing-regression owner before asserting deletion completion; Release tests were rebuilt and contacts 181 rerun afterward. Default Console includes diagnostic, inbox, tombstone and signed crash/leak-scan regressions. Cross-build includes both modified native smoke fixtures and the linked test reader. `git diff --check` and existing strict safety-config validation pass (the two existing physical/native unknowns remain).
 
 **CI 修正完成（本機）**. No product semantics or existing assertions were weakened. Native Windows file-sharing behavior/WPF/PNG capture results are **未執行／待 Emily push 同一分支重跑 PR #28 CI**; Mac success and cross-compilation do not replace that evidence. IME/physical DPI/two-machine/classroom acceptance remain unexecuted. No push/new PR/merge/release/install/deploy performed.
+
+
+### PR #28 CI round 2: archived selection and composer projection (2026-11-08)
+
+Read-only evidence: GitHub run 42427643109 failed in the package native contacts smoke, after the Windows Console/contacts/blocking steps passed. Retrieved log: `build/b1-followup/windows-ci-42427643109-failed.log`. PM's artifact is `reports/lite-b1-ci-screenshots-20261108/contacts-ui-result.json` and `18-failure.png` under the desktop workspace. The real screenshot shows the removed contact selected in the archive filter, an inactive send button, and the old draft text still visible.
+
+**Confirmed cause, not an inferred slow-runner fix:** `ChatStore.ClassroomInbox.cs`'s removed-subject SELECT intentionally projects `endpoint=NULL`; `ClassroomInboxSnapshot.ToInboxSnapshot` retains that value and the stable roster principal. The old native Wait at `App.ContactsUiSmokeTest.cs:224` required both archive filter 2 and `row.Entry.Endpoint == ContactsManualIp && Removed`. That conjunction cannot succeed for a correctly archived row. The old product also deliberately set filter 2 in both `ManageContactAsync` and settings `DeleteRosterClick`; PM's new CT-13 ruling changes this behavior. No timeout is increased.
+
+| Change | Behavior / protection |
+|---|---|
+| `ChatWindow.ContactManagement.cs` `CompleteContactRemovalAsync` | Both removal entrypoints keep the current filter/search; after actual refreshed data arrives, select the first visible active row, otherwise explicitly clear the conversation to an empty state. Show exactly “已移到封存區，可在篩選切換查看”. Do not select a hidden archived row. |
+| `ChatWindow.Inbox.cs` refresh completion / selection | Only the removal flow (and its smoke observer) requests awaited coalesced refresh completion; ordinary refresh coalescing remains nonblocking. A TaskCompletionSource completes in finally, with asynchronous continuations. Existing view generation / history selection / visible-read guards remain. An explicitly empty selection after removal survives refresh until the user selects a contact. |
+| `ChatWindow.Inbox.cs` `SetDraftText`, `DraftEdited`, `UpdateComposer` | Removed/blocked composer text is an empty UI projection with an explicit read-only placeholder and disabled send/input. `_settingDraft` and the read-only edit guard prevent projection changes from editing the retained buffer. No draft DELETE/UPDATE or epoch/revision change is added. Unblocking/restoring an editable contact shows the retained buffer again. |
+| Status handling | A separate removal-notice flag keeps the useful archive notice visible even when the newly selected row has an attempt. Any later SetStatus or explicit selection clears the exception; ordinary failed attempts still use their message cards, not a second global failure banner. |
+| Settings removal | Uses the same completion helper and flushes drafts before removal. Its confirmation routes through the existing isolated per-window hook; ordinary operation still uses the same MessageBox confirmation. |
+| Native smoke / isolated hooks | Compare the removed row by stable id/principal, explicitly assert its endpoint is null, use the actual list selection after the user changes filter. Observe completion of the actual menu Task and view/history/attachment idle within the existing 12-second Wait; never force the condition or manufacture product state. |
+| Stronger native CT-13 checks/captures | General-filter first-row selection and archive status; manual archive selection with readable body, empty read-only composer and explicit prompt; exact SQLite draft text/epoch/revision plus in-memory buffer after rendering/flush; blocked draft hidden and restored after unblocking; removal of the last visible contact, refresh staying empty, explicit archive access; original draft still exact after dispose/reopen. Screenshots are configured for each new stage, not claimed captured on macOS. |
+| Core regression / specs | New v15 CT-13 scenario asserts exact retained draft and stable archived identity with null endpoint through reopen (5 assertions, contacts 181→186; all existing assertions retained). `contacts.md` records the PM ruling; `contacts-ui-smoke.md` records the stronger native matrix. |
+
+Scope: WPF selection/composer behavior, smoke/observation hooks, additive Core regression, specifications and this verification record. No Core product, migration/schema, wire, journal, CI time limit or daily profile change. Test/build outputs stay under this worktree with real `build/tmp` as TMPDIR. Native package/portable UI and new PNG results require Emily's push and PR #28 CI rerun; IME, physical DPI, two-machine/LAN/classroom acceptance remain unexecuted.
+
+Final local results:
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release Console build, 0 warnings / 0 errors | 0 | 9.05 |
+| contacts | 186 assertions (181 retained + 5 new v15 archive/draft checks) | 0 | 2.58 |
+| contacts-ui-seed-check | 7 SQLite seed/migration/isolation checks | 0 | 0.83 |
+| default-ci | 6,570 behavior checks, unchanged source guards | 0 | 70.19 |
+| win-x64-build-final | WPF + native smoke cross-build after final action-observation changes, 0 warnings / 0 errors | 0 | 7.33 |
+
+Evidence: `build/b1-followup/ci-r2-results.json`, `ci-r2-*.log`; final cross-build is `ci-r2-win-x64-build-final.log`. `git diff --check` and strict safety-config validation pass (two previously recorded native/physical unknowns remain). The additive contacts scenario runs on v15; no previous tests or assertions were relaxed. Native smoke's 12/100/115-second and CI's 150-second bounds remain unchanged.
+
+**CI 第 2 輪修正完成（本機）**. New screenshots are implemented as real native capture steps; they have **not** been produced/accepted on this Mac. Emily must push this local commit to the same PR #28 branch and rerun package/portable native smoke to obtain them. No push, new PR, merge, release, install or deployment performed.

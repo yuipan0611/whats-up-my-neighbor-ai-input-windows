@@ -80,7 +80,7 @@ public partial class ChatWindow : Window
 
     internal void UpdateWanderEnabled(bool enabled) => UpdateSettings(settings with { WanderEnabled = enabled });
 
-    internal void SetStatus(string text) => Status.Text = text;
+    internal void SetStatus(string text) { _showRemovalNotice = false; Status.Text = text; }
 
     internal void SetReceiverState(bool running, int port, string? error)
     {

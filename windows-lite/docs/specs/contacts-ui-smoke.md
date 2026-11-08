@@ -18,6 +18,7 @@ D-31 授權在 GitHub `windows-2025` runner 自動驗證 UI。本次交付只準
 - 只啟動 loopback 接收器以讓 UI 具備正常操作能力；不啟動背景 outbox、回條或課堂 LAN 同步迴圈。傳送中與附件傳輸中狀態由真 Core API 寫入隔離資料庫，測 UI 綁定；不宣稱完成真實檔案傳輸。
 - 新增／重複 IP 的原生 Window 表單由 Loaded 掛鉤填入並觸發真正按鈕。確認與已讀提示由每視窗掛鉤記錄原文並自動回答，不彈阻塞 MessageBox；截圖不冒稱是原生 MessageBox 圖像。
 - 每一步等待真實視圖／Popup 尺寸，不從未完成的 refresh 猜測畫面。單步 12 秒、整體取消 100 秒、獨立 watchdog 115 秒寫失敗 JSON 並 exit 1；CI 再以 150 秒強制失敗，沒有逾時通過。
+- 聯絡人動作掛鉤只觀察真選單啟動的 Task，不代替操作；在原本同一個 12 秒 Wait 內等動作完成與 UI 條件，完成的錯誤會直接傳出。CT-13 封存列以穩定 principal／id 比對，不以其刻意清空的 endpoint 比對；列表 idle 還須等歷史與附件草稿載入完成。
 - 右鍵只作用在已確認屬於本程序的視窗位置；最後還原游標。截圖來自 WPF RenderTargetBitmap 96，不是桌面實體 DPI 截圖。
 
 ## BDD 驗證與圖像
@@ -31,8 +32,8 @@ D-31 授權在 GitHub `windows-2025` runner 自動驗證 UI。本次交付只準
 | TC-01/02/03 | 從真選單設／取代老師，老師一筆且同學區無副本，舊老師回一般區，Settings 檔與 SQLite 一致 | teacher-single-pinned、teacher-replaced |
 | MD-01/03 | 真訊息 ⋯ 與正文右鍵有本機刪除；真 Core sending attempt 的刪除停用且有理由 | message-more-delete、message-body-right-click、sending-delete-disabled |
 | MD-05 | 草稿「移除附件」、傳輸卡「取消傳輸」、已存訊息「從這台電腦刪除」分開；真取消操作更新卡片 | draft-remove-attachment、transfer-cancel-distinct |
-| CT-13 | 真移除確認後封存、Draft 唯讀、Send 停用 | removed-archive-readonly |
-| BK-01/06/07 | 真封鎖後獨立分區／唯讀；封鎖老師先有警告，老師區清空、加入老師按鈕可見、Settings 投影清空 | blocked-readonly、blocked-teacher-add-teacher-visible |
+| CT-13 | 真移除後保留一般篩選、改選第一位／空狀態並顯示封存提示；手動切封存後依穩定 principal 選取（封存列無 endpoint），輸入框只顯示唯讀提示；SQLite 草稿的文字／epoch／revision、記憶體 buffer、reopen 不變 | removed-stays-general-first-contact、removed-archive-readonly-prompt-draft-retained、removed-last-contact-general-empty、removed-last-contact-explicit-archive |
+| BK-01/06/07 | 真封鎖後獨立分區／唯讀提示；解除後原草稿重現；封鎖老師先有警告，老師區清空、加入老師按鈕可見、Settings 投影清空 | blocked-readonly、unblocked-retained-draft-restored、blocked-teacher-add-teacher-visible |
 | RR-02 | 真 v13 未設定偏好升級後顯示一次提示並持久化，dispose/reopen 同 profile 不再提示 | upgrade-notice-once-and-settings、reopen-no-second-notice |
 
 JSON 逐條記 checks、截圖檔名、實際提示文字、合成狀態旗標、GitHub SHA/run id。所有資料皆合成。

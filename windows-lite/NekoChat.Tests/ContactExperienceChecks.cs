@@ -281,6 +281,19 @@ internal static class ContactExperienceChecks
                 Check(entry.Removed && !entry.CanSend && !entry.IsTeacher && entry.TotalUnread==2,"archived read-only preserves both unread streams");
                 Check(e.Store.ListLegacyMessages(new(id,null)).Items.Count==1,"archived legacy remains readable under original owner");
             }),
+            Sync("CT-13 archived draft keeps stable principal and exact persisted state across v15 reopen", () => {
+                using var e=new Env(15);string id=Add(e.Store,A,"retained draft");var p=P(e.Store,A);
+                var initial=e.Store.GetClassroomDraftState(p);
+                Check(e.Store.SaveClassroomDraft(p,"保留草稿\r\nnot a UI prompt",initial.Epoch,initial.Revision+1).Saved,"nonempty draft saved before removal");
+                var before=e.Store.GetClassroomDraftState(p);var preview=e.Store.PreviewRosterDelete(id);
+                Check(e.Store.DeleteRosterEntry(id,preview.SnapshotToken,preview.ToConfirmation()).Changed,"contact removed with draft retained");
+                var archived=e.Store.GetClassroomInboxSnapshot().Entries.Single();
+                Check(archived.Principal==p&&archived.RosterEntryId==id&&archived is{Removed:true,Endpoint:null,CanSend:false}&&archived.Draft==before,
+                    "archive has stable identity, intentionally no endpoint, and unchanged draft text/epoch/revision");
+                e.Store.Dispose();using var reopened=ChatStore.Open(e.Options);
+                Check(reopened.GetClassroomInboxSnapshot().Entries.Single().Draft==before&&reopened.GetClassroomDraftState(p)==before,
+                    "read-only snapshot and v15 reopen do not replace retained draft with a display prompt");
+            }),
             Sync("CT-13 automatic restore clears the archive so the inbox lists the contact once", () => {
                 using var e=new Env(); string id=Add(e.Store,A,"restored"); Receive(e.Store,A,"m1","first");
                 var preview=e.Store.PreviewRosterDelete(id); Check(e.Store.DeleteRosterEntry(id,preview.SnapshotToken,preview.ToConfirmation()).Changed,"confirmed removal");

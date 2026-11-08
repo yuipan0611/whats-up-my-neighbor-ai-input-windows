@@ -111,14 +111,19 @@ public partial class App
         {
             await window!.SmokeOpenEntryAsync(entry => entry.Endpoint == ip);
             var menu = await TitleMenu(); var item = menu.Items.OfType<MenuItem>().Single(item => (item.Header as string)?.StartsWith(prefix, StringComparison.Ordinal) == true);
-            Check(item.IsEnabled, prefix + " action enabled"); menu.IsOpen = false; item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-            await Wait(completed, prefix + " UI state did not update");
+            Check(item.IsEnabled, prefix + " action enabled"); menu.IsOpen = false; hooks.ContactAction = null; item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            var action = hooks.ContactAction ?? throw new InvalidOperationException("Contact action was not observed on the isolated window.");
+            await Wait(() => {
+                if (!action.IsCompleted) return false;
+                action.GetAwaiter().GetResult(); // Completed only: propagate a real failure, never block the dispatcher.
+                return completed();
+            }, prefix + " UI state did not update");
         }
-        async Task AddContact(bool duplicate)
+        async Task AddContact(bool duplicate, string ip = ContactsManualIp)
         {
             hooks.DriveDialog = async dialog => {
                 var input = SmokeVisuals<TextBox>(dialog).Single(box => System.Windows.Automation.AutomationProperties.GetName(box) == "輸入對方 IP 位址");
-                input.Text = ContactsManualIp;
+                input.Text = ip;
                 SmokeVisuals<TextBox>(dialog).Single(box => box != input).Text = "合成同學 C 的本機備註";
                 Shot(duplicate ? "duplicate-input" : "add-ip-note", dialog);
                 Click(SmokeVisuals<Button>(dialog).Single(button => Equals(button.Content, "新增對象")));
@@ -131,8 +136,8 @@ public partial class App
                 }
             };
             Click(SmokeVisuals<Button>(window!).Single(button => Equals(button.Content, "＋ 新增對象")));
-            await Wait(() => window!.SmokeSelectedEntry?.Endpoint == ContactsManualIp && window.ConversationTitle.Text == "合成同學 C 的本機備註", "add/duplicate did not select saved contact");
-            Check(Row(ContactsManualIp).Name == "合成同學 C 的本機備註", duplicate ? "CT-11 duplicate opens existing note" : "CT-10 one form saves IP and local note");
+            await Wait(() => window!.SmokeSelectedEntry?.Endpoint == ip && window.ConversationTitle.Text == "合成同學 C 的本機備註", "add/duplicate did not select saved contact");
+            Check(Row(ip).Name == "合成同學 C 的本機備註", duplicate ? "CT-11 duplicate opens existing note" : "CT-10 one form saves IP and local note");
             Shot(duplicate ? "duplicate-opened-existing" : "added-selected");
         }
         async Task<MessageCard> Card(MessageView message)
@@ -221,18 +226,65 @@ public partial class App
             Check(SmokeVisuals<Button>(transferCard).Any(button => Equals(button.Content, "取消傳輸")), "MD-05 active attachment says cancel transfer, distinct from local deletion/draft removal"); Shot("transfer-cancel-distinct");
             Click(SmokeVisuals<Button>(transferCard).Single(button => Equals(button.Content, "取消傳輸")));
             await Wait(() => window.History.Rows.Any(row => row.Sequence == incomingFile.LocalSeq && row.Attachment?.State == "cancelled"), "synthetic transfer cancellation not reflected");
-            await Action(ContactsManualIp, "移除聯絡人", () => window.InboxFilter.SelectedIndex == 2 && window.InboxList.Items.OfType<InboxRowView>().Any(row => row.Entry.Endpoint == ContactsManualIp && row.Entry.Removed));
-            Check(window.Draft.IsReadOnly && !window.SendButton.IsEnabled, "CT-13 removed conversation is archived/read-only"); Shot("removed-archive-readonly");
+            var removedId = window.SmokeSelectedEntry!.Id;
+            if (!ClassroomPrincipalKey.TryParse(window.SmokeSelectedEntry.ConversationId, out var removedPrincipal)) throw new InvalidOperationException("Synthetic removed principal missing.");
+            await window.SmokeFlushContactDraftAsync();
+            var retainedDraft = await runtime.Worker.Run(s => s.GetClassroomDraftState(removedPrincipal));
+            Check(window.InboxFilter.SelectedIndex == 0 && retainedDraft.RawText == "合成傳送中狀態", "CT-13 starts in general contacts with a nonempty persisted draft");
+            await Action(ContactsManualIp, "移除聯絡人", () => window.InboxFilter.SelectedIndex == 0 && window.SmokeContactsViewIdle &&
+                window.InboxList.Items.OfType<InboxRowView>().All(row => row.Entry.Id != removedId) &&
+                window.SmokeSelectedEntry?.Id == window.InboxList.Items.OfType<InboxRowView>().FirstOrDefault()?.Entry.Id &&
+                window.Status.Text == "已移到封存區，可在篩選切換查看" && window.Status.IsVisible);
+            Check(window.InboxList.Items.Count > 0 && window.SmokeSelectedEntry is { Removed: false, Blocked: false } && window.Draft.IsEnabled,
+                "CT-13 removal stays in general filter, selects its first row and shows archive notice"); Shot("removed-stays-general-first-contact");
+            window.InboxFilter.SelectedIndex = 2;
+            await Wait(() => window.InboxList.Items.OfType<InboxRowView>().Any(row => row.Entry.Id == removedId && row.Entry.Removed), "CT-13 archive filter does not expose the stable removed principal");
+            // Removed entries intentionally have no endpoint. Select the real list row by stable ID, never by old IP.
+            window.InboxList.SelectedItem = window.InboxList.Items.OfType<InboxRowView>().Single(row => row.Entry.Id == removedId);
+            await Wait(() => window.SmokeContactsViewIdle && window.SmokeSelectedEntry?.Id == removedId && window.Draft.IsReadOnly &&
+                window.History.Rows.Any(row => row.RawText == stored.RawText), "CT-13 archive selection/read-only history did not settle");
+            Check(window.SmokeSelectedEntry is { Removed: true, Endpoint: null } && window.Draft.IsReadOnly && !window.Draft.IsEnabled && !window.SendButton.IsEnabled &&
+                window.Draft.Text.Length == 0 && window.DraftPlaceholder.IsVisible && window.DraftPlaceholder.Text == "這是封存對話，僅供查看歷史；草稿已保留。",
+                "CT-13 archived composer shows only a read-only prompt, never the retained editable-looking draft");
+            await window.SmokeFlushContactDraftAsync();
+            Check(await runtime.Worker.Run(s => s.GetClassroomDraftState(removedPrincipal)) == retainedDraft && window.SmokeContactDraft(removedPrincipal.Value) == retainedDraft.RawText,
+                "CT-13 archive rendering/flush preserves exact SQLite draft epoch/revision/text and memory buffer"); Shot("removed-archive-readonly-prompt-draft-retained");
+            window.InboxFilter.SelectedIndex = 0;
+            await Wait(() => window.InboxList.Items.OfType<InboxRowView>().All(row => row.Entry.Id != removedId), "CT-13 removed row leaked back into general filter");
             await Action(ContactsOldIp, "封鎖", () => window.InboxFilter.SelectedIndex == 3 && window.InboxList.Items.OfType<InboxRowView>().Any(row => row.Entry.Endpoint == ContactsOldIp && row.Entry.Blocked));
-            Check(window.Draft.IsReadOnly && !window.SendButton.IsEnabled, "BK-01/06 blocked conversation is separate and read-only"); Shot("blocked-readonly");
+            Check(window.Draft.IsReadOnly && !window.SendButton.IsEnabled && window.Draft.Text.Length == 0 && window.DraftPlaceholder.IsVisible && window.DraftPlaceholder.Text.Contains("已封鎖", StringComparison.Ordinal), "BK-01/06 blocked conversation is separate with an explicit read-only prompt"); Shot("blocked-readonly");
+            await Action(ContactsOldIp, "解除封鎖", () => window.InboxFilter.SelectedIndex == 0 && window.SmokeContactsViewIdle && window.SmokeSelectedEntry is { Blocked: false } && window.Draft.IsEnabled);
+            Check(window.Draft.Text == "合成升級前草稿", "CT-13/BK-06 restoring an editable contact restores the retained draft projection"); Shot("unblocked-retained-draft-restored");
+            await Action(ContactsOldIp, "封鎖", () => window.InboxFilter.SelectedIndex == 3 && window.SmokeContactsViewIdle && window.SmokeSelectedEntry is { Blocked: true } && window.Draft.IsReadOnly);
             await Action(ContactsIncomingIp, "封鎖", () => window.TeachersList.Items.Count == 0 && window.SetTeacherButton.IsVisible && window.InboxList.Items.OfType<InboxRowView>().Any(row => row.Entry.Endpoint == ContactsIncomingIp && row.Entry.Blocked));
             Check(hooks.Prompts.Any(p => p.Text.Contains("取消此對象的老師身分", StringComparison.Ordinal)) && Settings.LoadWithStatus(source.PersistencePath).Value.TeacherIp == "", "BK-07 teacher block warns, clears pinned teacher and Settings projection"); Shot("blocked-teacher-add-teacher-visible");
+            // Empty filtered-list branch: use the real contact form and removal menu, not synthetic selection state.
+            window.InboxFilter.SelectedIndex = 0;
+            const string lastIp = "10.251.232.13";
+            await AddContact(false, lastIp);
+            var lastId = window.SmokeSelectedEntry!.Id;
+            Check(window.InboxList.Items.Count == 1, "CT-13 empty-list fixture has exactly one active classmate");
+            await Action(lastIp, "移除聯絡人", () => window.SmokeContactsViewIdle && window.InboxFilter.SelectedIndex == 0 &&
+                window.InboxList.Items.Count == 0 && window.SmokeSelectedEntry is null && window.Status.Text == "已移到封存區，可在篩選切換查看");
+            Check(window.InboxEmptyPanel.IsVisible && window.History.Rows.Count == 0 && window.Draft.Text.Length == 0 && !window.SendButton.IsEnabled,
+                "CT-13 removing the last general contact leaves an empty conversation and general list"); Shot("removed-last-contact-general-empty");
+            await window.SmokeRefreshContactsAsync();
+            Check(window.SmokeSelectedEntry is null && window.InboxFilter.SelectedIndex == 0 && window.InboxList.Items.Count == 0,
+                "CT-13 subsequent refresh does not silently reselect an archive in the empty general list");
+            window.InboxFilter.SelectedIndex = 2;
+            await Wait(() => window.InboxList.Items.OfType<InboxRowView>().Any(row => row.Entry.Id == lastId && row.Entry.Removed), "CT-13 last removed contact missing from archive");
+            window.InboxList.SelectedItem = window.InboxList.Items.OfType<InboxRowView>().Single(row => row.Entry.Id == lastId);
+            await Wait(() => window.SmokeContactsViewIdle && window.SmokeSelectedEntry?.Id == lastId && window.Draft.IsReadOnly, "CT-13 last archived conversation did not settle");
+            Check(!window.Draft.IsEnabled && !window.SendButton.IsEnabled && window.Draft.Text.Length == 0 && window.DraftPlaceholder.IsVisible,
+                "CT-13 last contact remains readable only through explicit archive selection"); Shot("removed-last-contact-explicit-archive");
             await window.PrepareForShutdownAsync(); window.DetachRuntime(); window.Hide(); await runtime.DisposeAsync(); runtime = null;
             source = Settings.LoadWithStatus(source.PersistencePath).Value; AssertProfile(source);
             runtime = await ChatRuntime.OpenAsync(new(source, SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true);
             window = new(source); await window.AttachRuntimeAsync(runtime, 0); window.InstallContactsUiSmokeHooks(profile, hooks); window.Show(); window.Activate();
             await Wait(() => window.IsActive && window.SmokeReadNoticeIdle && window.InboxFilter.IsVisible, "reopened native window not ready");
             Check(hooks.Prompts.Count(p => p.Title == "已讀回條") == 1 && await runtime.Worker.Run(s => s.GetReadReceiptPreferences().NoticeShown), "RR-02 reopening same upgraded profile never shows a second notice");
+            Check(await runtime.Worker.Run(s => s.GetClassroomDraftState(removedPrincipal)) == retainedDraft,
+                "CT-13 originally removed draft survives dispose/reopen with exact epoch/revision/text");
             window.SettingsPane.Visibility = Visibility.Visible; Shot("reopen-no-second-notice");
             Check(captures.Count >= 18, "all native UI stages produced synthetic screenshots");
         }
