@@ -269,6 +269,10 @@
     {
       "fact": "Incoming attachment offers allocate a receiver-local blob ID independently of the sender wire ID. Native preview fixtures must reserve/commit bytes under the returned receiver record before marking completion; a complete record lacking its local path shows a fixed verification hint rather than silent NotEligible. Real TCP PNG regression pins canonical complete state, local path, lowercase hex SHA and content-based preview eligibility.",
       "source": "windows-lite/NekoChat.Core/Storage/ChatStore.Attachments.cs#ReceiveAttachmentOffer; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs; windows-lite/NekoChat.Windows/AttachmentImage.cs; windows-lite/NekoChat.Tests/AttachmentChecks.cs"
+    },
+    {
+      "fact": "Preview decoder availability comes from content-independent WIC CreateDecoder(container GUID), recording the selected component CLSID, not a generic image exception. All eight formats use the same Registered/NotRegistered/Unknown policy: only definitive missing registration is DecoderUnavailable; registered corrupt data and unknown queries remain DecodeFailed. Native inventory is saved before per-file decoding and unknown registration fails the smoke.",
+      "source": "windows-lite/NekoChat.Core/Attachments/AttachmentDecoderPolicy.cs; windows-lite/NekoChat.Windows/WicDecoderCatalog.cs; windows-lite/NekoChat.Windows/AttachmentImage.cs; windows-lite/NekoChat.Tests/AttachmentImageProbeChecks.cs; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs"
     }
   ]
 }

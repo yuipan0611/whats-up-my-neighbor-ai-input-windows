@@ -11,7 +11,7 @@ namespace NekoChat.Windows;
 
 internal enum AttachmentPreviewStatus { NotEligible, NotImage, InvalidHeader, TooLarge, DimensionsExceeded, VerificationFailed, DecoderUnavailable, DecodeFailed, Ready, Cancelled }
 internal sealed record AttachmentPreviewResult(BitmapSource? Image, string Notice, AttachmentImageFormat Format,
-    AttachmentPreviewStatus Status, bool HashVerified = false, bool DecodeAttempted = false, int WorkerThreadId = 0, string? DecoderError = null);
+    AttachmentPreviewStatus Status, bool HashVerified = false, bool DecodeAttempted = false, int WorkerThreadId = 0, string? DecoderError = null, WicDecoderRegistration? DecoderRegistration = null);
 
 internal static class AttachmentImage
 {
@@ -44,8 +44,9 @@ internal static class AttachmentImage
     private static AttachmentPreviewResult Decode(AttachmentFile file, string path, CancellationToken cancellation)
     {
         AttachmentImageFormat format = AttachmentImageFormat.Unknown; bool hashed = false, attempted = false;
-        int worker = Environment.CurrentManagedThreadId;
-        AttachmentPreviewResult Failure(AttachmentPreviewStatus status) => Result(status, format, file.Name, hashed, attempted, worker);
+        int worker = Environment.CurrentManagedThreadId; WicDecoderRegistration? registration = null;
+        AttachmentPreviewResult Failure(AttachmentPreviewStatus status) => Result(status, format, file.Name, hashed, attempted, worker)
+            with { DecoderRegistration = registration };
         try
         {
             cancellation.ThrowIfCancellationRequested();
@@ -64,6 +65,10 @@ internal static class AttachmentImage
                 AttachmentImageHeaderStatus.NotImage => AttachmentPreviewStatus.NotImage,
                 _ => AttachmentPreviewStatus.InvalidHeader
             });
+            registration = WicDecoderCatalog.Probe(format); // Content-independent registration evidence, on this worker.
+            if (registration.State != AttachmentDecoderRegistration.Registered)
+                return Failure(AttachmentDecoderPolicy.Failure(registration.State) == AttachmentDecoderFailure.DecoderUnavailable
+                    ? AttachmentPreviewStatus.DecoderUnavailable : AttachmentPreviewStatus.DecodeFailed);
             stream.Position = 0; cancellation.ThrowIfCancellationRequested(); attempted = true;
             var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
             if (decoder.Frames.Count == 0) return Failure(AttachmentPreviewStatus.DecodeFailed);
@@ -78,28 +83,16 @@ internal static class AttachmentImage
             // Detach pixels from the decoder/stream; only this small frozen bitmap crosses to UI.
             var detached = BitmapSource.Create(pixels.PixelWidth, pixels.PixelHeight, 96, 96, PixelFormats.Bgra32, null, buffer, stride);
             detached.Freeze(); cancellation.ThrowIfCancellationRequested();
-            return new(detached, "", format, AttachmentPreviewStatus.Ready, true, true, worker);
+            return new(detached, "", format, AttachmentPreviewStatus.Ready, true, true, worker, DecoderRegistration: registration);
         }
         catch (OperationCanceledException) { return Failure(AttachmentPreviewStatus.Cancelled); }
         catch (Exception error) when (DiagnosticFault.Catchable(error) || error is OutOfMemoryException)
         {
-            uint? missing = MissingDecoder(error);
-            return Failure(missing.HasValue ? AttachmentPreviewStatus.DecoderUnavailable : AttachmentPreviewStatus.DecodeFailed)
-                with { DecoderError = missing is { } code ? code.ToString("X8") : null };
+            return Failure(AttachmentPreviewStatus.DecodeFailed)
+                with { DecoderError = unchecked((uint)error.HResult).ToString("X8") };
         }
     }
 
-    // Microsoft WIC: COMPONENTNOTFOUND, UNKNOWNIMAGEFORMAT; COM class not registered.
-    // https://learn.microsoft.com/windows/win32/wic/-wic-codec-error-codes
-    private static uint? MissingDecoder(Exception error)
-    {
-        for (Exception? current = error; current is not null; current = current.InnerException)
-        {
-            uint code = unchecked((uint)current.HResult);
-            if (code is 0x88982F50 or 0x88982F07 or 0x80040154) return code;
-        }
-        return null;
-    }
     private static AttachmentPreviewResult Result(AttachmentPreviewStatus status, AttachmentImageFormat format, string name = "",
         bool hash = false, bool attempted = false, int worker = 0)
     {

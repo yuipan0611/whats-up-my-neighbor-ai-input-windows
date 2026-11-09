@@ -835,3 +835,33 @@ Logs: build/r12-fix/*.log、results.json。Windows 原生 r12修正及 D-35 解�
 | git diff --check / strict config | pass / valid | 0 | — |
 
 Logs: build/r13-fix/*.log、results.json；最後補的缺檔截圖呼叫另以windows-final.log完整Rebuild覆蓋（exit0、0警告/0錯誤、MSBuild8.11秒）。新 WPF 原生圖與提示仍未執行，交由 Emily push 後核驗。真TCP完成資格通過不等於Windows WIC縮圖已驗收；實機／教室／雙機／IME／DPI 仍未完成。沒有修改wire／schema／已核准素材、放寬資格、延長逾時、push／PR／合併／發布／安裝。
+
+
+### r14：實際 WIC decoder 盤點、缺解碼器分類與全格式回歸（2026-11-09）
+
+PM 提供 run42557089796／head a15b716 的結果：PNG/JPEG/GIF Ready，WebP DecodeFailed且有提示、不崩潰。這個舊結果沒有registration盤點，不能斷言Windows runner確實缺WebP，亦不能直接將這筆decode錯誤改標無解碼器。
+
+修正：
+- 新 WicDecoderCatalog 使用 Microsoft SDK 正確 GUID與COM vtable前綴，背景呼叫 IWICImagingFactory.CreateDecoder(ContainerFormat, no preferred vendor)，不開圖片，查是否可建立該容器的decoder；成功後核對container、取得IWICBitmapDecoderInfo→IWICComponentInfo的CLSID與component type。私有COM物件在同一呼叫finally釋放；不碰registry、不安裝codec、不加依賴。
+- 只有 **CreateDecoder本身** 明確回COMPONENTNOTFOUND／REGDB_E_CLASSNOTREG 才判NotRegistered；factory建立或inspection失敗、generic E_FAIL、UNKNOWNIMAGEFORMAT、BADIMAGE、一般NotSupported一律Unknown，不冒充缺codec。
+- 產品在同handle長度/SHA/header檢查通過後，才背景盤點。NotRegistered→DecoderUnavailable＋既有固定提示（HEIF指名影像延伸模組）、不啟動像素解碼；Registered→實際WPF解碼，壞檔/失敗維持DecodeFailed；Unknown→DecodeFailed並記QueryError。不再從檔案decode例外的HRESULT推測缺codec。DecodeError改記固定數字HRESULT，不含例外原文。
+- Native先獨立查完8格式並存attachment-decoder-inventory.json，故即使前一張失敗，也有TIFF/ICO/HEIF等後續格式的完整盤點。每張observations寫decoderRegistered（true/false/null）、RegistrationState、container GUID、CLSID、QueryError，以及product盤點狀態/CLSID；workflow一併上傳inventory。
+- 原生每格式都比較獨立盤點與產品結果：Registered必須Ready、實際decode且第一格紅色；NotRegistered必須DecoderUnavailable、無decode、有提示無圖片；Unknown直接失敗。八格式採同規則，沒有可疑格式一律跳過或把DecodeFailed當成功。Hash與盤點仍必須跑在不同於Dispatcher的worker；原size/dimensions/complete/path/SHA、pending/missing/tamper/壞payload/草稿負控全保留，逾時不變。
+- 新Core AttachmentDecoderPolicy承接container與registration/failure純分類；probe新增21項Mac可執行檢查，鎖8個非空唯一容器、WebP/HEIF SDK GUID、success/missing/unknown HRESULT，且Registered/Unknown的失敗永遠不是Unavailable。舊115項不改。
+
+Fixture重驗：原8圖bytes全部未變。Pillow12.3.0/libwebp1.6.0實際load既有44-byte VP8L：RIFF長度44、RGB64×48、中央(220,60,30)，SHA8ec8c864537626bfe31cbb6269bc8c47bea7c6184086c850e97864c0247e03e6；非截斷檔。PNG/JPEG/GIF/TIFF/ICO/BMP也完整解碼；GIF/TIFF第一格紅、第二格藍；HEIC經macOS ImageIO/sips實際轉PNG後驗64×48與紅像素。README記錄來源與可重現指令；build/r14-fix/fixture-validation.json有逐檔SHA/像素/工具版本。Mac解碼成功不代表Windows codec註冊或WPF已成功。
+
+本機驗證（SDK10.0.403、實際worktree build/tmp TMPDIR）：
+
+| Check | Result | Exit | Time |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | MSBuild6.26s |
+| --attachment-previews | 136 =115+21 | 0 | wall1.81s |
+| --attachments | 78+136=214 | 0 | wall2.70s |
+| Default Console | 6800 =6779+21 | 0 | wall71.28s |
+| Final win-x64 cross-build | 0 warnings / 0 errors | 0 | MSBuild5.12s |
+| strict config / git diff --check | valid / pass | 0 | — |
+
+Logs/results及實際fixture解析資料：build/r14-fix/。這次原生COM查詢／WPF分支／截圖未在Mac執行，待PM push Windows CI；未聲稱已證實runner沒有WebP，也未聲稱八種Windows縮圖全過。實體Windows／教室／雙機／IME／DPI仍未完成。不push／PR／合併／發布／安裝。
+
+API依據：[Microsoft CreateDecoder](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwicimagingfactory-createdecoder)、[GetContainerFormat](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwicbitmapdecoder-getcontainerformat)、[GetDecoderInfo](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwicbitmapdecoder-getdecoderinfo)、[SDK wincodec.h](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/wincodec.h)。

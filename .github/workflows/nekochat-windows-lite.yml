@@ -129,6 +129,7 @@ jobs:
           path: |
             build/windows-lite-smoke/contacts-ui-*/contacts-ui-result.json
             build/windows-lite-smoke/contacts-ui-*/attachment-preview-observations.json
+            build/windows-lite-smoke/contacts-ui-*/attachment-decoder-inventory.json
             build/windows-lite-smoke/contacts-ui-*/*.png
           if-no-files-found: warn
           retention-days: 14

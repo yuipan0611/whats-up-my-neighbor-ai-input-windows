@@ -25,7 +25,9 @@
 
 - Given WIC 明確回報無解碼器，When 該格式不能預覽，Then 卡片顯示「這台電腦無法預覽此圖片格式（可另存後用看圖程式開啟）」。HEIC／HEIF 改提示「需要 Windows 的 HEIF 影像延伸模組」。
 - Given 校驗失敗、格式損壞、讀取或解碼失敗，When 建立預覽，Then 使用固定小字說明，不顯示例外原文、不使 App 崩潰。大小及尺寸超限另用固定提示。
-- Native smoke 對 GIF／TIFF 必須實際顯示縮圖；WebP／HEIC 若缺解碼器，只能記為「無解碼器時顯示提示」，不得記為縮圖成功。一般解碼錯誤不能冒充缺解碼器而通過。
+- r14 PM 要求：八種格式都先以 WIC `CreateDecoder(ContainerFormat)` 查詢實際註冊／可建立的解碼器，不用 OS 版本、圖片副檔名或 decode exception 猜測。盤點記錄 ContainerFormat、decoder CLSID、狀態與固定 HRESULT。
+- Given 該格式已註冊，When native smoke 解碼合成圖，Then 必須 Ready 並驗證第一格紅色像素；一般解碼錯誤不能冒充缺解碼器而通過。
+- Given 該格式明確未註冊，When 產品預覽，Then 狀態必須為 DecoderUnavailable、實際像素解碼不啟動、提示可見。若盤點失敗／結果未知，記 Unknown 並使 smoke 失敗，不當成缺解碼器通過。TIFF／ICO／HEIF 與其他格式使用相同規則。
 
 ## AP-05 完成與校驗邊界、草稿
 
@@ -36,8 +38,8 @@
 ## 證據與界線
 
 - 共用層：內嵌合成圖的格式／尺寸探測、假副檔名、截斷、超大 header、狀態與路徑 gate。GIF／TIFF 第二格刻意不同色。
-- 原生 contacts smoke：真實 vault 暫存、真實 WPF 卡片與 sender draft；第一格像素、離開 UI 執行緒、校驗失敗不解碼、未完成不解碼、解碼失敗不崩潰。截圖 `attachment-preview-*.png`，逐格式結果 `attachment-preview-observations.json`。
+- 原生 contacts smoke：真實 vault 暫存、真實 WPF 卡片與 sender draft；第一格像素、離開 UI 執行緒、校驗失敗不解碼、未完成不解碼、解碼失敗不崩潰。截圖 `attachment-preview-*.png`，逐格式結果 `attachment-preview-observations.json`，以及先於逐圖測試保存的完整八格式 `attachment-decoder-inventory.json`。
 - Native fixture 透過 store 將合成接收紀錄設為完成，之後預覽自己重新計算 SHA；不宣稱這一段測到網路下載。附件原有 TCP／SQLite suite 獨立驗證傳輸。
 - Mac 只能跑共用層與 Windows 交叉建置；原生 WPF 截圖、實體 Windows／教室驗收仍未完成，須以後續 runner／現場結果為準。
 
-參考：[Microsoft WIC 與可擴充解碼器](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-about-windows-imaging-codec)、[WIC 錯誤碼](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-codec-error-codes)、[WebP 容器格式](https://developers.google.com/speed/webp/docs/riff_container)。
+參考：[Microsoft WIC 與可擴充解碼器](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-about-windows-imaging-codec)、[WIC 錯誤碼](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-codec-error-codes)、[WebP 容器格式](https://developers.google.com/speed/webp/docs/riff_container)、[WIC CreateDecoder 查詢](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwicimagingfactory-createdecoder)、[Microsoft Windows SDK GUID／介面宣告](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/wincodec.h)。

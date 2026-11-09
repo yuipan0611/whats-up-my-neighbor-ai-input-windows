@@ -31,6 +31,16 @@ public partial class App
         {
             await view.AttachRuntimeAsync(runtime, 0); view.Show(); view.Activate();
             await view.SmokeOpenEntryAsync(entry => entry.Endpoint == source);
+            // Query every format independently of decoding so later formats are recorded even if one fails.
+            var inventory = await Task.Run(() => AttachmentPreviewFixtures.Names.ToDictionary(extension => extension,
+                extension => {
+                    byte[] bytes = AttachmentPreviewFixtures.Read(extension);
+                    return WicDecoderCatalog.Probe(AttachmentImageProbe.Inspect(bytes, bytes.Length).Format);
+                }), cancellation);
+            await File.WriteAllTextAsync(Path.Combine(output, "attachment-decoder-inventory.json"),
+                System.Text.Json.JsonSerializer.Serialize(inventory.Select(item => new { format = item.Key,
+                    registration = item.Value.State.ToString(), item.Value.ContainerFormat, item.Value.DecoderClsid, item.Value.QueryError }),
+                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), cancellation);
             async Task<(AttachmentRecord Row, AttachmentPreviewView Preview)> Card(byte[] bytes, string name, string state, bool tamper = false, bool missing = false)
             {
                 await using var input = new MemoryStream(bytes, writable: false);
@@ -78,22 +88,35 @@ public partial class App
                 // All names deliberately use .data: content, not extension, must select the codec.
                 var item = await Card(AttachmentPreviewFixtures.Read(extension), "synthetic-" + extension + ".data", "complete");
                 var result = item.Preview.Result!;
+                var registration = inventory[extension];
                 observations.Add(new { format = extension, status = result.Status.ToString(),
                     observation = result.Status == AttachmentPreviewStatus.Ready ? "實際縮圖成功" :
                         result.Status == AttachmentPreviewStatus.DecoderUnavailable ? "無解碼器時顯示提示" : "預覽失敗，測試須失敗",
+                    decoderRegistered = registration.State == AttachmentDecoderRegistration.Unknown ? (bool?)null :
+                        registration.State == AttachmentDecoderRegistration.Registered,
+                    registrationState = registration.State.ToString(), registration.ContainerFormat, registration.DecoderClsid,
+                    registration.QueryError, productRegistrationState = result.DecoderRegistration?.State.ToString(),
+                    productDecoderClsid = result.DecoderRegistration?.DecoderClsid,
+                    productRegistrationQueryError = result.DecoderRegistration?.QueryError,
                     result.HashVerified, result.DecodeAttempted, result.WorkerThreadId, result.DecoderError, result.Notice });
                 await File.WriteAllTextAsync(Path.Combine(output, "attachment-preview-observations.json"),
                     System.Text.Json.JsonSerializer.Serialize(observations, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), cancellation);
-                bool optionalCodec = extension is "webp" or "heic";
-                if (result.Status == AttachmentPreviewStatus.DecoderUnavailable && optionalCodec)
+                check(registration.State != AttachmentDecoderRegistration.Unknown &&
+                    result.DecoderRegistration is { } productRegistration && productRegistration.State == registration.State &&
+                    productRegistration.ContainerFormat == registration.ContainerFormat,
+                    "AP-04 independent WIC container registration query is definitive and agrees with product: " + extension +
+                    " / " + registration.State + " / " + registration.QueryError);
+                if (registration.State == AttachmentDecoderRegistration.NotRegistered)
                 {
-                    check(item.Preview.Hint.IsVisible && !item.Preview.Thumbnail.IsVisible &&
+                    check(result.Status == AttachmentPreviewStatus.DecoderUnavailable && !result.DecodeAttempted &&
+                        item.Preview.Hint.IsVisible && !item.Preview.Thumbnail.IsVisible &&
                         (extension != "heic" || item.Preview.Hint.Text.Contains("需要 Windows 的 HEIF 影像延伸模組", StringComparison.Ordinal)),
                         "AP-04 無解碼器時顯示提示: " + extension);
                 }
                 else
                 {
-                    check(result.Status == AttachmentPreviewStatus.Ready && result.Image is { IsFrozen: true } &&
+                    check(result.Status == AttachmentPreviewStatus.Ready && result.DecodeAttempted && registration.DecoderClsid is not null &&
+                        result.Image is { IsFrozen: true } &&
                         item.Preview.Thumbnail.IsVisible && result.Image.PixelWidth <= 320 && result.Image.PixelHeight <= 200,
                         "AP-01 actual WIC thumbnail rendered: " + extension + " / " + result.Status);
                     var image = new FormatConvertedBitmap(result.Image!, PixelFormats.Bgra32, null, 0);
@@ -101,8 +124,8 @@ public partial class App
                     image.CopyPixels(new Int32Rect(image.PixelWidth / 2, image.PixelHeight / 2, 1, 1), pixel, 4, 0);
                     check(pixel[2] > 150 && pixel[0] < 120, "AP-01 first frame/page is red, never blue animation/page2: " + extension);
                 }
-                check(result.HashVerified && result.DecodeAttempted && result.WorkerThreadId != 0 && result.WorkerThreadId != uiThread,
-                    "AP-03 hash and content checked; WIC decoder actually ran off UI: " + extension);
+                check(result.HashVerified && result.WorkerThreadId != 0 && result.WorkerThreadId != uiThread,
+                    "AP-03 hash/content/registration checked off UI; pixel decode only with a registered codec: " + extension);
                 shot("attachment-preview-" + extension, view);
             }
             await File.WriteAllTextAsync(Path.Combine(output, "attachment-preview-observations.json"),
