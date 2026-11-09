@@ -28,7 +28,8 @@ internal record Settings
     public List<ContactItem> Contacts { get; init; } = new();
     public string TeacherIp { get; init; } = NekoChat.Core.ClassroomReactions.DefaultTeacherIp;
     public string ReactionDisplayDevice { get; init; } = "";
-    public bool ShowReactionPreviews { get; init; }
+    public bool ShowReactionPreviews { get; init; } = true;
+    public bool ReactionPreviewExplicitChoice { get; init; }
 
     // Legacy fields kept for seamless JSON compatibility
     public bool Lan { get; init; } = true;
@@ -71,7 +72,11 @@ internal record Settings
             if (value is null || value.Contacts is null || value.Contacts.Any(c => c is null || c.Ip is null || c.Name is null) ||
                 value.Coat is null || value.LastRecipientIp is null || value.TeacherIp is null || value.ReactionDisplayDevice is null ||
                 value.LanEndpoint is null || value.VpsEndpoint is null || value.User is null) return Failed(SettingsSourceStatus.Invalid);
-            return new(value with { PersistencePath = path }, SettingsSourceStatus.Loaded);
+            // Read-only normalization: do not rewrite a legacy settings file during load.
+            // The next successful ordinary save persists it; only a visible toggle click sets explicit choice.
+            return new(value with { PersistencePath = path,
+                ShowReactionPreviews = NekoChat.Core.ReactionPreviewPolicy.AfterLoad(value.ShowReactionPreviews, value.ReactionPreviewExplicitChoice)
+            }, SettingsSourceStatus.Loaded);
         }
         catch (FileNotFoundException) { return new(new Settings { PersistencePath = path }, SettingsSourceStatus.Missing); }
         catch (DirectoryNotFoundException) { return new(new Settings { PersistencePath = path }, SettingsSourceStatus.Missing); }

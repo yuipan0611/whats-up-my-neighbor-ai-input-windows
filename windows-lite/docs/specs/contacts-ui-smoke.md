@@ -54,3 +54,9 @@ JSON 逐條記 checks、截圖檔名、實際提示文字、合成狀態旗標�
 既有 `--message-recovery-smoke-test` 改用目前訊息 ⋯ 的本機刪除入口，以及「編輯本機備註」選單／視窗名稱；保留原本資料、去重、晚到 ACK、重試與暱稱斷言，並加入停用即失敗。未刪除舊斷言來讓 CI 通過。
 
 本機 macOS 只能跑 Core／fixture seed 檢查與 win-x64 交叉建置。原生 WPF、runner JSON／PNG 的實際結果需等 PM push／Draft PR 後查 CI；IME、實體 DPI、雙機與教室驗收仍未執行。
+
+## D-32 課堂反應（RX-01～06）
+
+contacts smoke 最後另建全新 reaction-profile（相同安全路徑檢查、無日常資料），不重用 v13 聯絡人 seed。真 loopback legacy 接收 → 真 store event → 與產品共用 NotifyReactionOrText → 真 PetWindow。圖片設定未預先 opt-in；以合成老師角色先驗證預設貓咪圖、畫面可見／有圖片及不搶焦點，再用實際 Click 關閉，驗證 explicit OFF 重讀與純文字提醒；切為合成學生角色驗證 TeacherOnly 不跳圖、同學貼圖正常。封鎖後同一來源真 TCP 正常 ACK，但無 event、無新增正文、無文字／圖片提醒。四款 TeacherOnly 與五款雙接收路徑的封鎖情境由 --reactions 全覆蓋。
+
+新增截圖名稱：reaction-settings-default-on、reaction-default-cat、reaction-off-text-only、reaction-settings-explicit-off、reaction-peer-cat、reaction-blocked-no-notice，全部進既有 contacts JSON 的 checks/captures 和既有 artifact。沿用原 step/global/watchdog deadline，不延長逾時。Mac 僅交叉建置；新原生斷言、截圖、投影／多螢幕實測仍未執行。

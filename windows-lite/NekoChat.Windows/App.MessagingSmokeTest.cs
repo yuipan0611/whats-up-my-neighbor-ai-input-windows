@@ -33,7 +33,7 @@ public partial class App
         {
             Require(chatRuntime?.CanSend == true && directListener?.Running == true, "Signed app runtime failed to start");
             Require(chat.IsVisible && pet.IsVisible && messagingPeerId is not null, "Actual fixture windows or pinned identity missing");
-            Require(!settings.ShowReactionPreviews, "Reaction preview privacy default changed");
+            Require(settings.ShowReactionPreviews && !settings.ReactionPreviewExplicitChoice, "D-32 fresh reaction-preview default must be ON without an explicit choice");
             var defaults = await chatRuntime!.Worker.Run(s => (Policy: s.GetReadReceiptPolicy(), Preferences: s.GetReadReceiptPreferences()));
             Require(chat.ReadReceiptToggle.IsChecked == true && defaults.Policy.Enabled && !defaults.Preferences.ExplicitChoice,
                 "D-28 fresh read-receipt default must be ON in UI and storage, without a manual choice");

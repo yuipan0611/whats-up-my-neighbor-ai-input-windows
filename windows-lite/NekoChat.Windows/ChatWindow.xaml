@@ -290,10 +290,14 @@
      </StackPanel>
      <ComboBox x:Name="ContactsCombo" SelectionChanged="ContactsComboChanged" Visibility="Collapsed"/>
      <StackPanel Visibility="Collapsed">
-     <TextBlock Text="課堂反應" FontWeight="Bold" Margin="0,20,0,8"/><TextBlock Text="老師 IP"/><TextBox x:Name="TeacherIpBox" AutomationProperties.Name="老師 IP"/>
+     <TextBlock Text="老師 IP"/><TextBox x:Name="TeacherIpBox" AutomationProperties.Name="老師 IP"/>
      <Button Content="記住老師" Click="SaveTeacherClick" HorizontalAlignment="Left" Margin="0,8"/><TextBlock x:Name="TeacherTarget" TextWrapping="Wrap"/><TextBlock x:Name="ScrollTarget" TextWrapping="Wrap" Margin="0,8"/>
+     </StackPanel>
+     <StackPanel x:Name="ReactionSettingsGroup">
+     <TextBlock Text="課堂反應" FontWeight="Bold" Margin="0,20,0,8"/>
+     <CheckBox x:Name="ReactionPreviewToggle" Content="收到課堂反應時跳出貓咪圖（投影時可關閉）" Click="ReactionPreviewToggleClick" Margin="0,0,0,4"/>
+     <TextBlock Text="關閉後只顯示文字提醒，不會跳出課堂反應圖片。" TextWrapping="Wrap" Foreground="#596B80" FontSize="12"/>
      <TextBlock Text="提醒螢幕" Margin="0,8"/><ComboBox x:Name="ReactionDisplay" DisplayMemberPath="Label" SelectedValuePath="DeviceName" SelectionChanged="ReactionDisplayChanged" DropDownOpened="ReactionDisplayOpened" AutomationProperties.Name="提醒螢幕"/>
-     <CheckBox x:Name="ReactionPreviewToggle" Content="允許桌面顯示課堂反應圖片（可能透露內容）" Click="ReactionPreviewToggleClick" Margin="0,12,0,4"/>
      </StackPanel>
      <Button x:Name="ExportDiagnosticsButton" Content="匯出診斷記錄" Click="ExportDiagnosticsClick" HorizontalAlignment="Left" Margin="0,12,0,0" IsEnabled="False"/>
      <TextBlock Text="診斷只保存在本機，不含聊天或附件內容。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>

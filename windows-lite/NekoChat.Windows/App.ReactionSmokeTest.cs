@@ -52,27 +52,40 @@ public partial class App
         await ConfigureReactionFixtureAsync(false);
         pet.ReactionDisplayDevice = "disconnected-test-screen";
         string Ready(string value) => Path.Combine(options.Directory, value + ".ready");
-        // First prove the unmodified privacy default on a real legacy classroom reaction.
+        // RX-01: prove the unmodified ON default through real legacy TCP before any toggle click.
         if (options.Role == "alice")
         {
             await UntilAsync(() => File.Exists(Ready("privacy-default")), cancellation);
+            await SendReactionAsync(ClassroomReactions.Find("too-fast")!, cancellation);
+            await UntilAsync(() => File.Exists(Ready("preview-off")), cancellation);
             await SendReactionAsync(ClassroomReactions.Find("too-fast")!, cancellation);
             await UntilAsync(() => File.Exists(Ready("privacy-verified")), cancellation);
         }
         else
         {
+            Require(settings.ShowReactionPreviews && !settings.ReactionPreviewExplicitChoice, "RX-01 default must not be pre-opted-in");
             File.WriteAllText(Ready("privacy-default"), "ready");
+            await UntilAsync(() => pet.ReactionActive && pet.ReactionImage.Source is not null && pet.ReactionCaption.Text.StartsWith("講太快了", StringComparison.Ordinal), cancellation);
+            Capture(pet, Path.Combine(options.Directory, "bob-default-reaction.png"));
+            await UntilAsync(() => !pet.ReactionActive, cancellation);
+            chat.ReactionPreviewToggle.IsChecked = false;
+            chat.ReactionPreviewToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Require(!settings.ShowReactionPreviews && settings.ReactionPreviewExplicitChoice, "RX-04 explicit OFF did not persist");
+            // Remove earlier signed-chat reminders before allowing the OFF control message.
+            // An old visible bubble must not satisfy the next receive assertion.
+            while (pet.Bubble.Visibility == Visibility.Visible) pet.AdvanceChatNotice();
+            File.WriteAllText(Ready("preview-off"), "ready");
             await UntilAsync(() => pet.Bubble.Visibility == Visibility.Visible && pet.BubbleText.Text.Contains("新訊息"), cancellation);
-            Require(!pet.ReactionActive && !pet.BubbleText.Text.Contains("太快") && !pet.BubbleText.Text.Contains("127.0.0.1"), "Default legacy reaction leaked body or endpoint");
+            Require(!pet.ReactionActive && !pet.BubbleText.Text.Contains("太快") && !pet.BubbleText.Text.Contains("127.0.0.1"), "Explicit-OFF legacy reaction leaked body or endpoint");
             pet.Bubble.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await UntilAsync(() => chat.SmokeSelectedEntry?.LegacyScope?.UnknownSourceIp == "127.0.0.1" && chat.History.Rows.Any(r => r.Legacy), cancellation);
             Require(chat.SmokeSelectedEntry is { PeerId: null } && chat.History.Rows.All(r => r.Legacy), "Legacy notification merged into the signed peer history");
             File.WriteAllText(Ready("privacy-verified"), "ready");
         }
-        // Deliberately opt in through the actual settings control before asset/timing checks.
+        // Restore ON through the actual visible control before the unchanged asset/timing checks.
         chat.ReactionPreviewToggle.IsChecked = true;
         chat.ReactionPreviewToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Require(settings.ShowReactionPreviews, "Explicit reaction-preview preference did not persist");
+        Require(settings.ShowReactionPreviews && settings.ReactionPreviewExplicitChoice, "Explicit reaction-preview preference did not persist");
         File.WriteAllText(Ready(options.Role + "-opt-in"), "ready");
         await UntilAsync(() => File.Exists(Ready((options.Role == "alice" ? "bob" : "alice") + "-opt-in")), cancellation);
         if (options.Role == "alice")
@@ -111,7 +124,7 @@ public partial class App
         }
         File.WriteAllText(Path.Combine(options.Directory, options.Role + "-reactions-result.txt"),
             "PASS: actual teacher WPF buttons reject a selected classmate and send only from the selected teacher chat; peer sticker popup works both ways; " +
-            "default notification hides reaction content/IP; explicit preview opt-in; draft preserved for shortcuts; old-client exact-text compatibility fixture; real legacy TCP courtesy ACK/separate unverified history; transparent 312x288 central display; " +
+            "D-32 default shows reaction image; explicit OFF hides reaction content/IP; explicit ON restored; draft preserved for shortcuts; old-client exact-text compatibility fixture; real legacy TCP courtesy ACK/separate unverified history; transparent 312x288 central display; " +
             "two-second deadline; duplicate count; no source IP in popup; original HWND/position/size/art restored; click replies to source.");
 
         async Task VerifyReactionAsync(ClassroomReaction reaction, string captureName, CancellationToken token, bool clickReply = false)

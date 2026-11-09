@@ -5,7 +5,7 @@
     "name": "NekoChat Windows Lite",
     "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",
     "repo_root": ".",
-    "last_reviewed": "2026-11-08"
+    "last_reviewed": "2026-11-09"
   },
   "instructions": {
     "files": [
@@ -244,6 +244,10 @@
     {
       "fact": "Message metadata formatting is pure and omits orphan separators; native contacts hardening uses pre-Attach exact-runtime/profile hooks, complete cancellation snapshots, real-input reachability and foreground/read negative-positive controls. Removed roster IDs are excluded from stale UI selection; native additions still require CI execution.",
       "source": "windows-lite/NekoChat.Core/Presentation/MessageMetadataPolicy.cs; windows-lite/NekoChat.Tests/MessageFormattingChecks.cs; windows-lite/NekoChat.Windows/ChatWindow.ContactsSmokeFixture.cs; windows-lite/NekoChat.Windows/App.ContactsUiSmokeTest.cs; docs/team/CODEX-VERIFICATION.md"
+    },
+    {
+      "fact": "D-32 reaction images default ON; legacy values without explicit choice normalize ON without load-time writes, while visible-toggle choices persist. Shared preview policy retains teacher-only routing; receive transaction and Worker notification block gates stay in place.",
+      "source": "windows-lite/NekoChat.Core/ReactionPreviewPolicy.cs; windows-lite/NekoChat.Windows/Settings.cs; windows-lite/NekoChat.Windows/ChatWindow.xaml; windows-lite/NekoChat.Tests/ReactionPreferenceChecks.cs; windows-lite/docs/specs/reactions.md"
     }
   ]
 }

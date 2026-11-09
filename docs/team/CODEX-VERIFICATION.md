@@ -551,3 +551,43 @@ Final local checks (real worktree `build/tmp` as TMPDIR):
 Logs: `build/b1-followup/b1-final-results.json`, `b1-final-*.log`; final cross-build is `b1-final-win-x64-build-final.log`. Final WPF DLL is newer than the last changed WPF source, covering the fresh background unread control. Source guard unchanged; diff-check and strict safety-config validation pass. A1–A5, B, N1 and N3 are all prepared; nothing deferred due to quota. Native assertions and new screenshots remain pending round6, not locally claimed as passed.
 
 **第 1 批收尾強化完成（本機）**. Local commit only; Emily owns same-branch push/round6. No push/new PR/merge/release/install/deploy or classroom EXE replacement.
+
+
+### D-32 reaction image restoration (2026-11-09)
+
+**D-32 完成（本機）**. Clean baseline HEAD895bc55 on codex/lite-chat-ux-b1-20261107. Source confirms ShowReactionPreviews=false and both its toggle/monitor picker inside the collapsed legacy teacher panel. Pre-change compiled SettingsSource suite:45/exit0. No daily settings, installed binaries, assets or old classroom test EXE were modified.
+
+Impact/plan: medium risk because persisted preference semantics change. (1) Pure Core load/presentation policy + Windows settings explicit-choice field; (2) expose only reaction settings and reuse existing save/display paths; (3) Core/real settings/blocked-receive scenarios and existing native smoke entrypoints; (4) local regressions/cross-build and PM handoff. Frozen wire/schema, cat artwork, two-second timing/aggregation/focus behavior, D-30 same-transaction ingress and Worker notification block checks remain unchanged.
+
+| Spec | File / scenario evidence |
+|---|---|
+| RX-01 | Settings.cs:31 defaults ON. App.MessagingSmokeTest.cs:36 pins fresh ON/non-explicit. ReactionPreferenceChecks RX-01 checks new/missing settings. App.ReactionPreferencesSmoke fresh isolated real-TCP receiver renders the embedded teacher cat without pre-opt-in; App.ReactionSmokeTest tests the default in the actual two-app product event route. |
+| RX-02 | ChatWindow.xaml ReactionSettingsGroup exposes the exact requested toggle and monitor picker; old TeacherIpBox/remember button remain collapsed. Click sets explicit choice and saves. Native asserts IsVisible/sized/enabled/checked plus visible monitor picker/hidden teacher editor, clicks OFF and checks text-only/no image; captures settings and pet. |
+| RX-03 | ReactionPreviewPolicy.AfterLoad(false,false)=true. Settings.LoadWithStatus normalizes old missing/false/true without load-time writes; next normal successful save persists it. Four real JSON fixtures including case-insensitive fields preserve teacher, contact and monitor settings; load/save/reload tested. No DB schema/version change. |
+| RX-04 | ReactionPreviewExplicitChoice=true only on actual toggle Click; pure policy and actual save/reload respect explicit ON/OFF. Later ordinary save never turns explicit OFF back ON. Existing invalid/unavailable settings readonly/no-overwrite tests remain unchanged. |
+| RX-05 | Shared NotifyReactionOrText uses pure ShowImage with the existing teacher rule. Five Core role/OFF cases plus existing ReactionChecks cover four TeacherOnly and unchanged “你再給我滑！”, 2 seconds, count aggregation, bounded queue and TCP compatibility. Native default teacher/nonteacher/peer paths use real PetWindow; focus/display restore code is untouched. |
+| RX-06 | Added five known image reactions through both ClassroomStoreSink legacy and classroom paths after a successful unblocked event control. Normal ACK, no store projection changes, no events. Native fresh-profile real TCP additionally proves same-source blocked ACK with unchanged legacy rows and neither text nor image. Actual application NotifyAfterBlockCheckAsync Worker/Dispatcher identity checks stay intact, including fail-closed unknown state. |
+
+#### D-32 old-test comparison table
+
+| Current test file:line | Old assertion / setup | New assertion / setup | Decision | Historical contract retained? |
+|---|---|---|---|---|
+| windows-lite/NekoChat.Windows/App.MessagingSmokeTest.cs:36 | !ShowReactionPreviews (“Reaction preview privacy default”) | ShowReactionPreviews && !ReactionPreviewExplicitChoice before any click. Ordinary notification body/IP and read-receipt explicit-OFF assertions unchanged. | D-32 | Universal preview-OFF retired; intentional user opt-out privacy retained. Prior D-28 table above describes historical pre-D-32 behavior. |
+| windows-lite/NekoChat.Windows/App.ReactionSmokeTest.cs:55 | First legacy teacher reaction expected generic text as unmodified default, then opt-in | First teacher reaction must render cat image before any toggle; capture it, wait for restore, click OFF, clear previous ordinary reminders before sender rendezvous, then a second real reaction must be text-only/no body/IP. Click ON before all original image/timing/count/reply checks. | D-32 | OFF text/privacy contract preserved as explicit user choice; original artwork/timing/focus/reply checks retained. |
+| windows-lite/NekoChat.Tests/Program.cs | ReactionChecks in default suite only | Keep original47 checks, add31 ReactionPreferenceChecks; --reactions runs both. | D-32 additive | No original assertion removed or weakened. |
+
+Full code/script consumer grep found no other executable ShowReactionPreviews default-OFF assertion. No blanket privacy replacement, source-guard change, timeout extension, asset edit or schema/wire change. Native contacts uses a separate fresh profile, loopback-only mapped synthetic private source and the existing checks/captures JSON/artifact path; ordinary application startup cannot install these hooks. Screenshots contain synthetic data only.
+
+Local results, SDK10.0.403 and real worktree build/tmp as TMPDIR:
+
+| Check | Result / exit |
+|---|---|
+| Pre-change settings-source | 45 / 0 |
+| Release Console build | 0 warnings / 0 errors / exit0 |
+| --reactions | original47 + new31 = 78 / exit0 |
+| --contacts | 194 / exit0 |
+| --blocking | 90 / exit0 |
+| Default Console | 6,608 = previous6,577 + reaction preference31 / exit0 |
+| Final win-x64 WPF cross-build | 0 warnings / 0 errors / exit0 |
+
+Logs: build/d32/{baseline-settings-source,tests-build,reactions,contacts,blocking,default-console,win-x64-build-final}.log and results.json. Strict safety config validation and git diff --check pass. Native package/portable contacts and two-app messaging execution are **未執行，待 Emily push Windows CI**; new screenshots are not claimed from Mac cross-build. Classroom/multiple-monitor/projection, IME, physical DPI and two-device acceptance remain unexecuted. All D-32 work completed; no quota deferral. Local commit only; no push/PR/merge/release/install/deploy. The previously supplied classroom EXE remains unchanged.

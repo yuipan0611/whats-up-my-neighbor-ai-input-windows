@@ -453,10 +453,9 @@ public partial class App : Application
             var notificationRuntime = candidate;
             listener.LegacyMessageStored += notice => _ = NotifyAfterBlockCheckAsync(notificationRuntime, listener, notice.SourceIp, () => {
                 chat.DataChanged();
-                bool teacher = chatRuntime?.ClassroomFiles?.IsTeacherNode == true || LanInvitation.LocalAddresses().Contains(settings.TeacherIp) || settings.TeacherIp == "127.0.0.1";
+                bool teacher = IsReactionTeacher(notificationRuntime, settings);
                 var reaction = notice.Reaction is { } id ? ClassroomReactions.Find(id) : null;
-                if (settings.ShowReactionPreviews && reaction is not null && (!reaction.TeacherOnly || teacher)) pet.NotifyReaction(reaction, notice.Scope.ContextId);
-                else pet.NotifyChat("新訊息", notice.Scope.ContextId, chat.LegacyNotificationName(notice));
+                NotifyReactionOrText(settings, pet, reaction, teacher, notice.Scope.ContextId, chat.LegacyNotificationName(notice));
             });
             listener.V2MessageStored += notice => Dispatcher.BeginInvoke(new Action(() => {
                 if (closingApp || !ReferenceEquals(directListener, listener)) return;
@@ -464,12 +463,9 @@ public partial class App : Application
             }));
             listener.ClassroomMessageStored += notice => _ = NotifyAfterBlockCheckAsync(notificationRuntime, listener, notice.SourceIp, () => {
                 chat.DataChanged();
-                bool teacher = chatRuntime?.ClassroomFiles?.IsTeacherNode == true || LanInvitation.LocalAddresses().Contains(settings.TeacherIp) || settings.TeacherIp == "127.0.0.1";
+                bool teacher = IsReactionTeacher(notificationRuntime, settings);
                 var reaction = notice.Reaction is { } id ? ClassroomReactions.Find(id) : null;
-                if (settings.ShowReactionPreviews && reaction is not null && (!reaction.TeacherOnly || teacher))
-                    pet.NotifyReaction(reaction, notice.SourceIp);
-                else
-                    pet.NotifyChat("新訊息", notice.SourceIp, chat.ClassroomNotificationName(notice.SourceIp));
+                NotifyReactionOrText(settings, pet, reaction, teacher, notice.SourceIp, chat.ClassroomNotificationName(notice.SourceIp));
             });
             listener.Diagnostic += code => { if (code is "receiver_not_ready" or "listener_failed") Dispatcher.BeginInvoke(new Action(() => { if (!closingApp && ReferenceEquals(directListener, listener)) chat.SetReceiverState(false, startupPort, listener.Error ?? "接收服務已停止"); })); };
             candidate.Start(sharedNetwork: classroomShareNetwork); chatRuntime = candidate; candidate = null;
@@ -479,6 +475,16 @@ public partial class App : Application
         catch (Exception ex)
         { chat.DetachRuntime(); chat.ShowDataFailure(ex); chat.SetReceiverState(false, startupPort, "本機資料尚未就緒"); }
         finally { if (candidate is not null) await candidate.DisposeAsync(); startingData = false; }
+    }
+
+    private static bool IsReactionTeacher(ChatRuntime runtime, Settings preferences) =>
+        runtime.ClassroomFiles?.IsTeacherNode == true || LanInvitation.LocalAddresses().Contains(preferences.TeacherIp) || preferences.TeacherIp == "127.0.0.1";
+
+    private static void NotifyReactionOrText(Settings preferences, PetWindow target, ClassroomReaction? reaction, bool teacher, string source, string name)
+    {
+        if (ReactionPreviewPolicy.ShowImage(preferences.ShowReactionPreviews, reaction, teacher))
+            target.NotifyReaction(reaction!, source);
+        else target.NotifyChat("新訊息", source, name);
     }
 
     private async Task NotifyAfterBlockCheckAsync(ChatRuntime runtime, DirectLanListener listener, string sourceIp, Action notify)

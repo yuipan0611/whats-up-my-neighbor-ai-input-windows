@@ -30,12 +30,17 @@ public partial class App
     private sealed class ContactsSmokeSink(ChatRuntime runtime) : IClassroomTransportSink
     {
         internal string SyntheticSource { get; set; } = ContactsOldIp;
+        internal Action<LegacyDeliveryNotice>? LegacyStored { get; set; }
         public async Task<ClassroomTransportResponse?> OnMessageAsync(string source, string local, ClassroomRequest request, Func<bool> current, CancellationToken token) =>
             await await runtime.Worker.Run(s => new ClassroomStoreSink(s).OnMessageAsync(SyntheticSource, local, request, current, token));
         public async Task<ClassroomTransportResponse?> OnReceiptAsync(string source, string local, ClassroomRequest request, Func<bool> current, CancellationToken token) =>
             await await runtime.Worker.Run(s => new ClassroomStoreSink(s).OnReceiptAsync(SyntheticSource, local, request, current, token));
         public async Task<ClassroomTransportResponse?> OnLegacyDirectAsync(string source, DirectMessage request, Func<bool> current, CancellationToken token) =>
-            await await runtime.Worker.Run(s => new ClassroomStoreSink(s).OnLegacyDirectAsync(SyntheticSource, request, current, token));
+            await await runtime.Worker.Run(s => {
+                var sink = new ClassroomStoreSink(s);
+                sink.LegacyMessageStored += notice => LegacyStored?.Invoke(notice);
+                return sink.OnLegacyDirectAsync(SyntheticSource, request, current, token);
+            });
     }
 
     private static ContextMenu[] ContactsOpenMenus() => PresentationSource.CurrentSources.OfType<HwndSource>()
@@ -485,6 +490,8 @@ public partial class App
                 "CT-13 originally removed draft survives dispose/reopen with exact epoch/revision/text");
             window.SettingsPane.Visibility = Visibility.Visible; Shot("reopen-no-second-notice");
             Check(hooks.NextPromptAnswer is null && hooks.Prompts.Count(prompt => prompt.Answer == MessageBoxResult.No) == 3, "all three distinct cancellation answers were consumed exactly once");
+            await RunReactionPreferencesUiChecksAsync(output, Check, (name, element) => Shot(name, element),
+                (condition, label) => Wait(condition, label), deadline.Token);
             Check(captures.Count >= 18, "all native UI stages produced synthetic screenshots");
         }
         catch (Exception error)
