@@ -31,24 +31,37 @@ public partial class App
         {
             await view.AttachRuntimeAsync(runtime, 0); view.Show(); view.Activate();
             await view.SmokeOpenEntryAsync(entry => entry.Endpoint == source);
-            async Task<(AttachmentRecord Row, AttachmentPreviewView Preview)> Card(byte[] bytes, string name, string state, bool tamper = false)
+            async Task<(AttachmentRecord Row, AttachmentPreviewView Preview)> Card(byte[] bytes, string name, string state, bool tamper = false, bool missing = false)
             {
                 await using var input = new MemoryStream(bytes, writable: false);
                 var file = await service.Vault.StageAsync(input, name, bytes.Length, cancellation); // Actual staged hash, not a fabricated hash.
+                var offered = await runtime.Worker.Run(store => {
+                    var actual = (ChatStore)store;
+                    return actual.ReceiveAttachmentOffer(source, 8768, Guid.NewGuid().ToString("D"), file, "", new string('b', 64), () => true).Record
+                        ?? throw new InvalidOperationException("AP synthetic offer was rejected");
+                });
+                // ReceiveAttachmentOffer intentionally replaces the wire blob id with a local id.
+                // Follow DownloadAsync's reserve/commit path before seeding the transfer state.
+                check(offered.File.BlobId != file.BlobId, "AP receiver owns a distinct local blob id: " + name);
+                await using (var target = service.Vault.Reserve(offered.File.BlobId, offered.File.Size))
+                    await target.WriteAsync(bytes, cancellation);
+                await service.Vault.CommitAsync(offered.File, cancellation);
+                service.Vault.Delete(file.BlobId);
                 if (tamper)
                 {
                     byte[] changed = (byte[])bytes.Clone(); changed[^1] ^= 1;
-                    await File.WriteAllBytesAsync(service.Vault.PathFor(file.BlobId), changed, cancellation);
+                    await File.WriteAllBytesAsync(service.Vault.PathFor(offered.File.BlobId), changed, cancellation);
                 }
+                if (missing) service.Vault.Delete(offered.File.BlobId);
                 var row = await runtime.Worker.Run(store => {
                     var actual = (ChatStore)store;
-                    var offered = actual.ReceiveAttachmentOffer(source, 8768, Guid.NewGuid().ToString("D"), file, "", new string('b', 64), () => true).Record
-                        ?? throw new InvalidOperationException("AP synthetic offer was rejected");
-                    actual.SetAttachmentState(offered, state);
+                    if (!actual.SetAttachmentState(offered, state)) throw new InvalidOperationException("AP synthetic transfer state was rejected");
                     return actual.GetAttachment(offered.LocalSeq)!;
                 });
                 await view.SmokeRefreshContactsAsync();
                 var message = view.History.Rows.Single(message => message.Sequence == row.LocalSeq && message.Attachment is not null);
+                check(message.Attachment!.State == state && (missing ? message.AttachmentPath is null :
+                    message.AttachmentPath == service.Vault.PathFor(row.File.BlobId)), "AP projected state/path match the receiver local blob: " + name);
                 view.History.ScrollIntoView(message); view.UpdateLayout();
                 AttachmentPreviewView? preview = null;
                 await wait(() => {
@@ -97,6 +110,11 @@ public partial class App
             var incomplete = await Card(AttachmentPreviewFixtures.Read("gif"), "not-complete.gif", "receiving");
             check(incomplete.Preview.Result is { Status: AttachmentPreviewStatus.NotEligible, DecodeAttempted: false, HashVerified: false } &&
                 !incomplete.Preview.Thumbnail.IsVisible, "AP-05 incomplete attachment with an existing valid blob never opens decoder");
+            var missing = await Card(AttachmentPreviewFixtures.Read("png"), "missing.png", "complete", missing: true);
+            check(missing.Preview.Result is { Status: AttachmentPreviewStatus.VerificationFailed, DecodeAttempted: false, HashVerified: false } &&
+                missing.Preview.Hint.IsVisible && missing.Preview.Hint.Text.Contains("無法驗證檔案", StringComparison.Ordinal),
+                "AP-05 completed attachment without its local blob shows verification hint instead of silent NotEligible");
+            shot("attachment-preview-missing", view);
             var fake = await Card("%PDF-1.7 not an image"u8.ToArray(), "fake.jpg", "complete");
             check(fake.Preview.Result is { Status: AttachmentPreviewStatus.NotImage, DecodeAttempted: false } && fake.Preview.Hint.IsVisible,
                 "AP-02 fake image extension rejected before WIC with visible explanation");

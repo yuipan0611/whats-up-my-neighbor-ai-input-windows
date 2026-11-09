@@ -806,3 +806,32 @@ Logs: build/d35/*.log, results.json. **Native WPF codec outcomes and screenshots
 | git diff --check / strict config | pass / valid | 0 | — |
 
 Logs: build/r12-fix/*.log、results.json。Windows 原生 r12修正及 D-35 解碼／截圖仍未執行，交由 Emily 一次 push 後跑第13輪。實機、雙機、教室、IME、DPI 仍未完成。不 push／PR／合併／發布／安裝。
+
+
+### r13：接收端本機 blob ID fixture 與缺檔提示（2026-11-09）
+
+已讀取第13輪 contacts-ui-package/attachment-preview-observations.json，並實際檢視51-attachment-preview-failure.png：PNG是NotEligible、HashVerified=false、DecodeAttempted=false、worker=0；卡片已接收但連「另存」都沒有。這證明失敗發生在進入校驗／WIC worker 之前，不是 PNG 解碼器或 SHA 比對失敗。
+
+**根因是 native fixture，非真實接收的完成／雜湊契約退步。** ChatStore.ReceiveAttachmentOffer 刻意將 wireFile.BlobId 換成新的 receiver-local BlobId，避免用遠端 ID 作本機位址。舊 fixture 先將圖存入 wire/staged ID，再把回傳的不同 local ID 紀錄直接標為complete；沒有替 local ID 放檔案。Inbox 以回傳紀錄的本機 ID 查 Vault.Exists，故 AttachmentPath=null；舊 loader 回靜默NotEligible。162 bytes及complete文字均合法，SHA始終為64字元小寫hex；原失敗根本尚未讀取 SHA，與大小寫／base64 無關。
+
+修正與回歸：
+- Native Card fixture 現在取得真正 offered.Record，再跟隨 DownloadAsync 的 Vault.Reserve(local ID)→寫入→CommitAsync(長度/SHA驗證) 流程，成功後才設定合成 state。原 staged ID 刪除；tamper 控制也改破壞 receiver-local 檔。這仍是合成 transfer state，不冒稱 native smoke 已跑真 TCP 下載。
+- Native 逐卡斷言 receiver ID不同於wire ID、投影 state 與實際local AttachmentPath正確，原8格式的 WIC 縮圖／缺codec、first frame、背景worker檢查都保留。
+- 產品補提示：非完成附件保持NotEligible、不開檔不解碼；**完成但path缺失**改VerificationFailed，固定小字「無法驗證檔案，未產生預覽；請重新下載。」實際長度／SHA不符同樣明確提示。這是要求的失敗可見性補強，沒有繞過complete/path/25MiB/SHA/尺寸gate。
+- Native 新增「complete但刪除local blob」負控，要求VerificationFailed、HashVerified=false、DecodeAttempted=false且提示可見，另拍attachment-preview-missing；原有已完成內容遭修改的校驗負控保留。
+- Core AttachmentChecks 增加8項真 TCP PNG回歸：真offer／chunks／Commit／complete ACK產生完成紀錄，驗證receiver-local ID、pending不得預覽、canonical complete及timestamp、Inbox同樣的Vault.Exists/PathFor解析、product Core Eligible、162-byte長度與小寫hex SHA、實際接收位元組／hash、.data名稱仍辨識為PNG；刪除local檔後資格必須拒絕。沒有手動SetAttachmentState來冒充這個Core完成路徑。
+- 舊70項附件斷言及115項probe不改；只新增8項。預設Console本來不註冊整個AttachmentChecks，因此總數仍6779，--attachments變成78+115=193。
+
+本機指定回歸（SDK10.0.403，真實worktree build/tmp）：
+
+| Check | Result | Exit | Wall seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 7.42 |
+| --attachments | 78（原70+新TCP8）+115 probe=193 | 0 | 3.79 |
+| --attachment-previews | 115 | 0 | 0.70 |
+| --contacts | 194+34=228 | 0 | 2.44 |
+| Default Console | 6779 | 0 | 71.59 |
+| win-x64 cross-build | 0 warnings / 0 errors | 0 | 7.44 |
+| git diff --check / strict config | pass / valid | 0 | — |
+
+Logs: build/r13-fix/*.log、results.json；最後補的缺檔截圖呼叫另以windows-final.log完整Rebuild覆蓋（exit0、0警告/0錯誤、MSBuild8.11秒）。新 WPF 原生圖與提示仍未執行，交由 Emily push 後核驗。真TCP完成資格通過不等於Windows WIC縮圖已驗收；實機／教室／雙機／IME／DPI 仍未完成。沒有修改wire／schema／已核准素材、放寬資格、延長逾時、push／PR／合併／發布／安裝。

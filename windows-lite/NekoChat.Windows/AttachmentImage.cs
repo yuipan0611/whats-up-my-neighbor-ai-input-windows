@@ -25,9 +25,11 @@ internal static class AttachmentImage
 
     private static async Task<AttachmentPreviewResult> LoadAsync(AttachmentFile file, string? path, bool verifiedState, CancellationToken cancellation)
     {
-        if (path is null || !AttachmentImageProbe.Eligible(verifiedState ? "complete" : "pending", true, file.Size))
+        if (!verifiedState) return Result(AttachmentPreviewStatus.NotEligible, AttachmentImageFormat.Unknown);
+        if (path is null) return Result(AttachmentPreviewStatus.VerificationFailed, AttachmentImageFormat.Unknown, file.Name);
+        if (!AttachmentImageProbe.Eligible("complete", true, file.Size))
             return Result(file.Size > AttachmentLimits.MaximumFileBytes ? AttachmentPreviewStatus.TooLarge :
-                verifiedState && path is not null && file.Size == 0 ? AttachmentPreviewStatus.InvalidHeader : AttachmentPreviewStatus.NotEligible,
+                AttachmentPreviewStatus.InvalidHeader,
                 AttachmentImageFormat.Unknown, file.Name);
         bool entered = false;
         try
@@ -107,7 +109,7 @@ internal static class AttachmentImage
             AttachmentPreviewStatus.NotImage => AttachmentImageProbe.ImageName(name) ? "檔案內容不是可辨識的圖片，無法預覽（可另存後用看圖程式開啟）。" : "",
             AttachmentPreviewStatus.TooLarge => "圖片超過 25 MiB，無法建立縮圖。",
             AttachmentPreviewStatus.DimensionsExceeded => "圖片尺寸超過預覽上限（可另存後用看圖程式開啟）。",
-            AttachmentPreviewStatus.VerificationFailed => "附件內容校驗未通過，無法預覽；請重新下載。",
+            AttachmentPreviewStatus.VerificationFailed => "無法驗證檔案，未產生預覽；請重新下載。",
             AttachmentPreviewStatus.DecoderUnavailable when format == AttachmentImageFormat.Heif => "需要 Windows 的 HEIF 影像延伸模組，這台電腦目前無法預覽（可另存後用看圖程式開啟）。",
             _ => fallback
         };

@@ -265,6 +265,10 @@
     {
       "fact": "Content-based image probes bound size and known dimensions before installed WIC decoding. Windows fixtures distinguish actual first-frame thumbnails from explicit missing-codec hints and capture their own window before teardown; synthetic completed receive metadata does not claim network-transfer acceptance.",
       "source": "windows-lite/NekoChat.Core/Attachments/AttachmentImageProbe.cs; windows-lite/NekoChat.Windows/AttachmentImage.cs; windows-lite/NekoChat.Tests/AttachmentImageProbeChecks.cs; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs; windows-lite/docs/specs/attachments-preview.md"
+    },
+    {
+      "fact": "Incoming attachment offers allocate a receiver-local blob ID independently of the sender wire ID. Native preview fixtures must reserve/commit bytes under the returned receiver record before marking completion; a complete record lacking its local path shows a fixed verification hint rather than silent NotEligible. Real TCP PNG regression pins canonical complete state, local path, lowercase hex SHA and content-based preview eligibility.",
+      "source": "windows-lite/NekoChat.Core/Storage/ChatStore.Attachments.cs#ReceiveAttachmentOffer; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs; windows-lite/NekoChat.Windows/AttachmentImage.cs; windows-lite/NekoChat.Tests/AttachmentChecks.cs"
     }
   ]
 }
