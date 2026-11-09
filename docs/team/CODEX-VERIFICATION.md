@@ -719,3 +719,25 @@ Fix: defer Border.Child assignment until the layout branch is chosen. Annotated 
 Native regression runs for each of the four real annotated cards: mutate ReactionHistoryLabel null→label to invoke actual MessageUpdated/Build for ordinary and annotated projections; assert fresh Content both times; clear/set actual Message DP to invoke Render again, restore its original BindingBase, apply template/layout and assert fresh content, binding retained and correct11pt label. Existing compact-height check and reaction-student-ignored.png capture follow. Restoring binding preserves virtualization/recycling behavior. No swallow, timeout increase, missing assertion skip or product role change.
 
 Local final results: contacts228/exit0; reactions100/exit0; default Console6664/exit0; final win-x64 cross-build0 warnings/0 errors/exit0 (5.23s). Logs build/r10-crash/*.log and results.json. Console/Core code was unchanged; existing Release test assembly verifies its current sources. New native rebuild assertions and the fixed screenshot remain **未執行，待 PM immediate push/Windows CI**. Physical classroom/IME/DPI/two-device acceptance remains separate. This commit contains only the crash fix, its native regression and this handoff, with no D-35 fixture/code. No push/PR/merge/release/install/deploy.
+
+
+### r11 native rebuild observation correction (2026-11-09)
+
+D-35 was parked in scoped stash5bbc7d4a0f62849d0711b68cb691f7c29a47ea6e before this isolated change. Rebuilt the Console project after stashing, so r11 verification cannot accidentally use the D-35 compiled probe/fixtures left in bin/. Product MessageHistoryView.cs and the r10 single-parent fix are unchanged.
+
+Read the actual round11 contacts-ui-result.json and viewed46-failure.png under reports/lite-b1-ci-screenshots-20261108/第11輪-當機修正/contacts-ui-package. It contains150 passed checks, including the first real11pt annotation render, then the compound fresh-parent assertion; no XamlParseException. The old JSON does not identify which compound subcondition was false, so it cannot establish a second product parent-chain defect. Source also proves the screenshot is misleading for that inference: outer contacts catch called Shot with its original reopened window (still showing settings), after the separate reaction helper's finally hid its local view. That image is not the failed card's window.
+
+The original regression intended to prove a single real MessageCard can Build ordinary→annotated projections and Render/rebind again, allocating new content and displaying the correct annotation without parent reuse. It checked all results synchronously after multiple content/binding/template mutations, without yielding for the current binding/visual presenter/read-refresh state. It also searched descendants of the card without proving those descendants belonged to its current Content.
+
+Correction keeps and strengthens the intent:
+- Before testing, close settings through its actual Done handler if needed; require visible history and existing view idle.
+- After scrolling, require the same loaded/visible card and idle read-refresh state.
+- Each property mutation immediately and independently requires a changed Content reference on that **same** card. It does not wait for an unrelated refresh to make the fresh-reference assertion true.
+- At each phase, use the unchanged12s Wait to require current Content connected through its real VisualTree parent chain to that card, same bound MessageView, correct ordinary TextBox or exact11pt annotation, and visible/idle conversation.
+- DP clear/set must still allocate fresh content synchronously; original binding is restored, must reach BindingStatus.Active, and the final combined invariants still pass. A real rendering/ownership defect still fails.
+- Verify the current overlay's logical parents explicitly (body→overlay→Border, button→overlay); keep original compact-height assertion.
+- Persist reaction-rebuild-observations.json with stage, fresh flags, message identity, loaded/visible/geometry, current-root connection, binding status, settings and labels. Failure also captures the **local reaction window before teardown** as reaction-rebuild-failure. The successful reaction-student-ignored capture remains unchanged.
+
+This addresses a test observation/timing flaw; exact failing old subcondition remains unverified from the prior compound-only artifact. Native proof of the corrected observation requires the next CI, and is not claimed from Mac. No product logic, failure swallowing, timeout extension, guard relaxation or D-35 code is included.
+
+Local: freshly rebuilt Console0 warnings/0 errors; contacts228/exit0, reactions100/exit0, default Console6664/exit0; win-x64 cross-build0 warnings/0 errors/exit0. Logs build/r11-fix/*.log, results.json. Physical classroom/IME/DPI/two-machine checks remain separate. Local commit only; no push/merge/release/install/deploy.

@@ -2,6 +2,7 @@ using System.IO;
 using System.Net;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using NekoChat.Core;
@@ -56,6 +57,9 @@ public partial class App
         target.SetWanderEnabled(false); target.ReactionDisplayDevice = "disconnected-test-screen";
         view.SettingsChanged += updated => { preferences = updated; target.ReactionDisplayDevice = updated.ReactionDisplayDevice; };
         int notifications = 0; Task? notification = null; LegacyDeliveryNotice? stored = null;
+        var rebuildObservations = new List<object>();
+        Func<object>? currentRebuildState = null;
+        string rebuildStage = "not-started";
         var mapped = new ContactsSmokeSink(runtime) { SyntheticSource = ContactsIncomingIp };
         mapped.LegacyStored = notice => {
             // The actual receive transaction must emit this event. Blocked receives emit none.
@@ -169,38 +173,93 @@ public partial class App
             }
             check(notifications == beforeIgnored + 4 && outcomes.Skip(beforeOutcomes).SequenceEqual(
                 Enumerable.Repeat(ReactionNotificationKind.None, 4)), "RX-08 all four actual receive events are observed and deliberately suppressed");
+            if (view.SettingsPane.Visibility == Visibility.Visible)
+                SmokeVisuals<Button>(view.SettingsPane).Single(button => Equals(button.Content, "完成")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await view.SmokeOpenEntryAsync(entry => entry.Endpoint == ContactsIncomingIp);
+            await wait(() => view.SettingsPane.Visibility == Visibility.Collapsed && view.History.IsVisible && view.SmokeContactsViewIdle,
+                "RX-08 visible conversation/settings close/read refresh did not settle");
+            check(view.SettingsPane.Visibility == Visibility.Collapsed && view.History.IsVisible,
+                "RX-08 rebuild checks use the visible reaction conversation, not settings overlay");
             foreach (var reaction in ClassroomReactions.All.Where(r => r.TeacherOnly))
             {
                 string label = "課堂反應：" + reaction.Text + "（只有老師電腦會跳出貓咪圖）";
                 var message = view.History.Rows.Last(row => row.RawText == reaction.Text);
                 check(message.ReactionHistoryLabel == label, "RX-08 actual history projects annotation without replacing raw text: " + reaction.Id);
                 view.History.ScrollIntoView(message); view.UpdateLayout();
-                await wait(() => SmokeVisuals<MessageCard>(view.History).Any(card => ReferenceEquals(card.Message, message)),
-                    "RX-08 annotated message card was not realized");
+                await wait(() => view.SmokeContactsViewIdle && SmokeVisuals<MessageCard>(view.History)
+                    .Any(card => ReferenceEquals(card.Message, message) && card.IsLoaded && card.IsVisible),
+                    "RX-08 annotated message card/read refresh was not realized and idle");
                 var card = SmokeVisuals<MessageCard>(view.History).Single(card => ReferenceEquals(card.Message, message));
                 check(SmokeVisuals<TextBlock>(card).Any(text => text.Text == label && text.FontSize == 11) &&
                     !SmokeVisuals<TextBlock>(card).Any(text => text.Text == reaction.Text),
                     "RX-08 rendered small annotation replaces ordinary text body: " + reaction.Id);
+                bool ordinaryFresh = false, annotatedFresh = false, reboundFresh = false;
+                bool Connected(DependencyObject? child)
+                {
+                    for (var node = child; node is not null; node = VisualTreeHelper.GetParent(node))
+                        if (ReferenceEquals(node, card)) return true;
+                    return false;
+                }
+                object Describe() => new {
+                    stage = rebuildStage, reaction = reaction.Id, ordinaryFresh, annotatedFresh, reboundFresh,
+                    sameMessage = ReferenceEquals(card.Message, message), card.IsLoaded, card.IsVisible,
+                    card.ActualWidth, card.ActualHeight, rootConnected = Connected(card.Content as DependencyObject),
+                    binding = System.Windows.Data.BindingOperations.GetBindingExpressionBase(card, MessageCard.MessageProperty)?.Status.ToString(),
+                    settings = view.SettingsPane.Visibility.ToString(), idle = view.SmokeContactsViewIdle,
+                    currentRoot = card.Content?.GetType().Name,
+                    labels = SmokeVisuals<TextBlock>(card).Where(text => text.FontSize == 11).Select(text => text.Text).ToArray()
+                };
+                currentRebuildState = Describe;
+                bool Rendered(bool annotated)
+                {
+                    view.UpdateLayout();
+                    if (!view.SmokeContactsViewIdle || view.SettingsPane.Visibility != Visibility.Collapsed ||
+                        !card.IsLoaded || !card.IsVisible || !ReferenceEquals(card.Message, message) ||
+                        card.Content is not DependencyObject root || !Connected(root)) return false;
+                    return annotated
+                        ? SmokeVisuals<TextBlock>(root).Any(text => text.Text == label && text.FontSize == 11) &&
+                            !SmokeVisuals<TextBox>(root).Any(text => text.Text == message.RawText)
+                        : SmokeVisuals<TextBox>(root).Any(text => text.Text == message.RawText) &&
+                            !SmokeVisuals<TextBlock>(root).Any(text => text.Text == label);
+                }
+                rebuildStage = "ordinary-build";
                 var beforeRebuild = card.Content;
-                message.ReactionHistoryLabel = null; // Actual MessageUpdated -> Build ordinary projection.
-                bool ordinaryFresh = !ReferenceEquals(beforeRebuild, card.Content);
+                message.ReactionHistoryLabel = null; // Actual MessageUpdated; verify the synchronous Build happened.
+                ordinaryFresh = !ReferenceEquals(beforeRebuild, card.Content);
+                check(ordinaryFresh, "RX-08 ordinary projection Build allocates fresh Content on the same card: " + reaction.Id);
+                await wait(() => Rendered(false), "RX-08 ordinary Build did not reach the current visible tree: " + reaction.Id);
+                rebuildObservations.Add(Describe());
+
+                rebuildStage = "annotated-build";
                 var ordinaryContent = card.Content;
-                message.ReactionHistoryLabel = label; // Same live card -> Build annotated projection again.
-                bool annotatedFresh = !ReferenceEquals(ordinaryContent, card.Content);
+                message.ReactionHistoryLabel = label;
+                annotatedFresh = !ReferenceEquals(ordinaryContent, card.Content);
+                check(annotatedFresh, "RX-08 annotation projection Build allocates fresh Content on the same card: " + reaction.Id);
+                await wait(() => Rendered(true), "RX-08 annotation Build did not reach the current visible tree: " + reaction.Id);
+                rebuildObservations.Add(Describe());
+
+                rebuildStage = "render-rebind";
                 var beforeRender = card.Content;
                 var originalBinding = System.Windows.Data.BindingOperations.GetBindingBase(card, MessageCard.MessageProperty)
                     ?? throw new InvalidOperationException("RX-08 real message card binding is missing");
-                card.ClearValue(MessageCard.MessageProperty); card.Message = message; // Actual Render rebind path.
+                card.ClearValue(MessageCard.MessageProperty); card.Message = message;
+                reboundFresh = !ReferenceEquals(beforeRender, card.Content);
+                check(reboundFresh, "RX-08 Render rebind allocates fresh Content on the same card: " + reaction.Id);
                 System.Windows.Data.BindingOperations.SetBinding(card, MessageCard.MessageProperty, originalBinding);
-                card.ApplyTemplate(); card.UpdateLayout(); view.UpdateLayout();
-                check(ordinaryFresh && annotatedFresh && !ReferenceEquals(beforeRender, card.Content) &&
-                    System.Windows.Data.BindingOperations.IsDataBound(card, MessageCard.MessageProperty) &&
-                    SmokeVisuals<TextBlock>(card).Any(text => text.Text == label && text.FontSize == 11),
+                await wait(() => System.Windows.Data.BindingOperations.GetBindingExpressionBase(card, MessageCard.MessageProperty)?.Status ==
+                    System.Windows.Data.BindingStatus.Active && Rendered(true),
+                    "RX-08 original binding/current rendered annotation did not become active: " + reaction.Id);
+                check(ordinaryFresh && annotatedFresh && reboundFresh &&
+                    System.Windows.Data.BindingOperations.IsDataBound(card, MessageCard.MessageProperty) && Rendered(true),
                     "RX-08 same card rebuilds both projections and rebinds with fresh UI parents: " + reaction.Id);
+                rebuildObservations.Add(Describe());
                 var bubble = SmokeVisuals<Border>(card).Single(border => border.Child is Grid overlay &&
                     overlay.Children.OfType<StackPanel>().Any(panel => panel.Children.OfType<TextBlock>().Any(text => text.Text == label)));
                 var content = ((Grid)bubble.Child).Children.OfType<StackPanel>().Single();
+                var overlay = (Grid)bubble.Child;
+                check(ReferenceEquals(content.Parent, overlay) && ReferenceEquals(overlay.Parent, bubble) &&
+                    overlay.Children.OfType<Button>().All(button => ReferenceEquals(button.Parent, overlay)),
+                    "RX-08 current rendered annotation has one logical parent per element: " + reaction.Id);
                 check(bubble.ActualHeight <= content.ActualHeight + bubble.Padding.Top + bubble.Padding.Bottom + 1 &&
                     !content.Children.OfType<Button>().Any(),
                     "RX-08 compact annotation card reserves no blank action row: " + reaction.Id);
@@ -228,9 +287,24 @@ public partial class App
                 "RX-06 blocked reaction ACKs but emits no event, stores no body and displays neither image nor text");
             shot("reaction-blocked-no-notice", target);
         }
+        catch
+        {
+            try
+            {
+                await File.WriteAllTextAsync(Path.Combine(output, "reaction-rebuild-observations.json"),
+                    System.Text.Json.JsonSerializer.Serialize(new { stage = rebuildStage, observations = rebuildObservations, current = currentRebuildState?.Invoke() },
+                        new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                shot("reaction-rebuild-failure", view);
+            }
+            catch (Exception evidenceError) when (evidenceError is IOException or InvalidOperationException) { Console.Error.WriteLine("Reaction rebuild evidence capture failed: " + evidenceError.GetType().Name); }
+            throw;
+        }
         finally
         {
             await view.PrepareForShutdownAsync(); view.DetachRuntime(); view.Hide(); target.Close();
         }
+        await File.WriteAllTextAsync(Path.Combine(output, "reaction-rebuild-observations.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { passed = true, observations = rebuildObservations },
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), token);
     }
 }
