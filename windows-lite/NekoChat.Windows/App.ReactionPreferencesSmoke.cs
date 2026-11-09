@@ -2,6 +2,7 @@ using System.IO;
 using System.Net;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using NekoChat.Core;
 using NekoChat.Core.Classroom.Transport;
@@ -61,12 +62,36 @@ public partial class App
                 }
                 await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             }
-            await Send("too-fast");
-            await wait(() => target.ReactionActive && target.ReactionView.IsVisible && target.ReactionImage.Source is not null,
-                "RX-01 default teacher reaction did not render its embedded cat image");
-            check(!target.IsActive && target.ReactionCaption.Text == "講太快了", "RX-05 default teacher image does not take focus");
-            shot("reaction-default-cat", target);
-            await wait(() => !target.ReactionActive, "RX default image did not restore the pet");
+            var capturedReactions = new List<string>();
+            async Task CaptureReaction(string id, string text, string imageFile)
+            {
+                // Never overlap images or enqueue a second type behind the previous two-second display.
+                await wait(() => !target.ReactionActive && target.ReactionImage.Source is null,
+                    "RX previous image did not clear before " + id);
+                await Send(id);
+                await wait(() => target.ReactionActive && target.ReactionView.IsVisible && target.ReactionImage.IsVisible &&
+                    target.ReactionImage.ActualWidth > 0 && target.ReactionImage.ActualHeight > 0 && target.ReactionImage.Source is not null,
+                    "RX reaction image did not render: " + id);
+                // Expectations are literal and independent of ClassroomReactions.All's current mapping.
+                var definition = ClassroomReactions.Find(id)!;
+                check(definition.Text == text && definition.ImageFile == imageFile,
+                    $"RX exact caption/asset definition for {id}: {text} / {imageFile}");
+                using var bytes = typeof(PetWindow).Assembly.GetManifestResourceStream("NekoChat.Windows.Reactions." + imageFile)
+                    ?? throw new InvalidDataException("Missing expected embedded reaction image: " + imageFile);
+                var expected = new PngBitmapDecoder(bytes, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames[0];
+                check(ContactsSameBitmap(target.ReactionImage.Source, expected),
+                    $"RX actual PetWindow image pixels match {imageFile}: {id}");
+                check(target.ReactionCaption.Text == text && !target.IsActive,
+                    $"RX exact visible caption without merged count or focus change: {id} / {text}");
+                shot("reaction-" + id, target); capturedReactions.Add(id);
+                await wait(() => !target.ReactionActive && target.ReactionImage.Source is null,
+                    "RX image did not disappear after its normal display: " + id);
+            }
+            // Fresh default-ON profile: all four teacher-only captions each get their own real render.
+            await CaptureReaction("too-fast", "講太快了", "raised-paw.png");
+            await CaptureReaction("cant-keep-up", "跟不上", "close-up.png");
+            await CaptureReaction("dont-understand", "聽不懂", "close-up.png");
+            await CaptureReaction("say-again", "再講一次", "raised-paw.png");
             view.ReactionPreviewToggle.IsChecked = false;
             view.ReactionPreviewToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var reopened = Settings.LoadWithStatus(preferences.PersistencePath).Value;
@@ -82,11 +107,9 @@ public partial class App
             preferences = preferences with { TeacherIp = "10.251.232.99" }; // This fixture is now a student receiver.
             await Send("too-fast");
             check(!target.ReactionActive && target.ReactionImage.Source is null, "RX-05 TeacherOnly never renders on a student receiver");
-            await Send("stop-scrolling");
-            await wait(() => target.ReactionActive && target.ReactionImage.Source is not null &&
-                target.ReactionCaption.Text == "你再給我滑！", "RX-05 peer reaction did not render on a student receiver");
-            shot("reaction-peer-cat", target);
-            await wait(() => !target.ReactionActive, "RX peer image did not restore the pet");
+            await CaptureReaction("stop-scrolling", "你再給我滑！", "raised-paw.png");
+            check(capturedReactions.SequenceEqual(new[] { "too-fast", "cant-keep-up", "dont-understand", "say-again", "stop-scrolling" }),
+                "RX all five distinct reaction screenshots captured once with exact caption and image pixels");
             var scope = stored!.Scope;
             await runtime.Worker.Run(s => s.SetSourceBlocked(ContactsIncomingIp, true));
             int before = notifications;

@@ -591,3 +591,24 @@ Local results, SDK10.0.403 and real worktree build/tmp as TMPDIR:
 | Final win-x64 WPF cross-build | 0 warnings / 0 errors / exit0 |
 
 Logs: build/d32/{baseline-settings-source,tests-build,reactions,contacts,blocking,default-console,win-x64-build-final}.log and results.json. Strict safety config validation and git diff --check pass. Native package/portable contacts and two-app messaging execution are **未執行，待 Emily push Windows CI**; new screenshots are not claimed from Mac cross-build. Classroom/multiple-monitor/projection, IME, physical DPI and two-device acceptance remain unexecuted. All D-32 work completed; no quota deferral. Local commit only; no push/PR/merge/release/install/deploy. The previously supplied classroom EXE remains unchanged.
+
+
+### Five native reaction captures (2026-11-09; PM follow-up)
+
+**5 款截圖補強完成（本機）**. Baseline clean e6c79ec; pre-change --reactions47+31=78/exit0. Test-only scope: App.ReactionPreferencesSmoke.cs, App.ContactsUiSmokeTest.cs and this handoff/spec documentation; no product code, asset, role, settings, protocol or timeout change.
+
+Plan/evidence: reuse actual loopback/store-event/PetWindow path and existing full-bitmap comparison. Each display waits until the preceding image is inactive **and its Image.Source is null**, then sends once, requires a visible/sized real reaction image, checks literal independent caption/asset expectations and compares full decoded Image.Source pixels to the required embedded PNG. Caption must equal the exact text, excluding accidental ×2. Capture occurs while visible, followed by the existing normal two-second disappearance wait.
+
+| Exact artifact filename (no numeric prefix) | Required caption | Required embedded PNG |
+|---|---|---|
+| reaction-too-fast.png | 講太快了 | raised-paw.png |
+| reaction-cant-keep-up.png | 跟不上 | close-up.png |
+| reaction-dont-understand.png | 聽不懂 | close-up.png |
+| reaction-say-again.png | 再講一次 | raised-paw.png |
+| reaction-stop-scrolling.png | 你再給我滑！ | raised-paw.png |
+
+First four captures remain on the fresh default-ON teacher receiver; last capture remains on the student receiver after the existing TeacherOnly negative control. Existing explicit-OFF/reload/text-only and blocked-no-notice checks remain. A final distinct ordered-ID assertion requires all five capture calls exactly once; file writes precede adding entries to the existing JSON captures list. Existing settings/text-only/blocked screenshots keep their numeric naming; only these five get exact filenames. All are included by existing artifact upload, without a CI workflow change. Step12s/global100s/watchdog115s boundaries remain unchanged.
+
+Local SDK10.0.403 with real build/tmp TMPDIR: --reactions78/exit0 (0.74s), --contacts194/exit0 (1.74s), --contacts-ui-seed-check7/exit0 (0.14s), win-x64 cross-build exit0/0 warnings/0 errors (10.19s). Logs/results: build/reaction-five/*.log, results.json. Diff-check and strict safety config pass. Only test helper code changed, so the related unchanged Console suites ran from the current existing Release test assembly; no product test assertions were weakened.
+
+The new five native renders/pixel assertions/screenshots are **未執行，待 Emily push Windows CI**. Mac cross-build is compile evidence only. Physical classroom/multiple-monitor/IME/DPI/two-device acceptance is still separate. Local commit only; no push/PR/merge/release/install/deploy or replacement of the classroom EXE.

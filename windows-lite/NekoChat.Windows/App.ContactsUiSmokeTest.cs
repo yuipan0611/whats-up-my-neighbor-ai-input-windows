@@ -142,9 +142,9 @@ public partial class App
             try { while (!condition()) await Task.Delay(25, step.Token); }
             catch (OperationCanceledException) { throw new TimeoutException(label + (details is null ? "" : "; " + details())); }
         }
-        void Shot(string name, FrameworkElement? element = null)
+        void Shot(string name, FrameworkElement? element = null, bool exactFileName = false)
         {
-            string file = $"{captures.Count + 1:D2}-{name}.png"; CaptureContactsElement(element ?? window!, Path.Combine(output, file)); captures.Add(file);
+            string file = exactFileName ? name + ".png" : $"{captures.Count + 1:D2}-{name}.png"; CaptureContactsElement(element ?? window!, Path.Combine(output, file)); captures.Add(file);
         }
         void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         void ReadOnlyTools(string stage)
@@ -490,7 +490,8 @@ public partial class App
                 "CT-13 originally removed draft survives dispose/reopen with exact epoch/revision/text");
             window.SettingsPane.Visibility = Visibility.Visible; Shot("reopen-no-second-notice");
             Check(hooks.NextPromptAnswer is null && hooks.Prompts.Count(prompt => prompt.Answer == MessageBoxResult.No) == 3, "all three distinct cancellation answers were consumed exactly once");
-            await RunReactionPreferencesUiChecksAsync(output, Check, (name, element) => Shot(name, element),
+            await RunReactionPreferencesUiChecksAsync(output, Check, (name, element) =>
+                Shot(name, element, exactFileName: ClassroomReactions.All.Any(reaction => name == "reaction-" + reaction.Id)),
                 (condition, label) => Wait(condition, label), deadline.Token);
             Check(captures.Count >= 18, "all native UI stages produced synthetic screenshots");
         }
