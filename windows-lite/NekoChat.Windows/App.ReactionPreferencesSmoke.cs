@@ -244,14 +244,15 @@ public partial class App
                     ?? throw new InvalidOperationException("RX-08 real message card binding is missing");
                 card.ClearValue(MessageCard.MessageProperty); card.Message = message;
                 reboundFresh = !ReferenceEquals(beforeRender, card.Content);
-                check(reboundFresh, "RX-08 Render rebind allocates fresh Content on the same card: " + reaction.Id);
+                // PM r12 decision: reapplying the same binding may reuse Content. Observe identity only;
+                // require the current visible content, active binding and logical ownership below instead.
                 System.Windows.Data.BindingOperations.SetBinding(card, MessageCard.MessageProperty, originalBinding);
                 await wait(() => System.Windows.Data.BindingOperations.GetBindingExpressionBase(card, MessageCard.MessageProperty)?.Status ==
                     System.Windows.Data.BindingStatus.Active && Rendered(true),
                     "RX-08 original binding/current rendered annotation did not become active: " + reaction.Id);
-                check(ordinaryFresh && annotatedFresh && reboundFresh &&
+                check(ordinaryFresh && annotatedFresh &&
                     System.Windows.Data.BindingOperations.IsDataBound(card, MessageCard.MessageProperty) && Rendered(true),
-                    "RX-08 same card rebuilds both projections and rebinds with fresh UI parents: " + reaction.Id);
+                    "RX-08 same card rebuilds both projections and restores binding with correct visible content: " + reaction.Id);
                 rebuildObservations.Add(Describe());
                 var bubble = SmokeVisuals<Border>(card).Single(border => border.Child is Grid overlay &&
                     overlay.Children.OfType<StackPanel>().Any(panel => panel.Children.OfType<TextBlock>().Any(text => text.Text == label)));

@@ -778,3 +778,31 @@ Final local verification (SDK10.0.403; real worktree build/tmp; freshly built cu
 | git diff --check / strict config | pass / valid | 0 | — |
 
 Logs: build/d35/*.log, results.json. **Native WPF codec outcomes and screenshots are 未執行 on Mac, pending PM push/Windows CI**; implementation of those tests is complete but does not constitute execution evidence. Physical Windows/classroom/two-device/IME/DPI acceptance stays separate. No deferred implementation item; no push/PR/merge/release/install/deploy.
+
+
+### r12 PM 裁決：rebind 改驗證行為（2026-11-09）
+
+**PM 決定，非 Codex 自行放寬斷言。** Emily 提供 run42554609202、head7414ab5 的結果：package153 checks 後停在「Render rebind allocates fresh Content」，實際 reaction-rebuild-failure 截圖可見標示卡正確、緊湊且無崩潰。PM 裁決：相同 binding 值重新套用時允許沿用 Content；移除 rebind 必須配置新物件參照的要求，驗收改看目前可見行為與 ownership。本節取代 r10/r11 紀錄中要求 **Render rebind** 立即產生新 Content 的部分，兩次 **Build** 的 fresh Content 合約仍保留。上述 CI／截圖結論來自 PM 回報，不冒稱為本機原生執行證據。
+
+此 commit 在 D-35 的34987dc 之上，只改 App.ReactionPreferencesSmoke.cs 與本驗證紀錄；產品與 D-35 實作不變：
+
+- 移除 standalone rebind identity check，並移除最後 combined check 的 reboundFresh 條件。reboundFresh 仍寫入觀察 JSON，僅供診斷，不作通過門檻。
+- 保留同一張 card 普通文字→11pt 標示兩次 Build 的「立即換新 Content」斷言。
+- 保留 DP clear/set 與原 BindingBase 復原；過程拋例外仍失敗，不吞錯。
+- 保留當前 Content 的 visual-parent 連接、同一 MessageView、可見／idle、普通文字或正確11pt 標示、BindingStatus.Active 等檢查。
+- 保留 body→overlay→Border、button→overlay 的 logical parent 檢查及原 compact-height 斷言。
+- 不增加逾時、不改截圖或角色規則。四款 TeacherOnly 都走完時，僅少4次已取消的 rebind identity 斷言；其餘既有行為檢查保留。
+
+本機最終驗證（SDK10.0.403、實際 build/tmp TMPDIR）：
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 3.37 |
+| --contacts | 194+34=228 | 0 | 2.80 |
+| --reactions | 47+31+22=100 | 0 | 0.98 |
+| --attachment-previews | 115 | 0 | 0.69 |
+| Default Console | 6779 | 0 | 71.88 |
+| win-x64 cross-build | 0 warnings / 0 errors | 0 | 5.41 |
+| git diff --check / strict config | pass / valid | 0 | — |
+
+Logs: build/r12-fix/*.log、results.json。Windows 原生 r12修正及 D-35 解碼／截圖仍未執行，交由 Emily 一次 push 後跑第13輪。實機、雙機、教室、IME、DPI 仍未完成。不 push／PR／合併／發布／安裝。
