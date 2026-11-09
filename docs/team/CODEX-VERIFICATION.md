@@ -865,3 +865,30 @@ Fixture重驗：原8圖bytes全部未變。Pillow12.3.0/libwebp1.6.0實際load�
 Logs/results及實際fixture解析資料：build/r14-fix/。這次原生COM查詢／WPF分支／截圖未在Mac執行，待PM push Windows CI；未聲稱已證實runner沒有WebP，也未聲稱八種Windows縮圖全過。實體Windows／教室／雙機／IME／DPI仍未完成。不push／PR／合併／發布／安裝。
 
 API依據：[Microsoft CreateDecoder](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwicimagingfactory-createdecoder)、[GetContainerFormat](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwicbitmapdecoder-getcontainerformat)、[GetDecoderInfo](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwicbitmapdecoder-getdecoderinfo)、[SDK wincodec.h](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/wincodec.h)。
+
+
+### r15 PM 裁決：0x88982F8B 初始化失敗屬本機不可用（2026-11-09）
+
+先核實SDK：`wincodec.h` 是WIC介面／GUID宣告；該HRESULT常數實際定義在 Microsoft Windows SDK `shared/winerror.h`：`WINCODEC_ERR_COMPONENTINITIALIZEFAILURE = _HRESULT_TYPEDEF_(0x88982F8BL)`，註解為元件初始化失敗。Microsoft WIC error table及COM error文件也列相同名稱／值。因此依Emily明確裁決處理此精確錯誤；不是把任意未知錯誤改成通過，也不假稱已取得可用decoder CLSID。
+
+- Core enum追加InitializeFailed（保留原enum值），FromCreateResult只對0x88982F8B回此值；Failure將NotRegistered/InitializeFailed映射DecoderUnavailable，Registered/Unknown錯誤維持DecodeFailed。
+- WicDecoderCatalog保留直接query HRESULT；若格式query/inspection丟出的也是精確8B，亦保留InitializeFailed與原QueryError。尚未進入格式query的factory failure、其餘錯誤仍Unknown。產品沿用既有非Registered gate，不進像素解碼，顯示既有固定小字；HEIF提示仍指名Windows HEIF影像延伸模組。
+- Inventory的registration以及逐張observations新增的registration欄會明記InitializeFailed；相容既有registrationState。另記decoderAvailable=false；decoderRegistered=null表示無法完成CLSID／可用註冊驗證，避免把初始化失敗寫成NotRegistered。原QueryError、productRegistrationState及productRegistrationQueryError均保留。
+- Native把InitializeFailed列入Unavailable提示分支，且額外要求獨立probe與產品的QueryError都正好是88982F8B；仍須Status=DecoderUnavailable、DecodeAttempted=false、無圖片且小字可見。每格式既有attachment-preview-*.png照常拍，故webp／heic可以得到實際提示截圖後，繼續TIFF、ICO、HEIC、missing/tamper/壞payload、sender GIF草稿等後續步驟。
+- Registered的Ready／第一格像素斷言、Unknown必敗、全部size/dimension/complete/path/SHA界線、原始fixture bytes及逾時都不改。沒有把runner預期狀態硬編成固定略過，若環境裝好codec，仍必須真Ready。
+- Mac分類測試新增精確8B→InitializeFailed，相鄰8A/8C必為Unknown；四態Failure矩陣多出InitializeFailed→Unavailable一項。保留舊未知HRESULT斷言，probe總數136→140（+4）；附件78+140=218，預設Console6800+4=6804。
+
+本機指定檢查（SDK10.0.403，實際build/tmp TMPDIR）：
+
+| Check | Result | Exit | Wall seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 6.39 |
+| --attachment-previews | 140 =136+4 | 0 | 1.41 |
+| --attachments | 78+140=218 | 0 | 2.93 |
+| Default Console | 6804 =6800+4 | 0 | 70.82 |
+| win-x64 cross-build | 0 warnings / 0 errors | 0 | 7.97 |
+| strict config / git diff --check | valid / pass | 0 | — |
+
+Logs: build/r15-fix/*.log、results.json。r15原生分支及webp/heic提示截圖未在Mac執行，交由Emily push後驗證；不能把r15修正推論為Windows全流程已通過。實機／雙機／教室／IME／DPI仍未完成。只本機commit，不push／PR／合併／發布／安裝。
+
+核對來源：[SDK winerror.h](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/shared/winerror.h)、[Microsoft WIC錯誤碼](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-codec-error-codes)、[COM錯誤說明](https://learn.microsoft.com/en-us/windows/win32/com/com-error-codes-10)。

@@ -1,6 +1,6 @@
 namespace NekoChat.Core.Attachments;
 
-public enum AttachmentDecoderRegistration { Unknown, Registered, NotRegistered }
+public enum AttachmentDecoderRegistration { Unknown, Registered, NotRegistered, InitializeFailed }
 public enum AttachmentDecoderFailure { DecodeFailed, DecoderUnavailable }
 
 /// Registration is queried without image bytes. A file error cannot establish codec absence.
@@ -8,11 +8,15 @@ public static class AttachmentDecoderPolicy
 {
     public static AttachmentDecoderRegistration FromCreateResult(int hresult) => hresult >= 0
         ? AttachmentDecoderRegistration.Registered
-        : unchecked((uint)hresult) is 0x88982F50 or 0x80040154
-            ? AttachmentDecoderRegistration.NotRegistered : AttachmentDecoderRegistration.Unknown;
+        : unchecked((uint)hresult) switch {
+            0x88982F50 or 0x80040154 => AttachmentDecoderRegistration.NotRegistered,
+            // WINCODEC_ERR_COMPONENTINITIALIZEFAILURE, Windows SDK shared/winerror.h.
+            0x88982F8B => AttachmentDecoderRegistration.InitializeFailed,
+            _ => AttachmentDecoderRegistration.Unknown
+        };
 
     public static AttachmentDecoderFailure Failure(AttachmentDecoderRegistration registration) =>
-        registration == AttachmentDecoderRegistration.NotRegistered
+        registration is AttachmentDecoderRegistration.NotRegistered or AttachmentDecoderRegistration.InitializeFailed
             ? AttachmentDecoderFailure.DecoderUnavailable : AttachmentDecoderFailure.DecodeFailed;
 
     // Microsoft Windows SDK wincodec.h GUID_ContainerFormat*, not filename extensions or codec brands.

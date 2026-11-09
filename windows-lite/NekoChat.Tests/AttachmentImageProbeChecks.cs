@@ -70,10 +70,12 @@ internal static class AttachmentImageProbeChecks
             Check(AttachmentDecoderPolicy.FromCreateResult((int)success) == AttachmentDecoderRegistration.Registered, "AP-04 WIC query success");
         foreach (uint missing in new uint[] { 0x88982F50, 0x80040154 })
             Check(AttachmentDecoderPolicy.FromCreateResult(unchecked((int)missing)) == AttachmentDecoderRegistration.NotRegistered, "AP-04 explicit registration absence");
-        foreach (uint unknown in new uint[] { 0x80004005, 0x88982F07, 0x88982F60, 0x80131515 })
+        Check(AttachmentDecoderPolicy.FromCreateResult(unchecked((int)0x88982F8B)) == AttachmentDecoderRegistration.InitializeFailed,
+            "AP-04 PM r15 exact WINCODEC_ERR_COMPONENTINITIALIZEFAILURE is unusable, not Unknown or absent");
+        foreach (uint unknown in new uint[] { 0x80004005, 0x88982F07, 0x88982F60, 0x80131515, 0x88982F8A, 0x88982F8C })
             Check(AttachmentDecoderPolicy.FromCreateResult(unchecked((int)unknown)) == AttachmentDecoderRegistration.Unknown, "AP-04 generic/format/corrupt/NotSupported is not absence");
         foreach (var registration in Enum.GetValues<AttachmentDecoderRegistration>())
-            Check(AttachmentDecoderPolicy.Failure(registration) == (registration == AttachmentDecoderRegistration.NotRegistered
+            Check(AttachmentDecoderPolicy.Failure(registration) == (registration is AttachmentDecoderRegistration.NotRegistered or AttachmentDecoderRegistration.InitializeFailed
                 ? AttachmentDecoderFailure.DecoderUnavailable : AttachmentDecoderFailure.DecodeFailed),
                 "AP-04 absence distinct from registered corrupt data and unknown query: " + registration);
         // Deterministic malformed-header corpus: all probes must remain bounded and exception-free.

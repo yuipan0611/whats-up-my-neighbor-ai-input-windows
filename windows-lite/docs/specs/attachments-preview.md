@@ -27,7 +27,9 @@
 - Given 校驗失敗、格式損壞、讀取或解碼失敗，When 建立預覽，Then 使用固定小字說明，不顯示例外原文、不使 App 崩潰。大小及尺寸超限另用固定提示。
 - r14 PM 要求：八種格式都先以 WIC `CreateDecoder(ContainerFormat)` 查詢實際註冊／可建立的解碼器，不用 OS 版本、圖片副檔名或 decode exception 猜測。盤點記錄 ContainerFormat、decoder CLSID、狀態與固定 HRESULT。
 - Given 該格式已註冊，When native smoke 解碼合成圖，Then 必須 Ready 並驗證第一格紅色像素；一般解碼錯誤不能冒充缺解碼器而通過。
-- Given 該格式明確未註冊，When 產品預覽，Then 狀態必須為 DecoderUnavailable、實際像素解碼不啟動、提示可見。若盤點失敗／結果未知，記 Unknown 並使 smoke 失敗，不當成缺解碼器通過。TIFF／ICO／HEIF 與其他格式使用相同規則。
+- Given 該格式明確未註冊，When 產品預覽，Then 狀態必須為 DecoderUnavailable、實際像素解碼不啟動、提示可見。
+- r15 PM 裁決：`0x88982F8B`（SDK `winerror.h` 的 `WINCODEC_ERR_COMPONENTINITIALIZEFAILURE`）單列為 `InitializeFailed`，表示元件初始化失敗、本機不可用；產品回 DecoderUnavailable、不嘗試像素解碼且顯示提示。observations 的 registration 必須為 InitializeFailed，保留原 HRESULT；不可寫成 NotRegistered 或虛構可用 CLSID。
+- 其他未知 HRESULT（包括相鄰的 INVALIDREGISTRATION 0x88982F8A、INSUFFICIENTBUFFER 0x88982F8C）仍是 Unknown，smoke 必須失敗。TIFF／ICO／HEIF 與其他格式使用相同規則；可用時仍須真縮圖／第一格像素。
 
 ## AP-05 完成與校驗邊界、草稿
 

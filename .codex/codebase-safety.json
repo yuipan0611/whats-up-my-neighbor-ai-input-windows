@@ -273,6 +273,10 @@
     {
       "fact": "Preview decoder availability comes from content-independent WIC CreateDecoder(container GUID), recording the selected component CLSID, not a generic image exception. All eight formats use the same Registered/NotRegistered/Unknown policy: only definitive missing registration is DecoderUnavailable; registered corrupt data and unknown queries remain DecodeFailed. Native inventory is saved before per-file decoding and unknown registration fails the smoke.",
       "source": "windows-lite/NekoChat.Core/Attachments/AttachmentDecoderPolicy.cs; windows-lite/NekoChat.Windows/WicDecoderCatalog.cs; windows-lite/NekoChat.Windows/AttachmentImage.cs; windows-lite/NekoChat.Tests/AttachmentImageProbeChecks.cs; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs"
+    },
+    {
+      "fact": "PM r15 classifies only WINCODEC_ERR_COMPONENTINITIALIZEFAILURE (0x88982F8B) during a format-specific decoder query as InitializeFailed and operationally DecoderUnavailable, with no pixel decode. It is distinct from NotRegistered and Unknown; neighboring/other unknown HRESULTs still fail native smoke. Observations preserve exact registration/error and represent unavailable vs unproven registration separately.",
+      "source": "windows-lite/NekoChat.Core/Attachments/AttachmentDecoderPolicy.cs; windows-lite/NekoChat.Windows/WicDecoderCatalog.cs; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs; windows-lite/NekoChat.Tests/AttachmentImageProbeChecks.cs; windows-lite/docs/specs/attachments-preview.md"
     }
   ]
 }

@@ -16,11 +16,14 @@ internal static class WicDecoderCatalog
         Guid container = AttachmentDecoderPolicy.ContainerFormat(format);
         if (container == Guid.Empty) return new(AttachmentDecoderRegistration.Unknown, container);
         object? factoryObject = null, infoObject = null; IWicDecoder? decoder = null;
+        bool decoderQueryStarted = false;
         try
         {
             var type = Type.GetTypeFromCLSID(new("cacaf262-9370-4615-a13b-9f5539da4c0a"), throwOnError: true)!;
             factoryObject = Activator.CreateInstance(type) ?? throw new InvalidOperationException("WIC factory unavailable");
-            int result = ((IWicFactory)factoryObject).CreateDecoder(ref container, IntPtr.Zero, out decoder);
+            var factory = (IWicFactory)factoryObject;
+            decoderQueryStarted = true;
+            int result = factory.CreateDecoder(ref container, IntPtr.Zero, out decoder);
             var state = AttachmentDecoderPolicy.FromCreateResult(result);
             if (state != AttachmentDecoderRegistration.Registered)
                 return new(state, container, QueryError: unchecked((uint)result).ToString("X8"));
@@ -36,8 +39,11 @@ internal static class WicDecoderCatalog
         }
         catch (Exception error) when (DiagnosticFault.Catchable(error))
         {
-            // Factory/inspection failures are unknown, never proof that a format is unregistered.
-            return new(AttachmentDecoderRegistration.Unknown, container, QueryError: unchecked((uint)error.HResult).ToString("X8"));
+            // PM r15: exact component-initialization failure means unusable, not absent.
+            // A factory failure or any other inspection error remains unknown.
+            var state = decoderQueryStarted && AttachmentDecoderPolicy.FromCreateResult(error.HResult) == AttachmentDecoderRegistration.InitializeFailed
+                ? AttachmentDecoderRegistration.InitializeFailed : AttachmentDecoderRegistration.Unknown;
+            return new(state, container, QueryError: unchecked((uint)error.HResult).ToString("X8"));
         }
         finally
         {

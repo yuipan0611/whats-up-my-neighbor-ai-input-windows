@@ -91,9 +91,17 @@ public partial class App
                 var registration = inventory[extension];
                 observations.Add(new { format = extension, status = result.Status.ToString(),
                     observation = result.Status == AttachmentPreviewStatus.Ready ? "實際縮圖成功" :
-                        result.Status == AttachmentPreviewStatus.DecoderUnavailable ? "無解碼器時顯示提示" : "預覽失敗，測試須失敗",
-                    decoderRegistered = registration.State == AttachmentDecoderRegistration.Unknown ? (bool?)null :
+                        result.Status == AttachmentPreviewStatus.DecoderUnavailable ?
+                            registration.State == AttachmentDecoderRegistration.InitializeFailed ? "解碼器初始化失敗時顯示提示" : "無解碼器時顯示提示"
+                            : "預覽失敗，測試須失敗",
+                    decoderRegistered = registration.State switch {
+                        AttachmentDecoderRegistration.Registered => (bool?)true,
+                        AttachmentDecoderRegistration.NotRegistered => false,
+                        _ => null // Initialization failure is not proof of absence or a usable registered CLSID.
+                    },
+                    decoderAvailable = registration.State == AttachmentDecoderRegistration.Unknown ? (bool?)null :
                         registration.State == AttachmentDecoderRegistration.Registered,
+                    registration = registration.State.ToString(),
                     registrationState = registration.State.ToString(), registration.ContainerFormat, registration.DecoderClsid,
                     registration.QueryError, productRegistrationState = result.DecoderRegistration?.State.ToString(),
                     productDecoderClsid = result.DecoderRegistration?.DecoderClsid,
@@ -106,12 +114,15 @@ public partial class App
                     productRegistration.ContainerFormat == registration.ContainerFormat,
                     "AP-04 independent WIC container registration query is definitive and agrees with product: " + extension +
                     " / " + registration.State + " / " + registration.QueryError);
-                if (registration.State == AttachmentDecoderRegistration.NotRegistered)
+                if (registration.State is AttachmentDecoderRegistration.NotRegistered or AttachmentDecoderRegistration.InitializeFailed)
                 {
+                    if (registration.State == AttachmentDecoderRegistration.InitializeFailed)
+                        check(registration.QueryError == "88982F8B" && result.DecoderRegistration?.QueryError == "88982F8B",
+                            "AP-04 InitializeFailed retains the exact verified component initialization HRESULT: " + extension);
                     check(result.Status == AttachmentPreviewStatus.DecoderUnavailable && !result.DecodeAttempted &&
                         item.Preview.Hint.IsVisible && !item.Preview.Thumbnail.IsVisible &&
                         (extension != "heic" || item.Preview.Hint.Text.Contains("需要 Windows 的 HEIF 影像延伸模組", StringComparison.Ordinal)),
-                        "AP-04 無解碼器時顯示提示: " + extension);
+                        "AP-04 解碼器缺少或初始化失敗時顯示提示且不解碼: " + extension + " / " + registration.State);
                 }
                 else
                 {
