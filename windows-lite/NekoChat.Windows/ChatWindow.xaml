@@ -268,6 +268,8 @@
      <TextBlock Text="設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,16"/>
      <TextBlock x:Name="MyDirectIP" Text="我的 IP：偵測中…" TextWrapping="Wrap"/><Button x:Name="CopyMyIPButton" Content="複製我的 IP" Click="CopyMyIPClick" HorizontalAlignment="Left" Margin="0,8"/>
      <CheckBox x:Name="AutoStartCheck" Content="開機啟動" Checked="AutoStartChecked" Unchecked="AutoStartUnchecked" Margin="0,8,0,16"/>
+     <Button x:Name="LoadClassRosterButton" Content="載入全班名單" Click="LoadClassRosterClick" HorizontalAlignment="Left" Margin="0,0,0,4"/>
+     <TextBlock Text="只補上缺少的 IP，不覆蓋本機備註。已有名單不會自動合併。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,12"/>
      <StackPanel x:Name="ArchivedIdentityPanel" Visibility="Collapsed">
      <Button x:Name="CheckIdentityButton" Content="檢查本機身分…" Click="CheckIdentityClick" HorizontalAlignment="Left" Margin="0,0,0,8"/>
      <TextBlock x:Name="IdentityRecoveryStatus" Text="檢查不會自動建立或替換身分。" TextWrapping="Wrap" Foreground="#596B80" FontSize="12" Margin="0,0,0,16"/>

@@ -9,6 +9,7 @@ internal sealed class ContactsUiSmokeHooks
 {
     internal Func<Window, Task>? DriveDialog;
     internal string[]? LocalAddresses;
+    internal string? ClassroomRosterSidecarPath;
     internal readonly List<(string Title, string Text, MessageBoxResult Answer)> Prompts = [];
     internal (string TextFragment, MessageBoxResult Answer)? NextPromptAnswer;
     internal bool FailRemovalRefreshOnce, FailNextInboxRead;
@@ -35,6 +36,18 @@ public partial class ChatWindow
     {
         if (_runtime is not { IsolatedData: true } || !ReferenceEquals(_runtime, _contactsUiSmokeRuntime))
             throw new InvalidOperationException("Contacts hook cannot operate on a different runtime.");
+    }
+    private string ClassroomRosterSidecarPath()
+    {
+        if (_contactsUiSmoke?.ClassroomRosterSidecarPath is { } path)
+        {
+            AssertContactsSmokeRuntime();
+            if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(path)),
+                Path.GetDirectoryName(Path.GetFullPath(settings.PersistencePath!)), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Roster fixture file must stay inside its exact isolated profile.");
+            return path;
+        }
+        return Path.Combine(AppContext.BaseDirectory, "classroom-roster.csv");
     }
     private IReadOnlyCollection<string> ReactionRoleLocalAddresses()
     {

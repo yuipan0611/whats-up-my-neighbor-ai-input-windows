@@ -493,6 +493,8 @@ public partial class App
             await RunReactionPreferencesUiChecksAsync(output, Check, (name, element) =>
                 Shot(name, element, exactFileName: name.StartsWith("reaction-teacher-", StringComparison.Ordinal) || name == "reaction-student-ignored" || name == "reaction-stop-scrolling"),
                 (condition, label) => Wait(condition, label), deadline.Token);
+            await RunDefaultRosterUiChecksAsync(output, Check, (name, element) => Shot(name, element),
+                (condition, label) => Wait(condition, label));
             Check(captures.Count >= 18, "all native UI stages produced synthetic screenshots");
         }
         catch (Exception error)

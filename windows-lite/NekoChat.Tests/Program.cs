@@ -21,7 +21,7 @@ if (NekoChat.Tests.StorageBackupChecks.RunChild(args)) return;
 if (args.SequenceEqual(new[] { "--reactions" })) { await ReactionChecks.Run(); await NekoChat.Tests.ReactionPreferenceChecks.Run(); await NekoChat.Tests.TeacherDeviceChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--contacts-ui-seed-check" })) { NekoChat.Tests.ContactsUiSeedChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--blocking" })) { await NekoChat.Tests.BlockingChecks.Run(); return; }
-if (args.SequenceEqual(new[] { "--contacts" })) { await NekoChat.Tests.ContactExperienceChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--contacts" })) { await NekoChat.Tests.ContactExperienceChecks.Run(); NekoChat.Tests.DefaultClassroomRosterChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--teacher" })) { await NekoChat.Tests.ContactExperienceChecks.Run("TC-"); return; }
 if (args.SequenceEqual(new[] { "--receipts" })) { await NekoChat.Tests.ContactExperienceChecks.Run("RR-"); return; }
 if (args.SequenceEqual(new[] { "--diag-independent" })) { try { await NekoChat.Tests.DiagnosticIndependentChecks.RunAsync(); } catch (InvalidOperationException e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); } return; }
@@ -283,6 +283,7 @@ checks += await NekoChat.Tests.DiagnosticChecks.RunAsync();
 checks += await NekoChat.Tests.StorageRosterChecks.Run();
 checks += await NekoChat.Tests.StorageLegacyRosterChecks.Run();
 checks += await NekoChat.Tests.ClassroomRosterChecks.Run();
+checks += NekoChat.Tests.DefaultClassroomRosterChecks.Run();
 checks += NekoChat.Tests.ClassroomStoreChecks.Run();
 checks += NekoChat.Tests.ClassroomInboxChecks.Run();
 checks += NekoChat.Tests.StorageBackupChecks.Run();

@@ -638,3 +638,33 @@ New TeacherDeviceChecks:22 additive checks; --reactions47+31+22=100. Existing as
 Local checks (real build/tmp TMPDIR): Release tests build0/0; --reactions100/exit0, --contacts194/exit0, --blocking90/exit0, seed7/exit0, default Console6630/exit0; win-x64 cross-build0 warnings/0 errors. Logs build/d33/*.log, results.json. One initial test constructor compile error was corrected; a subsequent transient MSBuild child-node exit was resolved with sequential --no-restore -m:1; only the successful current test assembly's100/6630 results are acceptance evidence. No guard weakening, timeout extension, asset/schema/wire edit, deletion or release/installation.
 
 New Windows native role, annotations and screenshots remain **未執行，待 PM push CI**; physical classroom/IME/DPI/multiple-monitor/two-device acceptance remains separate. D-34 was assigned while closing D-33; it follows as a separate local change. No push/PR/merge/release/install/deploy.
+
+
+### D-34 embedded IP-only class roster; combined D-33/D-34 verification (2026-11-09)
+
+D-33 is isolated in local commit7ae81465f70616adacedd587cc931bd2392e9f2e. D-34 follows on that clean baseline. Read the user's roster-source.json student_ips only: exactly37 IPs, .5/.10/.../.185. Its old teacher_ip=.200 is explicitly superseded by D-34; embedded teacher is .240. No names or student numbers were transcribed. README/website remain PM-owned and unchanged.
+
+Plan/impact: reuse ClassroomRosterSeed, bounded CSV parser, snapshot preview, existing roster backup/transaction and teacher uniqueness. Add embedded default resource and explicit add-only adapter; keep first-use automatic behavior separate from old-user confirmed fill. New resources/code remain in the authorized worktree. No schema/migration/wire/asset change and no changes to teacher network authority.
+
+| CT-16 evidence | Implementation |
+|---|---|
+| Resource/selection | Core/Roster/DefaultClassroomRoster.csv embedded in Core.csproj; header matches sidecar CSV, names equal IP, student_number empty. ClassroomRosterSeed.Load prefers sidecar, falls back only when missing, preserves invalid/unreadable/oversized-source failure and uses shared bounded reads for Windows. |
+| Automatic first use | ChatWindow.ClassRoster.cs Bootstrap requires non-archived runtime, ClassRosterInitialized=false and no readonly-invalid-settings fallback; active roster and inbox/history must both be empty. Existing roster/history is left intact and initial processing marked completed. All local IPs excluded through the D-33 full-address adapter. |
+| Student/teacher | Local.5:36 students plus remote teacher.240. Local.240:37 students, no teacher contact, device role still true from D-33 before roster projection. Existing TC-07 import enforces at most one teacher. |
+| Manual fill, completed | Visible settings LoadClassRosterButton (XAML:271), not deferred. Counts a pure preview before confirmation (default No). PreviewMissing filters local/occupied IPs and forces new-row choices, avoiding updates even when an existing nickname equals a missing IP. Yes applies the reviewed snapshot; stale snapshot applies nothing. Existing notes, teacher, bindings and block state retained. No auto merge into old users. |
+| Core22 | DefaultClassroomRosterChecks runs in --contacts and default Console: literal37/teacher/resource/privacy, both self exclusions, role independence, real SQLite, sidecar shared read/priority/invalid/missing cases, upgrade no-op, add-only name-collision/nickname/teacher/block preservation, idempotence and stale CAS negative control. |
+| Native | New App.DefaultRosterSmoke.cs runs actual Attach→role→Bootstrap→projection on four isolated profiles (student, teacher, sidecar, existing). Hook file path must remain inside its exact profile. Student/teacher counts and real UI pinning checked; existing profile retains note. Actual settings button answers No then Yes, proving no roster-token change then36 additions with preserved note. New captures default-classroom-roster and default-classroom-manual-fill enter the existing JSON/artifact. No LAN loops started; no adapter modifications. |
+
+Combined local validation, SDK10.0.403 / actual worktree build/tmp:
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 5.88 |
+| --contacts | original194 + CT-16 new22 =216 | 0 | 1.71 |
+| --reactions | original47 + D-32 preference31 + D-33 role22 =100 | 0 | 0.31 |
+| --blocking | 90 unchanged | 0 | 1.68 |
+| --contacts-ui-seed-check | 7 unchanged | 0 | 0.14 |
+| Default Console | 6652 = D-33 baseline6630 + CT-16 new22 | 0 | 69.26 |
+| Final win-x64 WPF cross-build | 0 warnings / 0 errors | 0 | 5.08 |
+
+Logs/results: build/d34/*.log, results.json. Original guards/assertions retained; only additive Console scenarios. Native hooks/fixtures are synthetic isolated evidence; new role/roster screenshots and Windows assertions are **未執行，待 PM push CI**. Core/cross-build success does not claim classroom/LAN/IME/physical-DPI/multiple-monitor/two-machine acceptance. Both tasks and the optional manual-fill button are completed; no quota deferral. No timeout extension, push/PR/merge/release/install/deploy or classroom EXE replacement.

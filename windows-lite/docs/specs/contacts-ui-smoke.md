@@ -64,3 +64,9 @@ contacts smoke 最後另建全新 reaction-profile（相同安全路徑檢查、
 D-33 原生啟動負控：另兩份隔離的舊 JSON，注入本機 10.x IP 清單，實際 Attach→空名單 TeacherIp 投影→儲存，分別證明舊 TeacherIp 是本機時保留老師、是遠端時保持學生。主反應 profile 從 ThisDeviceIsTeacher=false／TeacherIp 空開始，注入含固定 DefaultTeacherIp 的清單；明確斷言沒有 CSV teacher-node 捷徑，故必須靠固定 .240 自動提升為老師。安裝 hook 先於 Attach，且只可用精確隔離 runtime。前四張不靠 loopback 角色，loopback 僅用來傳輸。
 
 角色勾選框可見且預設勾選；以實際 Click 明確取消，再重新載入 JSON、建立新 ChatWindow 並 Attach，在同一 .240 本機清單下仍維持學生。真收齊四款並確認每次 NotificationKind=None、沒有圖片／文字／待排文字提醒；開啟真歷史、逐張實現 MessageCard，斷言 11pt 對應標示與原始正文保留，截 reaction-student-ignored.png。無 reaction id 的手打同文字是普通通知、沒有標示。所有新斷言／截圖依舊待 Windows CI，不延長原逾時。
+
+## D-34 預設全班名單（CT-16）
+
+既有 contacts smoke 在 reaction checks 後，以四份全新隔離 profile 跑真正 Attach→角色初始化→Bootstrap→TC-03 投影。受控本機 IP .5：36 位學生＋老師 .240，老師只在 TeachersList 一筆，擷取 default-classroom-roster.png（沿既有數字前綴）；.240：37 位學生、無老師列，但 ThisDeviceIsTeacher=true。不存在的 sidecar 路徑限於該 profile 內，故確實驗證內嵌來源；sidecar case 寫入該處的單列 CSV，實際名單只含該列，不混合預設名單。
+
+舊使用者 case 預先存一筆合成備註，ClassRosterInitialized=false；Attach 後仍只有該筆、備註不動。顯示設定頁，斷言「載入全班名單」可見、有尺寸、可用；實際按鈕先回答 No（完整 roster token 不變），再 Yes（只補36個、排除自己、保留備註、老師 .240）。截取 default-classroom-manual-fill。所有網路迴圈不啟動，只用隔離 DB／合成資料；逾時界線不延長。新原生畫面與斷言待 PM push CI。

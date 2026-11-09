@@ -90,3 +90,15 @@
 - CT-01 同交易涵蓋 classroom 文字與附件 offer；舊 legacy v1 接收亦套用自動加入，但保留其 scope／clear revision guard，且不捏造 stored ACK 或已讀能力。
 - CT-02 合併同時更新 v13 ClassroomOutbox.principal，保留 targetIp、messageId、順序、狀態；舊 principal 的草稿／附件 epoch 失效。已讀先於本機 ACK 時回 transient，待確認後再套用，不丟回條。
 - CT-13 的 Core 證據是 Removed 封存旗標、唯讀不可送與歷史保留；視窗、確認與封存區入口由 B1-b WPF 驗證。
+
+**CT-16 預設全班 IP 名單（D-34）**
+- Given 設定可讀且可寫、名單與歷史完全空白、ClassRosterInitialized=false 的首次啟動
+- When 載入名單種子
+- Then 優先使用 exe 旁 classroom-roster.csv；不存在時使用內嵌 DefaultClassroomRoster.csv。內嵌內容只有 37 個學生 IP（192.168.24.5 起每次加 5 至 .185）及老師 192.168.24.240，name=IP、student_number 空白；不採舊來源的 teacher_ip=.200
+- And 排除所有本機 IP；本機 .5 得到 36 位學生＋老師 .240，本機 .240 得到 37 位學生、沒有老師列。D-33 本機角色仍為老師，不依賴名單裡有自己
+- And 沿用 ClassroomRosterSeed／RosterImportPreview／既有匯入交易與備份，TC-07 至多一位老師。有效 sidecar 完全優先，不與內嵌來源混合；已存在但無效、不可讀或超大時回報失敗，不悄悄改用內嵌
+- Given 已有任何聯絡人或對話歷史的舊使用者，Then 不自動合併。即使曾移除所有聯絡人但仍有封存歷史，也不自動補回；成功完成初始處理會保存 ClassRosterInitialized，之後清空名單不視為首次啟動
+- When 使用者在設定按「載入全班名單」，Then 先顯示將新增的 IP 數量並確認（預設 No）。No 不改名單；Yes 只補缺少 IP、排除本機，不覆蓋備註／學號／既有 IP／原老師，不解除封鎖、不刪歷史。sidecar 來源規則同上
+- And 手動補齊明確指定只新增（即使既有備註恰好等於新 IP，也不將其當作更新目標）；提交仍核對原 snapshot token。確認期間名單改變則整批不套用，提示重新確認。重複補齊為 no-op。內嵌名單不授予任何署名／配對／撤下權限
+
+Core scenario：DefaultClassroomRosterChecks（--contacts 與預設 Console）；原生 contacts smoke 以四份隔離 profile 實際 Attach/Bootstrap 驗證學生、老師、sidecar、舊名單，擷取「首次啟動預設名單」，並測試手動 No/Yes 與備註保留。Windows 原生、教室實機與 LAN 驗收仍分開列。

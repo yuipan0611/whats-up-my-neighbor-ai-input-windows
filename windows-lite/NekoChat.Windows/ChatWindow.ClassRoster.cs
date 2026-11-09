@@ -107,20 +107,47 @@ public partial class ChatWindow
         catch (Exception ex) { ShowStorageError(ex); }
     }
 
-    private async Task BootstrapClassRosterAsync()
+    private async void LoadClassRosterClick(object sender, RoutedEventArgs e)
     {
-        if (_runtime is null || _runtime.ArchivedIdentityFixture || settings.ClassRosterInitialized) return;
-        string path = Path.Combine(AppContext.BaseDirectory, "classroom-roster.csv");
-        if (!File.Exists(path)) return;
         try
         {
-            byte[] bytes = await Task.Run(() => {
-                using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                if (input.Length > RosterCsv.MaxBytes) throw new IOException();
-                byte[] data = new byte[checked((int)input.Length)]; input.ReadExactly(data);
-                if (input.ReadByte() != -1) throw new IOException(); return data;
-            });
-            var local = LanInvitation.LocalAddresses().ToArray();
+            var pending = LoadMissingClassRosterAsync();
+            if (_contactsUiSmoke is { } hook) hook.ContactAction = pending;
+            await pending;
+        }
+        catch (Exception error) { ShowStorageError(error); }
+    }
+
+    private async Task LoadMissingClassRosterAsync()
+    {
+        if (_runtime is not { ArchivedIdentityFixture: false } runtime || _closingRequested) return;
+        string path = ClassroomRosterSidecarPath();
+        byte[] bytes = await Task.Run(() => ClassroomRosterSeed.Load(path));
+        var local = ReactionRoleLocalAddresses();
+        var preview = await runtime.Worker.Run(store => ClassroomRosterSeed.PreviewMissing(bytes, store.GetRosterSnapshot(), local));
+        if (preview.Changes.Count == 0) { SetStatus("全班名單已齊全，沒有新增 IP。"); return; }
+        if (ContactPrompt($"將新增 {preview.Changes.Count} 個缺少的 IP，不覆蓋本機備註、不更換目前老師、不刪除歷史。是否載入？",
+            "載入全班名單", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        if (!ReferenceEquals(runtime, _runtime) || _closingRequested) return;
+        var result = await runtime.Worker.Run(store => store.ApplyRosterPreview(preview));
+        if (!result.Applied) { SetStatus("名單已變動或暫時無法載入，請重新確認後再試。"); return; }
+        UpdateSettings(settings with { ClassRosterInitialized = true });
+        runtime.Presence?.Refresh(); await SyncTeacherProjectionAsync(); await RefreshInboxAsync(true, waitForCompletion: true);
+        SetStatus($"已補上 {result.Added} 個 IP，原有備註與老師設定已保留。");
+    }
+
+    private async Task BootstrapClassRosterAsync()
+    {
+        if (_runtime is null || _runtime.ArchivedIdentityFixture || settings.ClassRosterInitialized || settings.ReadOnlyFallback) return;
+        try
+        {
+            // Do not auto-fill a prior user's roster/history, even when every active contact was removed.
+            bool empty = await _runtime.Worker.Run(store => store.GetRosterSnapshot().Count == 0 &&
+                store.GetClassroomInboxSnapshot().Entries.Count == 0);
+            if (!empty) { UpdateSettings(settings with { ClassRosterInitialized = true }); return; }
+            string path = ClassroomRosterSidecarPath();
+            byte[] bytes = await Task.Run(() => ClassroomRosterSeed.Load(path));
+            var local = ReactionRoleLocalAddresses();
             bool applied = await _runtime.Worker.Run(store => {
                 var preview = ClassroomRosterSeed.Preview(bytes, store.GetRosterSnapshot(), local);
                 // Existing contacts require the explicit import preview, never an automatic update.

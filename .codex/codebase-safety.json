@@ -252,6 +252,10 @@
     {
       "fact": "D-33 local teacher presentation role resolves before roster TeacherIp projection, with fixed-default-IP startup repair and explicit-choice priority. Student TeacherOnly events are silently retained with a small history annotation; wire-null reaction metadata remains ordinary text. Test local-address injection requires the exact isolated runtime/profile.",
       "source": "windows-lite/NekoChat.Core/TeacherDevicePolicy.cs; windows-lite/NekoChat.Windows/ChatWindow.ContactManagement.cs; windows-lite/NekoChat.Core/ReactionPreviewPolicy.cs; windows-lite/NekoChat.Windows/MessageHistoryView.cs; windows-lite/docs/specs/reactions.md"
+    },
+    {
+      "fact": "D-34 embeds an IP-only 37-student/.240-teacher seed. Sidecar overrides the embedded source; first empty roster/history seeds once, while existing users only add missing IPs after confirmation with snapshot CAS. Explicit add-only choices preserve nicknames/roles and self exclusion uses all local addresses.",
+      "source": "windows-lite/NekoChat.Core/Roster/DefaultClassroomRoster.csv; windows-lite/NekoChat.Core/Roster/ClassroomRosterSeed.cs; windows-lite/NekoChat.Windows/ChatWindow.ClassRoster.cs; windows-lite/NekoChat.Tests/DefaultClassroomRosterChecks.cs; windows-lite/docs/specs/contacts.md"
     }
   ]
 }
