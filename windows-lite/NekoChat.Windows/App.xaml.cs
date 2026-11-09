@@ -143,7 +143,8 @@ public partial class App : Application
                     Contacts = new() { new("192.168.255.250", "拖曳測試對象") }, LastRecipientIp = "192.168.255.250", TeacherIp = "192.168.255.250" };
                 settingsSource = new SettingsLoadResult(settings, SettingsSourceStatus.Loaded);
             }
-            if (messagingSmoke is not null) settings = settings with { TeacherIp = "127.0.0.1" };
+            // Explicit role in the isolated messaging fixture; loopback is transport only, never a role heuristic.
+            if (messagingSmoke is not null) settings = settings with { ThisDeviceIsTeacher = true, ThisDeviceTeacherExplicitChoice = true };
             directSendPort = uiTestOptions?.Port ?? messagingSmoke?.PeerPort ?? DirectLanMessaging.DefaultPort;
             startupPort = uiTestOptions?.Port ?? messagingSmoke?.ListenPort ?? DirectLanMessaging.DefaultPort;
 
@@ -478,13 +479,14 @@ public partial class App : Application
     }
 
     private static bool IsReactionTeacher(ChatRuntime runtime, Settings preferences) =>
-        runtime.ClassroomFiles?.IsTeacherNode == true || LanInvitation.LocalAddresses().Contains(preferences.TeacherIp) || preferences.TeacherIp == "127.0.0.1";
+        TeacherDevicePolicy.IsTeacher(preferences.ThisDeviceIsTeacher, preferences.ThisDeviceTeacherExplicitChoice, runtime.ClassroomFiles?.IsTeacherNode == true);
 
-    private static void NotifyReactionOrText(Settings preferences, PetWindow target, ClassroomReaction? reaction, bool teacher, string source, string name)
+    private static ReactionNotificationKind NotifyReactionOrText(Settings preferences, PetWindow target, ClassroomReaction? reaction, bool teacher, string source, string name)
     {
-        if (ReactionPreviewPolicy.ShowImage(preferences.ShowReactionPreviews, reaction, teacher))
-            target.NotifyReaction(reaction!, source);
-        else target.NotifyChat("新訊息", source, name);
+        var kind = ReactionPreviewPolicy.Notification(preferences.ShowReactionPreviews, reaction, teacher);
+        if (kind == ReactionNotificationKind.Image) target.NotifyReaction(reaction!, source);
+        else if (kind == ReactionNotificationKind.Text) target.NotifyChat("新訊息", source, name);
+        return kind;
     }
 
     private async Task NotifyAfterBlockCheckAsync(ChatRuntime runtime, DirectLanListener listener, string sourceIp, Action notify)

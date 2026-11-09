@@ -115,8 +115,12 @@ public partial class App
                 await VerifyReactionAsync(reaction, "bob-" + reaction.Id, cancellation);
                 File.WriteAllText(Ready("restored-" + reaction.Id), "ready");
             }
+            while (pet.Bubble.Visibility == Visibility.Visible) pet.AdvanceChatNotice();
             File.WriteAllText(Ready("receive-keyword"), "ready");
-            await VerifyReactionAsync(ClassroomReactions.Find("too-fast")!, "bob-keyword", cancellation);
+            await UntilAsync(() => pet.Bubble.Visibility == Visibility.Visible && !pet.ReactionActive, cancellation);
+            Require(!pet.ReactionActive && pet.ReactionImage.Source is null, "RX-08 typed caption without reaction ID must remain ordinary text");
+            var typed = await chatRuntime!.Worker.Run(s => s.ListLegacyHistories());
+            Require(typed.Any(h => h.LastText == "太快了！！" && h.LastReaction is null), "RX-08 ordinary typed caption must retain null reaction metadata");
             File.WriteAllText(Ready("restored-keyword"), "ready");
             await UntilAsync(() => File.Exists(Ready("receive-reverse")), cancellation);
             await SendReactionAsync(ClassroomReactions.Find("stop-scrolling")!, cancellation);
@@ -124,7 +128,7 @@ public partial class App
         }
         File.WriteAllText(Path.Combine(options.Directory, options.Role + "-reactions-result.txt"),
             "PASS: actual teacher WPF buttons reject a selected classmate and send only from the selected teacher chat; peer sticker popup works both ways; " +
-            "D-32 default shows reaction image; explicit OFF hides reaction content/IP; explicit ON restored; draft preserved for shortcuts; old-client exact-text compatibility fixture; real legacy TCP courtesy ACK/separate unverified history; transparent 312x288 central display; " +
+            "D-32 default shows reaction image; explicit OFF hides reaction content/IP; explicit ON restored; draft preserved for shortcuts; D-33 no-ID typed caption stays ordinary text; real legacy TCP courtesy ACK/separate unverified history; transparent 312x288 central display; " +
             "two-second deadline; duplicate count; no source IP in popup; original HWND/position/size/art restored; click replies to source.");
 
         async Task VerifyReactionAsync(ClassroomReaction reaction, string captureName, CancellationToken token, bool clickReply = false)

@@ -50,6 +50,7 @@ public partial class ChatWindow : Window
         TeacherIpBox.Text = settings.TeacherIp;
         RefreshReactionTargets();
         RefreshDisplays();
+        ThisDeviceTeacherToggle.IsChecked = settings.ThisDeviceIsTeacher == true;
         ReactionPreviewToggle.IsChecked = settings.ShowReactionPreviews;
         InitializeInbox();
     }

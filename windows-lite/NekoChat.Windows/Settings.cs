@@ -30,6 +30,12 @@ internal record Settings
     public string ReactionDisplayDevice { get; init; } = "";
     public bool ShowReactionPreviews { get; init; } = true;
     public bool ReactionPreviewExplicitChoice { get; init; }
+    public bool? ThisDeviceIsTeacher { get; init; }
+    public bool ThisDeviceTeacherExplicitChoice { get; init; }
+
+    internal Settings ResolveTeacherDeviceRole(IReadOnlyCollection<string> localAddresses, bool teacherNode) =>
+        this with { ThisDeviceIsTeacher = NekoChat.Core.TeacherDevicePolicy.Resolve(ThisDeviceIsTeacher,
+            ThisDeviceTeacherExplicitChoice, TeacherIp, localAddresses, teacherNode) };
 
     // Legacy fields kept for seamless JSON compatibility
     public bool Lan { get; init; } = true;

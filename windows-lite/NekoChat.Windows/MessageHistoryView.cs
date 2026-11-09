@@ -15,6 +15,8 @@ internal sealed class MessageView(string key, string rawText, bool outgoing, boo
     public string Key { get; } = key;
     public string? MessageId { get; init; }
     public string RawText { get; } = rawText;
+    private string? _reactionHistoryLabel;
+    public string? ReactionHistoryLabel { get => _reactionHistoryLabel; set { if (_reactionHistoryLabel != value) { _reactionHistoryLabel = value; PropertyChanged?.Invoke(this, new(nameof(ReactionHistoryLabel))); } } }
     public bool Outgoing { get; } = outgoing;
     public bool Legacy { get; } = legacy;
     public long Sequence { get; } = sequence;
@@ -65,7 +67,7 @@ public sealed class MessageCard : UserControl
         if (_observed is not null) { _observed.PropertyChanged += MessageUpdated; Build(_observed); }
     }
     private void MessageUpdated(object? sender, PropertyChangedEventArgs e)
-    { if (sender is MessageView message && e.PropertyName is nameof(MessageView.Attachment) or nameof(MessageView.AttachmentProgress) or nameof(MessageView.Delivery) or nameof(MessageView.RetrySend)) Build(message); }
+    { if (sender is MessageView message && e.PropertyName is nameof(MessageView.Attachment) or nameof(MessageView.AttachmentProgress) or nameof(MessageView.Delivery) or nameof(MessageView.RetrySend) or nameof(MessageView.ReactionHistoryLabel)) Build(message); }
     private void Build(MessageView message)
     {
         var body = new StackPanel();
@@ -91,7 +93,9 @@ public sealed class MessageCard : UserControl
             fileBody.Children.Add(actions);
             body.Children.Add(new Border { Child = fileBody, Background = Brush("#F1F5FA"), BorderBrush = Brush("#DCE3EC"), BorderThickness = new(1), CornerRadius = new(8), Padding = new(10), Margin = new(0,4,0,6) });
         }
-        var document = MessageDocument.Parse(message.Attachment?.Caption ?? message.RawText);
+        if (message.ReactionHistoryLabel is { } label)
+            body.Children.Add(new TextBlock { Text = label, FontSize = 11, TextWrapping = TextWrapping.Wrap, Foreground = Brush("#596B80") });
+        var document = MessageDocument.Parse(message.ReactionHistoryLabel is null ? message.Attachment?.Caption ?? message.RawText : "");
 
         for (int i = 0; i < document.Blocks.Count; i++)
         {

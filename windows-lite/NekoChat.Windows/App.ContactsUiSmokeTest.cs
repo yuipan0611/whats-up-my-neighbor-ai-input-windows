@@ -491,7 +491,7 @@ public partial class App
             window.SettingsPane.Visibility = Visibility.Visible; Shot("reopen-no-second-notice");
             Check(hooks.NextPromptAnswer is null && hooks.Prompts.Count(prompt => prompt.Answer == MessageBoxResult.No) == 3, "all three distinct cancellation answers were consumed exactly once");
             await RunReactionPreferencesUiChecksAsync(output, Check, (name, element) =>
-                Shot(name, element, exactFileName: ClassroomReactions.All.Any(reaction => name == "reaction-" + reaction.Id)),
+                Shot(name, element, exactFileName: name.StartsWith("reaction-teacher-", StringComparison.Ordinal) || name == "reaction-student-ignored" || name == "reaction-stop-scrolling"),
                 (condition, label) => Wait(condition, label), deadline.Token);
             Check(captures.Count >= 18, "all native UI stages produced synthetic screenshots");
         }

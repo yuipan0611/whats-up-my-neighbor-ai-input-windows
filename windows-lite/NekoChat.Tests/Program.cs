@@ -18,7 +18,7 @@ if (NekoChat.Tests.StorageReadChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageLegacyRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageBackupChecks.RunChild(args)) return;
-if (args.SequenceEqual(new[] { "--reactions" })) { await ReactionChecks.Run(); await NekoChat.Tests.ReactionPreferenceChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--reactions" })) { await ReactionChecks.Run(); await NekoChat.Tests.ReactionPreferenceChecks.Run(); await NekoChat.Tests.TeacherDeviceChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--contacts-ui-seed-check" })) { NekoChat.Tests.ContactsUiSeedChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--blocking" })) { await NekoChat.Tests.BlockingChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--contacts" })) { await NekoChat.Tests.ContactExperienceChecks.Run(); return; }
@@ -266,6 +266,7 @@ Reject(() => DirectLanMessaging.SendDirectAsync("127.0.0.1", "   ").GetAwaiter()
 checks += await DirectMessagingChecks.Run();
 checks += await ReactionChecks.Run();
 checks += await NekoChat.Tests.ReactionPreferenceChecks.Run();
+checks += await NekoChat.Tests.TeacherDeviceChecks.Run();
 checks += NekoChat.Tests.MessageFormattingChecks.Run();
 checks += NekoChat.Tests.UiEnhancementChecks.Run();
 checks += NekoChat.Tests.RosterCsvChecks.Run();

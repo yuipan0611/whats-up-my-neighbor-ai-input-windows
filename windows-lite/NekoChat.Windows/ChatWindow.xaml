@@ -295,6 +295,8 @@
      </StackPanel>
      <StackPanel x:Name="ReactionSettingsGroup">
      <TextBlock Text="課堂反應" FontWeight="Bold" Margin="0,20,0,8"/>
+     <CheckBox x:Name="ThisDeviceTeacherToggle" Content="這台是老師的電腦（接收學生的課堂反應圖）" Click="ThisDeviceTeacherToggleClick" Margin="0,0,0,4"/>
+     <TextBlock Text="學生按講太快了等 4 款反應時，只有勾選這項的電腦會跳出貓咪圖" TextWrapping="Wrap" Foreground="#596B80" FontSize="12" Margin="0,0,0,8"/>
      <CheckBox x:Name="ReactionPreviewToggle" Content="收到課堂反應時跳出貓咪圖（投影時可關閉）" Click="ReactionPreviewToggleClick" Margin="0,0,0,4"/>
      <TextBlock Text="關閉後只顯示文字提醒，不會跳出課堂反應圖片。" TextWrapping="Wrap" Foreground="#596B80" FontSize="12"/>
      <TextBlock Text="提醒螢幕" Margin="0,8"/><ComboBox x:Name="ReactionDisplay" DisplayMemberPath="Label" SelectedValuePath="DeviceName" SelectionChanged="ReactionDisplayChanged" DropDownOpened="ReactionDisplayOpened" AutomationProperties.Name="提醒螢幕"/>

@@ -8,6 +8,7 @@ namespace NekoChat.Windows;
 internal sealed class ContactsUiSmokeHooks
 {
     internal Func<Window, Task>? DriveDialog;
+    internal string[]? LocalAddresses;
     internal readonly List<(string Title, string Text, MessageBoxResult Answer)> Prompts = [];
     internal (string TextFragment, MessageBoxResult Answer)? NextPromptAnswer;
     internal bool FailRemovalRefreshOnce, FailNextInboxRead;
@@ -34,6 +35,24 @@ public partial class ChatWindow
     {
         if (_runtime is not { IsolatedData: true } || !ReferenceEquals(_runtime, _contactsUiSmokeRuntime))
             throw new InvalidOperationException("Contacts hook cannot operate on a different runtime.");
+    }
+    private IReadOnlyCollection<string> ReactionRoleLocalAddresses()
+    {
+        if (_contactsUiSmoke?.LocalAddresses is { } addresses)
+        {
+            AssertContactsSmokeRuntime();
+            return addresses;
+        }
+        // Invitation advertisements cap their address list at seven; device-role detection
+        // must inspect every active LAN adapter so a later .240 address is not lost.
+        return System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+            .Where(adapter => adapter.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up &&
+                adapter.NetworkInterfaceType is not (System.Net.NetworkInformation.NetworkInterfaceType.Loopback or System.Net.NetworkInformation.NetworkInterfaceType.Tunnel))
+            .SelectMany(adapter => adapter.GetIPProperties().UnicastAddresses)
+            .Where(address => address.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+            .Select(address => address.Address.ToString())
+            .Where(address => NekoChat.Core.LanInvitation.PrivateIPv4(address) && !address.StartsWith("127.", StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal).ToArray();
     }
     private void ContactsSmokeBeforeRemovalRefresh()
     {

@@ -137,7 +137,7 @@ public sealed class ClassroomStoreSink : IClassroomTransportSink
             _diagnostics?.Record(DiagnosticStage.ReceiveCommit, DiagnosticOutcome.Succeeded);
             if (result.LegacySeq is { } seq)
             {
-                try { LegacyMessageStored?.Invoke(new(sourceIp, _store.GetLegacyReceiveContext(sourceIp).Scope, seq, message.Reaction ?? ClassroomReactions.MatchText(message.Text)?.Id)); } catch (Exception error) when (DiagnosticFault.Catchable(error)) { _diagnostics?.Record(DiagnosticStage.ReceiveNotify, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, error); }
+                try { LegacyMessageStored?.Invoke(new(sourceIp, _store.GetLegacyReceiveContext(sourceIp).Scope, seq, message.Reaction)); } catch (Exception error) when (DiagnosticFault.Catchable(error)) { _diagnostics?.Record(DiagnosticStage.ReceiveNotify, DiagnosticOutcome.Failed, DiagnosticCode.NotificationFailed, error); }
             }
             byte[] response = "{\"status\":\"delivered\"}"u8.ToArray();
             return Task.FromResult<ClassroomTransportResponse?>(new ClassroomTransportResponse(200, response));

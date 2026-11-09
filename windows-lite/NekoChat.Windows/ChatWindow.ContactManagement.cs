@@ -33,6 +33,23 @@ public partial class ChatWindow
         SetStatus(ContactArchivedNotice); _showRemovalNotice = true; UpdateComposer();
     }
 
+    private bool IsThisDeviceTeacher => NekoChat.Core.TeacherDevicePolicy.IsTeacher(settings.ThisDeviceIsTeacher,
+        settings.ThisDeviceTeacherExplicitChoice, _runtime?.ClassroomFiles?.IsTeacherNode == true);
+
+    private void InitializeTeacherDeviceRole()
+    {
+        if (_runtime is not { } runtime) return;
+        var resolved = settings.ResolveTeacherDeviceRole(ReactionRoleLocalAddresses(), runtime.ClassroomFiles?.IsTeacherNode == true);
+        if (settings.ThisDeviceIsTeacher != resolved.ThisDeviceIsTeacher) UpdateSettings(resolved);
+        ThisDeviceTeacherToggle.IsChecked = IsThisDeviceTeacher;
+    }
+
+    private async void ThisDeviceTeacherToggleClick(object sender, RoutedEventArgs e)
+    {
+        UpdateSettings(settings with { ThisDeviceIsTeacher = ThisDeviceTeacherToggle.IsChecked == true, ThisDeviceTeacherExplicitChoice = true });
+        if (_runtime is not null) await RefreshInboxAsync(true, waitForCompletion: true);
+    }
+
     private bool _readNoticeShowing;
     private bool _teacherProjectionPending;
     private async Task SyncTeacherProjectionAsync()

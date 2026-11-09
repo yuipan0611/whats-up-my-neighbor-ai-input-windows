@@ -98,6 +98,8 @@ public partial class ChatWindow
     internal async Task AttachRuntimeAsync(ChatRuntime runtime, int peerPort)
     {
         _diagnosticFailures = []; _runtime = runtime; SetDiagnosticsDirectory(Path.Combine(Path.GetDirectoryName(runtime.DataDirectory)!, "diagnostics")); ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
+        // Resolve from the legacy setting and this device BEFORE TC-03 replaces TeacherIp with the roster projection.
+        InitializeTeacherDeviceRole();
         var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy());
         ReadReceiptToggle.IsChecked = policy.Enabled;
         if (runtime.Presence is { } presence) presence.StateChanged += PresenceChanged;
@@ -399,13 +401,13 @@ public partial class ChatWindow
             var attachmentRows = _runtime.Attachments is { } attachments ? await attachments.HistoryAsync(entry.ConversationId ?? "") : [];
             if (selection != _selectionRequest || entry.Id != _selected?.Id) return;
             var crRows = page.Classroom?.Items.Select(m => new MessageView("cr:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
-                m.Direction == "outgoing" ? (m.DeliveryLabel ?? (m.RemoteReadAt is not null ? "已讀" : m.RemoteStoredAt is not null ? "已送出" : "")) : (m.LocalReadAt is not null ? "本機已讀" : ""), peerAvatar) { MessageId = m.MessageId }) ?? [];
+                m.Direction == "outgoing" ? (m.DeliveryLabel ?? (m.RemoteReadAt is not null ? "已讀" : m.RemoteStoredAt is not null ? "已送出" : "")) : (m.LocalReadAt is not null ? "本機已讀" : ""), peerAvatar) { MessageId = m.MessageId, ReactionHistoryLabel = ReactionPreviewPolicy.HistoryLabel(m.Reaction, IsThisDeviceTeacher, m.Direction == "outgoing") }) ?? [];
             crRows = crRows.Select(row => { row.Attachment = attachmentRows.FirstOrDefault(a => a.LocalSeq == row.Sequence); if (row.Attachment is { } storedAttachment) row.Attachment = _runtime.AttachmentView(storedAttachment); if (row.Attachment is { } info) row.Delivery = info.StateText; row.AttachmentAction = AttachmentActionAsync; row.AttachmentPath = row.Attachment is { } a && _runtime.Attachments is { } service && service.Vault.Exists(a.File) ? service.Vault.PathFor(a.File.BlobId) : null; return row; });
             var rows = page.Message?.Items.Select(m => new MessageView("v2:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
                 m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "", peerAvatar)) ?? [];
-            var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""), peerAvatar)) ?? [];
+            var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""), peerAvatar) { ReactionHistoryLabel = ReactionPreviewPolicy.HistoryLabel(m.Reaction, IsThisDeviceTeacher) }) ?? [];
             var existing = History.Rows.Where(x => x.AttemptId is null).ToDictionary(m => m.Key, StringComparer.Ordinal); int oldCount = existing.Count;
-            foreach (var row in crRows.Concat(rows).Concat(legacy)) { row.ContactReadOnly=entry.Removed||entry.Blocked; if (!_runtime.ArchivedIdentityFixture && !row.Key.StartsWith("v2:", StringComparison.Ordinal)) { row.DeleteLocal = () => ConfirmDeleteLocalMessageAsync(entry, row); row.DeleteDisabledReason = () => LocalMessageDeleteReason(entry, row); } if (existing.TryGetValue(row.Key, out var old)) { old.Delivery = row.Delivery; old.AttachmentPath = row.AttachmentPath; old.Attachment = row.Attachment; old.ContactReadOnly=row.ContactReadOnly; old.RefreshActions(); } else existing.Add(row.Key, row); }
+            foreach (var row in crRows.Concat(rows).Concat(legacy)) { row.ContactReadOnly=entry.Removed||entry.Blocked; if (!_runtime.ArchivedIdentityFixture && !row.Key.StartsWith("v2:", StringComparison.Ordinal)) { row.DeleteLocal = () => ConfirmDeleteLocalMessageAsync(entry, row); row.DeleteDisabledReason = () => LocalMessageDeleteReason(entry, row); } if (existing.TryGetValue(row.Key, out var old)) { old.Delivery = row.Delivery; old.ReactionHistoryLabel = row.ReactionHistoryLabel; old.AttachmentPath = row.AttachmentPath; old.Attachment = row.Attachment; old.ContactReadOnly=row.ContactReadOnly; old.RefreshActions(); } else existing.Add(row.Key, row); }
             var sorted = existing.Values.OrderBy(m => m.Utc, StringComparer.Ordinal).ThenBy(m => m.Legacy).ThenBy(m => m.Sequence).ToArray();
             for (int i = 0; i < sorted.Length; i++)
             {

@@ -248,6 +248,10 @@
     {
       "fact": "D-32 reaction images default ON; legacy values without explicit choice normalize ON without load-time writes, while visible-toggle choices persist. Shared preview policy retains teacher-only routing; receive transaction and Worker notification block gates stay in place.",
       "source": "windows-lite/NekoChat.Core/ReactionPreviewPolicy.cs; windows-lite/NekoChat.Windows/Settings.cs; windows-lite/NekoChat.Windows/ChatWindow.xaml; windows-lite/NekoChat.Tests/ReactionPreferenceChecks.cs; windows-lite/docs/specs/reactions.md"
+    },
+    {
+      "fact": "D-33 local teacher presentation role resolves before roster TeacherIp projection, with fixed-default-IP startup repair and explicit-choice priority. Student TeacherOnly events are silently retained with a small history annotation; wire-null reaction metadata remains ordinary text. Test local-address injection requires the exact isolated runtime/profile.",
+      "source": "windows-lite/NekoChat.Core/TeacherDevicePolicy.cs; windows-lite/NekoChat.Windows/ChatWindow.ContactManagement.cs; windows-lite/NekoChat.Core/ReactionPreviewPolicy.cs; windows-lite/NekoChat.Windows/MessageHistoryView.cs; windows-lite/docs/specs/reactions.md"
     }
   ]
 }

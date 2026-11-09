@@ -112,7 +112,7 @@ public sealed class DirectLanListener : IAsyncDisposable
             LegacyMessageHandler = legacyStore is null ? null : (source, message, live) => {
                 var captured = legacyStore.GetLegacyReceiveContext(source); var result = legacyStore.ReceiveLegacyMessage(message, captured, live);
                 if (result.Stored && result.LegacySeq is { } seq)
-                { try { LegacyMessageStored?.Invoke(new(source, captured.Scope, seq, message.Reaction ?? ClassroomReactions.MatchText(message.Text)?.Id)); } catch { try { Diagnostic?.Invoke("notification_failed"); } catch { } } }
+                { try { LegacyMessageStored?.Invoke(new(source, captured.Scope, seq, message.Reaction)); } catch { try { Diagnostic?.Invoke("notification_failed"); } catch { } } }
                 return result.Stored;
             }
         };

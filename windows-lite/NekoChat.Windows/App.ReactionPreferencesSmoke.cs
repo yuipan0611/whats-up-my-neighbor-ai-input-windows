@@ -16,13 +16,43 @@ public partial class App
     private async Task RunReactionPreferencesUiChecksAsync(string output, Action<bool, string> check,
         Action<string, FrameworkElement> shot, Func<Func<bool>, string, Task> wait, CancellationToken token)
     {
+        async Task RoleStartup(string name, string oldTeacherIp, string[] local, bool expected)
+        {
+            string root = Path.Combine(output, "reaction-role-" + name + "-" + Guid.NewGuid().ToString("N"));
+            UiTestOptions.AssertSafeDataDirectory(root); Directory.CreateDirectory(root);
+            string file = Path.Combine(root, "settings.json");
+            await File.WriteAllTextAsync(file, System.Text.Json.JsonSerializer.Serialize(new {
+                TeacherIp = oldTeacherIp, ClassRosterInitialized = true, AutoStartOnLogin = false
+            }), token);
+            var current = Settings.LoadWithStatus(file).Value;
+            await using var roleRuntime = await ChatRuntime.OpenAsync(new(current, SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true);
+            var roleView = new ChatWindow(current);
+            roleView.SettingsChanged += value => current = value;
+            roleView.InstallContactsUiSmokeHooks(root, new() { LocalAddresses = local }, roleRuntime);
+            try
+            {
+                check(roleRuntime.ClassroomFiles?.IsTeacherNode != true &&
+                    await roleRuntime.Worker.Run(store => store.GetClassroomTeacherIp()) is null,
+                    "RX-07 startup fixture has no CSV hint or roster teacher: " + name);
+                await roleView.AttachRuntimeAsync(roleRuntime, 0);
+                check(current.ThisDeviceIsTeacher == expected && current.TeacherIp == "" &&
+                    roleView.ThisDeviceTeacherToggle.IsChecked == expected &&
+                    Settings.LoadWithStatus(file).Value.ThisDeviceIsTeacher == expected,
+                    "RX-07 real legacy-settings/Attach/empty projection/persistence path: " + name);
+            }
+            finally { await roleView.PrepareForShutdownAsync(); roleView.DetachRuntime(); roleView.Hide(); }
+        }
+        await RoleStartup("legacy-local", "10.251.232.240", ["10.251.232.240", "10.251.233.8"], true);
+        await RoleStartup("student", ClassroomReactions.DefaultTeacherIp, ["10.251.232.8"], false);
         string profile = Path.Combine(output, "reaction-profile-" + Guid.NewGuid().ToString("N"));
         UiTestOptions.AssertSafeDataDirectory(profile);
-        var preferences = Settings.ForUiTest(profile) with { ClassRosterInitialized = true, TeacherIp = "127.0.0.1", WanderEnabled = false };
+        var preferences = Settings.ForUiTest(profile) with { ClassRosterInitialized = true, TeacherIp = "", ThisDeviceIsTeacher = false, WanderEnabled = false };
         check(preferences.Save() && preferences.ShowReactionPreviews && !preferences.ReactionPreviewExplicitChoice,
             "RX-01 fresh isolated profile enables images without an explicit choice");
         await using var runtime = await ChatRuntime.OpenAsync(new(preferences, SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true);
+        var hooks = new ContactsUiSmokeHooks { LocalAddresses = Enumerable.Range(1, 9).Select(index => "10.251.233." + index).Append(ClassroomReactions.DefaultTeacherIp).ToArray() };
         var view = new ChatWindow(preferences); var target = new PetWindow();
+        var outcomes = new List<ReactionNotificationKind>();
         target.SetWanderEnabled(false); target.ReactionDisplayDevice = "disconnected-test-screen";
         view.SettingsChanged += updated => { preferences = updated; target.ReactionDisplayDevice = updated.ReactionDisplayDevice; };
         int notifications = 0; Task? notification = null; LegacyDeliveryNotice? stored = null;
@@ -32,27 +62,35 @@ public partial class App
             stored = notice;
             notification = Dispatcher.InvokeAsync(() => {
                 notifications++;
-                NotifyReactionOrText(preferences, target, ClassroomReactions.Find(notice.Reaction),
-                    IsReactionTeacher(runtime, preferences), notice.Scope.ContextId, "合成反應同學");
+                view.DataChanged();
+                outcomes.Add(NotifyReactionOrText(preferences, target, ClassroomReactions.Find(notice.Reaction),
+                    IsReactionTeacher(runtime, preferences), notice.Scope.ContextId, "合成反應同學"));
             }).Task;
         };
         await using var listener = new ClassroomTcpListener(new ClassroomEndpointAdapter(mapped),
             new() { BindAddress = IPAddress.Loopback, Port = 0 });
         try
         {
-            listener.Start(); view.Show(); target.Show(); view.Activate();
+            check(runtime.ClassroomFiles?.IsTeacherNode != true, "RX-07 fixed-IP fixture has no CSV teacher-node shortcut");
+            view.InstallContactsUiSmokeHooks(profile, hooks, runtime);
+            await view.AttachRuntimeAsync(runtime, 0);
+            check(preferences.ThisDeviceIsTeacher == true && !preferences.ThisDeviceTeacherExplicitChoice &&
+                preferences.TeacherIp == "" && Settings.LoadWithStatus(preferences.PersistencePath).Value.ThisDeviceIsTeacher == true,
+                "RX-07 fixed default local IP promotes a previous false before empty roster projection, and persists");
+            listener.Start(); view.SetReceiverState(true, listener.Port, null); view.Show(); target.Show(); view.Activate();
             view.SettingsPane.Visibility = Visibility.Visible;
             view.ReactionPreviewToggle.BringIntoView(); view.UpdateLayout();
             check(view.ReactionPreviewToggle.IsVisible && view.ReactionPreviewToggle.ActualWidth > 0 &&
                 view.ReactionPreviewToggle.IsEnabled && view.ReactionPreviewToggle.IsChecked == true &&
-                view.ReactionDisplay.IsVisible && !view.TeacherIpBox.IsVisible,
+                view.ReactionDisplay.IsVisible && view.ThisDeviceTeacherToggle.IsVisible && view.ThisDeviceTeacherToggle.IsChecked == true &&
+                !view.TeacherIpBox.IsVisible,
                 "RX-02 visible default-ON reaction toggle and monitor picker; legacy teacher editor remains hidden");
             shot("reaction-settings-default-on", view);
-            async Task Send(string id, bool expectNotification = true)
+            async Task Send(string? id, bool expectNotification = true)
             {
                 notification = null;
-                var reaction = ClassroomReactions.Find(id)!;
-                check(await DirectLanMessaging.SendDirectAsync("127.0.0.1", reaction.Text, listener.Port, token, reaction.Id),
+                var reaction = ClassroomReactions.Find(id);
+                check(await DirectLanMessaging.SendDirectAsync("127.0.0.1", reaction?.Text ?? "講太快了", listener.Port, token, reaction?.Id),
                     "RX real loopback reaction receives normal legacy ACK: " + id);
                 await runtime.Worker.Run(_ => true); // All store/event work precedes the ACK.
                 if (expectNotification)
@@ -83,7 +121,7 @@ public partial class App
                     $"RX actual PetWindow image pixels match {imageFile}: {id}");
                 check(target.ReactionCaption.Text == text && !target.IsActive,
                     $"RX exact visible caption without merged count or focus change: {id} / {text}");
-                shot("reaction-" + id, target); capturedReactions.Add(id);
+                shot((id == "stop-scrolling" ? "reaction-" : "reaction-teacher-") + id, target); capturedReactions.Add(id);
                 await wait(() => !target.ReactionActive && target.ReactionImage.Source is null,
                     "RX image did not disappear after its normal display: " + id);
             }
@@ -104,9 +142,54 @@ public partial class App
             shot("reaction-off-text-only", target); shot("reaction-settings-explicit-off", view);
             view.ReactionPreviewToggle.IsChecked = true;
             view.ReactionPreviewToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            preferences = preferences with { TeacherIp = "10.251.232.99" }; // This fixture is now a student receiver.
-            await Send("too-fast");
-            check(!target.ReactionActive && target.ReactionImage.Source is null, "RX-05 TeacherOnly never renders on a student receiver");
+            // Real visible role click, then reload Settings and run the actual Attach/projection path again.
+            view.ThisDeviceTeacherToggle.IsChecked = false;
+            view.ThisDeviceTeacherToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await wait(() => view.SmokeContactsViewIdle, "RX-07 role change history refresh did not settle");
+            check(!IsReactionTeacher(runtime, preferences) && preferences.ThisDeviceTeacherExplicitChoice &&
+                preferences.ResolveTeacherDeviceRole(hooks.LocalAddresses!, true).ThisDeviceIsTeacher == false,
+                "RX-07 explicit OFF wins over fixed IP and CSV teacher-node hint");
+            view.DetachRuntime(); view.Hide();
+            preferences = Settings.LoadWithStatus(preferences.PersistencePath).Value;
+            view = new ChatWindow(preferences);
+            view.SettingsChanged += updated => { preferences = updated; target.ReactionDisplayDevice = updated.ReactionDisplayDevice; };
+            view.InstallContactsUiSmokeHooks(profile, hooks, runtime);
+            await view.AttachRuntimeAsync(runtime, 0);
+            view.SetReceiverState(true, listener.Port, null); view.Show(); view.Activate();
+            check(!IsReactionTeacher(runtime, preferences) && view.ThisDeviceTeacherToggle.IsChecked == false &&
+                preferences.ThisDeviceTeacherExplicitChoice, "RX-07 second startup at fixed default IP respects explicit unchecked role");
+            while (target.Bubble.Visibility == Visibility.Visible) target.AdvanceChatNotice();
+            int beforeIgnored = notifications, beforeOutcomes = outcomes.Count;
+            foreach (var reaction in ClassroomReactions.All.Where(r => r.TeacherOnly))
+            {
+                await Send(reaction.Id);
+                check(outcomes[^1] == ReactionNotificationKind.None && !target.ReactionActive &&
+                    target.ReactionImage.Source is null && !target.Bubble.IsVisible && target.PendingChatCount == 0,
+                    "RX-08 student calls neither image nor text reminder: " + reaction.Id);
+            }
+            check(notifications == beforeIgnored + 4 && outcomes.Skip(beforeOutcomes).SequenceEqual(
+                Enumerable.Repeat(ReactionNotificationKind.None, 4)), "RX-08 all four actual receive events are observed and deliberately suppressed");
+            await view.SmokeOpenEntryAsync(entry => entry.Endpoint == ContactsIncomingIp);
+            foreach (var reaction in ClassroomReactions.All.Where(r => r.TeacherOnly))
+            {
+                string label = "課堂反應：" + reaction.Text + "（只有老師電腦會跳出貓咪圖）";
+                var message = view.History.Rows.Last(row => row.RawText == reaction.Text);
+                check(message.ReactionHistoryLabel == label, "RX-08 actual history projects annotation without replacing raw text: " + reaction.Id);
+                view.History.ScrollIntoView(message); view.UpdateLayout();
+                await wait(() => SmokeVisuals<MessageCard>(view.History).Any(card => ReferenceEquals(card.Message, message)),
+                    "RX-08 annotated message card was not realized");
+                var card = SmokeVisuals<MessageCard>(view.History).Single(card => ReferenceEquals(card.Message, message));
+                check(SmokeVisuals<TextBlock>(card).Any(text => text.Text == label && text.FontSize == 11) &&
+                    !SmokeVisuals<TextBlock>(card).Any(text => text.Text == reaction.Text),
+                    "RX-08 rendered small annotation replaces ordinary text body: " + reaction.Id);
+            }
+            shot("reaction-student-ignored", view);
+            await Send(null);
+            check(outcomes[^1] == ReactionNotificationKind.Text && target.Bubble.IsVisible && !target.ReactionActive && stored!.Reaction is null,
+                "RX-08 manually typed caption without wire ID remains an ordinary notification");
+            await view.SmokeRefreshContactsAsync();
+            check(view.History.Rows.Single(row => row.Legacy && row.Sequence == stored!.LegacySeq).ReactionHistoryLabel is null,
+                "RX-08 actual no-ID typed message history has no reaction annotation");
             await CaptureReaction("stop-scrolling", "你再給我滑！", "raised-paw.png");
             check(capturedReactions.SequenceEqual(new[] { "too-fast", "cant-keep-up", "dont-understand", "say-again", "stop-scrolling" }),
                 "RX all five distinct reaction screenshots captured once with exact caption and image pixels");
@@ -114,7 +197,7 @@ public partial class App
             await runtime.Worker.Run(s => s.SetSourceBlocked(ContactsIncomingIp, true));
             int before = notifications;
             int rows = await runtime.Worker.Run(s => s.ListLegacyMessages(scope).Items.Count);
-            target.Bubble.Visibility = Visibility.Collapsed;
+            while (target.Bubble.Visibility == Visibility.Visible) target.AdvanceChatNotice();
             await Send("stop-scrolling", expectNotification: false);
             check(notification is null && notifications == before && !target.ReactionActive &&
                 target.ReactionImage.Source is null && target.Bubble.Visibility == Visibility.Collapsed &&
@@ -124,7 +207,7 @@ public partial class App
         }
         finally
         {
-            view.Hide(); target.Close();
+            await view.PrepareForShutdownAsync(); view.DetachRuntime(); view.Hide(); target.Close();
         }
     }
 }

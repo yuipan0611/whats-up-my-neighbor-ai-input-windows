@@ -612,3 +612,29 @@ First four captures remain on the fresh default-ON teacher receiver; last captur
 Local SDK10.0.403 with real build/tmp TMPDIR: --reactions78/exit0 (0.74s), --contacts194/exit0 (1.74s), --contacts-ui-seed-check7/exit0 (0.14s), win-x64 cross-build exit0/0 warnings/0 errors (10.19s). Logs/results: build/reaction-five/*.log, results.json. Diff-check and strict safety config pass. Only test helper code changed, so the related unchanged Console suites ran from the current existing Release test assembly; no product test assertions were weakened.
 
 The new five native renders/pixel assertions/screenshots are **未執行，待 Emily push Windows CI**. Mac cross-build is compile evidence only. Physical classroom/multiple-monitor/IME/DPI/two-device acceptance is still separate. Local commit only; no push/PR/merge/release/install/deploy or replacement of the classroom EXE.
+
+
+### D-33 independent local teacher role (2026-11-09)
+
+Baseline clean d465cec; --reactions78/exit0. Root cause confirmed: TC-03 projects the roster teacher into Settings.TeacherIp, which can be empty on the actual teacher PC; the previous notification role depended on that projection. D-33 adds nullable ThisDeviceIsTeacher and ThisDeviceTeacherExplicitChoice, resolved in actual AttachRuntime before bootstrap/projection. TeacherDevicePolicy independently handles legacy local-IP matching, persistent migrated role, every-startup fixed192.168.24.240/CSV-node positive repair and explicit ON/OFF priority. Explicit OFF also wins over CSV teacher-node hints, as required by “使用者明確選擇永遠優先”. It grants no file/network authority.
+
+Role IP enumeration includes all active private IPv4 adapters, rather than the invitation list's seven-address cap. Ordinary runtime has no IP injection. Existing hooks require an exact isolated Settings/DB/runtime; only that fixture can inject addresses. Native default-IP control deliberately places .240 tenth and asserts no CSV teacher-node shortcut. Separate old JSON profiles actually traverse Attach→empty roster projection→settings save for local10.x teacher and remote-teacher student. After a real role-toggle OFF, a new ChatWindow loads JSON and runs Attach again at .240, remaining OFF. No network adapter was changed. App's 127.0.0.1 role special case is removed entirely; messaging fixture sets an explicit local role, using loopback for transport only.
+
+| Request | Implementation |
+|---|---|
+| RX-07 role/settings/UI | Core/TeacherDevicePolicy.cs; Windows/Settings.cs:33; ChatWindow.ContactManagement.cs:36; Inbox.cs:102 initializes before TC-03; visible XAML checkbox at298 with requested help. Changing roster teacher never changes device role. |
+| RX-08 no student notifications | ReactionPreviewPolicy.Notification returns None for nonteacher TeacherOnly, regardless of preview toggle. NotifyReactionOrText calls neither NotifyReaction nor NotifyChat for None; native verifies four actual receive events/outcomes plus no image/bubble/queued chat. Teacher preview-OFF remains ordinary text, peer sticker unchanged. |
+| RX-08 retained history | Both classroom and legacy page projections set a separate ReactionHistoryLabel; MessageCard renders 11pt annotation instead of normal body, while RawText/id, copy, local deletion, storage and unread behavior remain unchanged. Role refresh updates existing cards too. |
+| No-ID typed caption | ClassroomStoreSink and archived legacy DirectLanListener retain exact nullable wire metadata rather than inferring an id from text. Wire/codecs/schema unchanged. Core real-receive test and native ordinary-notification/history positive control prove manually typed caption stays ordinary text. |
+
+New TeacherDeviceChecks:22 additive checks; --reactions47+31+22=100. Existing assertions retained except the authorized D-33 native behavior changes below. Native screenshots: reaction-teacher-too-fast.png / cant-keep-up / dont-understand / say-again, reaction-student-ignored.png and existing reaction-stop-scrolling.png. Correct asset pixels and exact captions still checked independently; same time limits.
+
+| Old test | New expectation | Basis |
+|---|---|---|
+| App.ReactionPreferencesSmoke teacher role depended on TeacherIp127.0.0.1; student only checked no image | Inject private local IPs before actual Attach; persisted device role drives four teacher images. Student events must return None and produce no text/image/queue; actual history cards must show11pt annotation. | D-33 |
+| App.ReactionSmokeTest “bob-keyword” expected image from no-ID typed “太快了！！” | Before sender rendezvous clear older bubbles; expect ordinary text, no reaction image, persisted LastReaction=null. All five explicit-ID images/timing/count/reply tests stay. | D-33 |
+| App.xaml.cs isolated messaging fixture set TeacherIp127.0.0.1 | Explicit ThisDeviceIsTeacher=true/explicitChoice=true in isolated fixture; no product loopback role shortcut. | D-33 |
+
+Local checks (real build/tmp TMPDIR): Release tests build0/0; --reactions100/exit0, --contacts194/exit0, --blocking90/exit0, seed7/exit0, default Console6630/exit0; win-x64 cross-build0 warnings/0 errors. Logs build/d33/*.log, results.json. One initial test constructor compile error was corrected; a subsequent transient MSBuild child-node exit was resolved with sequential --no-restore -m:1; only the successful current test assembly's100/6630 results are acceptance evidence. No guard weakening, timeout extension, asset/schema/wire edit, deletion or release/installation.
+
+New Windows native role, annotations and screenshots remain **未執行，待 PM push CI**; physical classroom/IME/DPI/multiple-monitor/two-device acceptance remains separate. D-34 was assigned while closing D-33; it follows as a separate local change. No push/PR/merge/release/install/deploy.
