@@ -242,9 +242,9 @@ public sealed class MessageCard : UserControl
             body.Children.Add(actions);
         }
 
+        // Assign Child only after choosing its layout; a body cannot belong to Border and overlay simultaneously.
         var card = new Border
         {
-            Child = body,
             Background = Brush(message.Outgoing ? "#E9EFFD" : "#F3F6FA"),
             CornerRadius = new(12),
             Padding = new(12, 8, 12, 8),
@@ -262,7 +262,7 @@ public sealed class MessageCard : UserControl
             more.Width = 32; more.Height = 28; more.VerticalAlignment = VerticalAlignment.Center;
             overlay.Children.Add(body); overlay.Children.Add(more); card.Child = overlay;
         }
-        else body.Children.Add(more);
+        else { body.Children.Add(more); card.Child = body; }
 
         var avatarImage = new Image
         {

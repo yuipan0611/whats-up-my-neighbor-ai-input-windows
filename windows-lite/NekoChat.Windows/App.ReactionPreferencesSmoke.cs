@@ -182,7 +182,22 @@ public partial class App
                 check(SmokeVisuals<TextBlock>(card).Any(text => text.Text == label && text.FontSize == 11) &&
                     !SmokeVisuals<TextBlock>(card).Any(text => text.Text == reaction.Text),
                     "RX-08 rendered small annotation replaces ordinary text body: " + reaction.Id);
-                view.UpdateLayout();
+                var beforeRebuild = card.Content;
+                message.ReactionHistoryLabel = null; // Actual MessageUpdated -> Build ordinary projection.
+                bool ordinaryFresh = !ReferenceEquals(beforeRebuild, card.Content);
+                var ordinaryContent = card.Content;
+                message.ReactionHistoryLabel = label; // Same live card -> Build annotated projection again.
+                bool annotatedFresh = !ReferenceEquals(ordinaryContent, card.Content);
+                var beforeRender = card.Content;
+                var originalBinding = System.Windows.Data.BindingOperations.GetBindingBase(card, MessageCard.MessageProperty)
+                    ?? throw new InvalidOperationException("RX-08 real message card binding is missing");
+                card.ClearValue(MessageCard.MessageProperty); card.Message = message; // Actual Render rebind path.
+                System.Windows.Data.BindingOperations.SetBinding(card, MessageCard.MessageProperty, originalBinding);
+                card.ApplyTemplate(); card.UpdateLayout(); view.UpdateLayout();
+                check(ordinaryFresh && annotatedFresh && !ReferenceEquals(beforeRender, card.Content) &&
+                    System.Windows.Data.BindingOperations.IsDataBound(card, MessageCard.MessageProperty) &&
+                    SmokeVisuals<TextBlock>(card).Any(text => text.Text == label && text.FontSize == 11),
+                    "RX-08 same card rebuilds both projections and rebinds with fresh UI parents: " + reaction.Id);
                 var bubble = SmokeVisuals<Border>(card).Single(border => border.Child is Grid overlay &&
                     overlay.Children.OfType<StackPanel>().Any(panel => panel.Children.OfType<TextBlock>().Any(text => text.Text == label)));
                 var content = ((Grid)bubble.Child).Children.OfType<StackPanel>().Single();

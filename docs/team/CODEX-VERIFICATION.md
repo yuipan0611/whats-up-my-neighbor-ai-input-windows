@@ -708,3 +708,14 @@ Final local checks (SDK10.0.403; real build/tmp TMPDIR):
 | Final win-x64 cross-build | 0 warnings / 0 errors | 0 | 5.20 |
 
 Logs/results: build/b1-small-fixes/*.log, results.json. Native skip-count/cancel UI and compact-card geometry/screenshots are **未執行，待 PM push Windows CI**. Existing round9 success does not substitute for these new native assertions. No guard relaxation, schema/migration/wire/cat-asset change, time-limit extension or profile installation. Physical classroom/LAN/IME/DPI/multiple-monitor/two-device acceptance stays separate. N1/G1/N2/N4/N5 all completed locally; no deferred item. Local commit only; no push/PR/merge/release/install/deploy or classroom EXE replacement.
+
+
+### r10 release-blocking annotation crash fix (2026-11-09)
+
+PM reports run42551884462 package native contacts failure after134 checks: MessageCard.Build line263, element already has a logical parent. Source confirms the exact cause: Border was constructed with Child=body; the annotation branch then attempted overlay.Children.Add(body) before replacing Border.Child. body was still owned by Border, so its first annotated build could throw. D-35 was parked separately in scoped stash6a9a12012ad5264ac04e4ffa3b11e12822ae66c6 (only8 synthetic image fixtures; no product changes) before this fix.
+
+Fix: defer Border.Child assignment until the layout branch is chosen. Annotated body belongs to overlay, which belongs to Border; ordinary body belongs directly to Border. body, Button, overlay, Border and other UI elements remain fresh local instances per Build. Whole-file scan found no cached UIElement fields reused across parents; _observed is only MessageView data and the static MessageProperty is a dependency property.
+
+Native regression runs for each of the four real annotated cards: mutate ReactionHistoryLabel null→label to invoke actual MessageUpdated/Build for ordinary and annotated projections; assert fresh Content both times; clear/set actual Message DP to invoke Render again, restore its original BindingBase, apply template/layout and assert fresh content, binding retained and correct11pt label. Existing compact-height check and reaction-student-ignored.png capture follow. Restoring binding preserves virtualization/recycling behavior. No swallow, timeout increase, missing assertion skip or product role change.
+
+Local final results: contacts228/exit0; reactions100/exit0; default Console6664/exit0; final win-x64 cross-build0 warnings/0 errors/exit0 (5.23s). Logs build/r10-crash/*.log and results.json. Console/Core code was unchanged; existing Release test assembly verifies its current sources. New native rebuild assertions and the fixed screenshot remain **未執行，待 PM immediate push/Windows CI**. Physical classroom/IME/DPI/two-device acceptance remains separate. This commit contains only the crash fix, its native regression and this handoff, with no D-35 fixture/code. No push/PR/merge/release/install/deploy.
