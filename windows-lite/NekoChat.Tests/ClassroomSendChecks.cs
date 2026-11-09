@@ -355,6 +355,7 @@ public static class ClassroomSendChecks
             store.SetReadReceiptPolicy(true);
             var rxRes7 = store.ReceiveClassroomMessage(peerIp, new ClassroomIncoming(Guid.NewGuid().ToString(), "Check 7 message"), () => true);
             long rxSeq7 = ((ClassroomStored)rxRes7).LocalSeq;
+            principal = ((ClassroomStored)rxRes7).Principal; // D-27: automatic contact now owns the incoming row.
             store.MarkClassroomVisibleRead(principal, new[] { rxSeq7 }, new VisibleReadContext(principal.Value, true, true, false, true));
             Check(store.ListPendingClassroomReceipts(10).Count == 1, "Check 7b: outbox has 1 queued receipt before processing");
 

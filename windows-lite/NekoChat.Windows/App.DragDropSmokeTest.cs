@@ -149,6 +149,7 @@ public partial class App
             Capture(chat,Path.Combine(evidence,"01-chat-file-drop.png"));
             Click(chat.RemoveAttachmentButton);await UntilAsync(()=>chat.AttachmentDraftPanel.Visibility==Visibility.Collapsed,deadline.Token);
             await Drag(["02-image.png"],chat.Draft);await VerifyDraft("02-image.png");await Progress("chat-image-verified");
+            await UntilAsync(()=>chat.AttachmentDraftImage.Source is not null,deadline.Token);
             Check(chat.AttachmentDraftImage.Source is not null,"image drop decoded preview");Capture(chat,Path.Combine(evidence,"02-chat-image-drop.png"));
             Click(chat.RemoveAttachmentButton);await UntilAsync(()=>chat.AttachmentDraftPanel.Visibility==Visibility.Collapsed,deadline.Token);
             // Narrow layout uses the same visible return/list route; only drag events are under test here.

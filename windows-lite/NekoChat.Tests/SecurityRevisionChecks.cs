@@ -111,7 +111,7 @@ internal static class SecurityRevisionChecks
                 old.MarkVisibleRead(conversation, [received.LocalSeq], new(conversation, true, true, false, true));
             }
             using var upgraded = ChatStore.Open(f.Options);
-            Check(Number(f.Db, "PRAGMA user_version") == 13 && upgraded.GetPeerSecuritySnapshot("A") is { LocalRevision: 0, PeerRevision: 0 } && upgraded.GetPresenceTargets().Single().RosterRevision == 0,
+            Check(Number(f.Db, "PRAGMA user_version") == 15 && upgraded.GetPeerSecuritySnapshot("A") is { LocalRevision: 0, PeerRevision: 0 } && upgraded.GetPresenceTargets().Single().RosterRevision == 0,
                 "real v4 upgrade seeds existing actors without rewriting identity or binding");
             Check(upgraded.GetReadReceiptPolicy().Enabled && upgraded.LegacyRosterImportCompleted() && upgraded.ListPendingReadReceipts().Count == 1 && Number(f.Db, "SELECT count(*) FROM Message") == 1 && Text(f.Db, "SELECT rawText FROM Draft") == "preserve upgrade draft",
                 "v5 migration preserves privacy preference, bootstrap marker, pending receipt, history and draft");

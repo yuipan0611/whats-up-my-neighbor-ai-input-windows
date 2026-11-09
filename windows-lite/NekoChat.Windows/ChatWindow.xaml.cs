@@ -50,6 +50,7 @@ public partial class ChatWindow : Window
         TeacherIpBox.Text = settings.TeacherIp;
         RefreshReactionTargets();
         RefreshDisplays();
+        ThisDeviceTeacherToggle.IsChecked = settings.ThisDeviceIsTeacher == true;
         ReactionPreviewToggle.IsChecked = settings.ShowReactionPreviews;
         InitializeInbox();
     }
@@ -80,7 +81,7 @@ public partial class ChatWindow : Window
 
     internal void UpdateWanderEnabled(bool enabled) => UpdateSettings(settings with { WanderEnabled = enabled });
 
-    internal void SetStatus(string text) => Status.Text = text;
+    internal void SetStatus(string text) { _showRemovalNotice = false; Status.Text = text; }
 
     internal void SetReceiverState(bool running, int port, string? error)
     {
@@ -238,13 +239,10 @@ public partial class ChatWindow : Window
         _sending = sending; UpdateComposer();
     }
 
-    private void SaveTeacherClick(object sender, RoutedEventArgs e)
+    private async void SaveTeacherClick(object sender, RoutedEventArgs e)
     {
-        string ip = TeacherIpBox.Text.Trim();
-        if (!LanInvitation.PrivateIPv4(ip)) { SetStatus("請輸入老師完整的內網 IP。"); return; }
-        bool saved = UpdateSettings(settings with { TeacherIp = ip });
-        RefreshReactionTargets();
-        if (saved) SetStatus($"老師主機已設為 {ip}。");
+        try { await AddContactDialogAsync(true, TeacherIpBox.Text.Trim()); }
+        catch (Exception error) { ShowStorageError(error); }
     }
 
     private void ReactionSendClick(object sender, RoutedEventArgs e)

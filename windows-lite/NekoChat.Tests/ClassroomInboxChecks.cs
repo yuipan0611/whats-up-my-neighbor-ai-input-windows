@@ -154,13 +154,14 @@ internal static class ClassroomInboxChecks
     private static void Rx(ChatStore s, string ip, string id, string text)
     { if (s.ReceiveClassroomMessage(ip, new(id, text), () => true) is not ClassroomStored) throw new Exception("Classroom inbox fixture: not stored"); }
     private static long Count(string path, string sql) { using var c = new SqliteConnection("Data Source=" + path + ";Mode=ReadOnly;Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return Convert.ToInt64(cmd.ExecuteScalar()); }
-    private static string Hash(string path) { using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(s)); }
+    private static string Hash(string path) { using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete); return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(s)); }
 
     private sealed class Fixture : IDisposable
     {
         internal string Data { get; } = Path.Combine(Path.GetTempPath(), "neko-classroom-inbox-" + Guid.NewGuid().ToString("N"));
         internal string Db => Path.Combine(Data, "nekochat.db");
-        internal ChatStoreOptions Options => new(Data) { UtcNow = () => Clock };
+        // Frozen CM-02/CM-10/D-10 attribution contract, retained on v13; v14 is covered by --contacts.
+        internal ChatStoreOptions Options => new(Data) { Migrations = Migration.Default.Take(13).ToArray(), UtcNow = () => Clock };
         internal Fixture() => Directory.CreateDirectory(Data);
         public void Dispose() => Directory.Delete(Data, true);
     }

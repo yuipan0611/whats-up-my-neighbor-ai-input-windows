@@ -79,6 +79,7 @@ public sealed partial class ChatStore
         if (!StoreIds.IsUuid(messageId) || !AttachmentLimits.IsHash(token) || Encoding.UTF8.GetByteCount(caption) > 65536 || caption.Any(c => char.IsControl(c) && c is not ('\r' or '\n' or '\t')) || ClassroomPrincipalKey.ForSource(sourceIp) is null)
             throw new AttachmentException("invalid_metadata");
         return Write<(AttachmentRecord?, bool)>("attachment-receive-offer", ctx => {
+            if (Blocked(ctx,sourceIp)) throw new AttachmentException("source_not_allowed");
             var principal = ResolveClassroomPrincipal(ctx, sourceIp);
             if (ctx.Scalar("SELECT count(*) FROM ClassroomCleared WHERE principal=@p AND direction='incoming' AND messageId=@id", ("@p", principal.Value), ("@id", messageId)) is long cleared && cleared != 0) return ((null, false), false);
             var prior = ctx.Query(AttachmentSelect + "WHERE m.principal=@p AND m.direction='incoming' AND m.messageId=@id", MapAttachment, ("@p", principal.Value), ("@id", messageId)).SingleOrDefault();
@@ -89,7 +90,8 @@ public sealed partial class ChatStore
                 return ((prior, false), false);
             }
             if (ctx.Scalar("SELECT count(*) FROM ClassroomMessage WHERE principal=@p AND direction='incoming' AND messageId=@id", ("@p", principal.Value), ("@id", messageId)) is long collision && collision != 0) throw new AttachmentException("conflict");
-            if (!principal.IsRoster && OffRosterLimit(ctx, sourceIp, Encoding.UTF8.GetByteCount(caption) + 512) is not null) throw new AttachmentException("rate_limited");
+            if (UsesAutomaticBudget(ctx, principal) && OffRosterLimit(ctx, sourceIp, Encoding.UTF8.GetByteCount(caption) + 512) is not null) throw new AttachmentException("rate_limited");
+            principal = AutoContact(ctx, sourceIp);
             EnsureClassroomConversation(ctx, principal);
             long epoch = Convert.ToInt64(ctx.Scalar("SELECT attachmentEpoch FROM ClassroomConversation WHERE principal=@p", ("@p", principal.Value)), CultureInfo.InvariantCulture);
             var localFile = wireFile with { BlobId = Guid.NewGuid().ToString("N") };
@@ -107,15 +109,18 @@ public sealed partial class ChatStore
         return new(seq, principal.Value, direction, messageId, file, caption, ip, port, token, epoch, state, null);
     }
     public bool SetAttachmentState(AttachmentRecord expected, string state, string? problem = null, Func<bool>? current = null) => Write("attachment-state", ctx => {
+        if (Blocked(ctx,expected.PeerIp)) return (false,false);
         int changed = ctx.Exec("UPDATE Attachment SET state=@st,problem=@why,completedUtc=CASE WHEN @st='complete' THEN coalesce(completedUtc,@now) ELSE completedUtc END WHERE localSeq=@seq AND epoch=@e AND (state<>'complete' OR @st IN ('complete','unavailable')) AND EXISTS(SELECT 1 FROM ClassroomMessage m JOIN ClassroomConversation c ON c.principal=m.principal WHERE m.localSeq=Attachment.localSeq AND m.principal=@p AND c.attachmentEpoch=@e)",
             ("@seq", expected.LocalSeq), ("@e", expected.Epoch), ("@st", state), ("@why", problem), ("@now", ctx.NowUtc), ("@p", expected.Principal));
         return (changed != 0, changed != 0);
     }, guardRejected: () => false, transactionGuard: _ => current?.Invoke() ?? true);
     public bool AttachmentCurrent(AttachmentRecord record) => Read(c => {
         using var cmd = c.CreateCommand(); cmd.CommandText = "SELECT count(*) FROM Attachment a JOIN ClassroomMessage m ON m.localSeq=a.localSeq JOIN ClassroomConversation c ON c.principal=m.principal WHERE a.localSeq=@seq AND m.principal=@p AND a.epoch=@e AND c.attachmentEpoch=@e";
+        if (_migrations.Count>=15) cmd.CommandText += " AND NOT EXISTS(SELECT 1 FROM BlockedSource b WHERE b.ip=a.peerIp)";
         cmd.Parameters.AddWithValue("@seq", record.LocalSeq); cmd.Parameters.AddWithValue("@p", record.Principal); cmd.Parameters.AddWithValue("@e", record.Epoch); return (long)cmd.ExecuteScalar()! == 1;
     });
     public bool AcknowledgeAttachmentOffer(AttachmentRecord record, long epoch, long revision) => Write("attachment-ack-offer", ctx => {
+        if (Blocked(ctx,record.PeerIp)) return (false,false);
         if (ctx.Scalar("SELECT count(*) FROM Attachment WHERE localSeq=@s", ("@s", record.LocalSeq)) is not (long and 1)) return (false, false);
         ctx.Exec("UPDATE Attachment SET state='offered',problem=NULL WHERE localSeq=@s AND state<>'complete'", ("@s", record.LocalSeq));
         var binding = ReadClassroomBinding(ctx, record.Principal);

@@ -1,17 +1,60 @@
 namespace NekoChat.Core.Roster;
 
-/// <summary>Private distribution sidecar. Only seeds an empty roster; never merges or replaces user contacts.</summary>
+/// <summary>IP-only classroom seed; sidecar overrides the embedded default. Automatic seeding never merges existing contacts.</summary>
+public sealed record ClassroomRosterFillPreview(RosterImportPreview Preview, int SkippedRemoved);
+
 public static class ClassroomRosterSeed
 {
+    public static byte[] Load(string? sidecarPath = null)
+    {
+        if (sidecarPath is null) return Embedded();
+        try
+        {
+            using var input = new FileStream(sidecarPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (input.Length > RosterCsv.MaxBytes) throw new IOException("classroom_roster_too_large");
+            byte[] bytes = new byte[checked((int)input.Length)]; input.ReadExactly(bytes);
+            if (input.ReadByte() != -1) throw new IOException("classroom_roster_changed");
+            return bytes;
+        }
+        catch (FileNotFoundException) { return Embedded(); }
+        catch (DirectoryNotFoundException) { return Embedded(); }
+    }
+
+    private static byte[] Embedded()
+    {
+        using var input = typeof(ClassroomRosterSeed).Assembly.GetManifestResourceStream("NekoChat.Core.Roster.DefaultClassroomRoster.csv")
+            ?? throw new InvalidDataException("default_classroom_roster_missing");
+        using var bytes = new MemoryStream(); input.CopyTo(bytes); return bytes.ToArray();
+    }
+
+    private static RosterCsvRow[] Parse(byte[] bytes)
+    {
+        var csv = RosterCsv.Parse(bytes);
+        if (csv.FatalError is not null || csv.Errors.Count != 0 || csv.Rows.Count == 0 || csv.Rows.Any(row => row.Endpoint is null))
+            throw new ArgumentException("invalid_classroom_roster");
+        return csv.Rows.ToArray();
+    }
+
+    /// Explicit add-only preview: even a matching nickname must never select an existing row for update.
+    public static ClassroomRosterFillPreview PreviewMissing(byte[] bytes, IReadOnlyList<RosterSnapshotRow> current,
+        IReadOnlyCollection<string> localAddresses, IReadOnlyCollection<string> removedAddresses)
+    {
+        var occupied = current.Select(row => row.Entry.Endpoint).ToHashSet(StringComparer.Ordinal);
+        var candidates = Parse(bytes).Where(row => !localAddresses.Contains(row.Endpoint!, StringComparer.Ordinal) &&
+            !occupied.Contains(row.Endpoint)).ToArray();
+        var removed = removedAddresses.ToHashSet(StringComparer.Ordinal);
+        var missing = candidates.Where(row => !removed.Contains(row.Endpoint!)).ToArray();
+        int skipped = candidates.Where(row => removed.Contains(row.Endpoint!)).Select(row => row.Endpoint).Distinct(StringComparer.Ordinal).Count();
+        return new(RosterImportPreview.Create(current, new RosterCsvResult(null, missing),
+            missing.Select(row => new RosterImportChoice(row.Line, null))), skipped);
+    }
+
     public static RosterImportPreview? Preview(byte[] bytes, IReadOnlyList<RosterSnapshotRow> current,
         IReadOnlyCollection<string> localAddresses)
     {
         if (current.Count != 0) return null;
-        var csv = RosterCsv.Parse(bytes);
-        if (csv.FatalError is not null || csv.Errors.Count != 0 || csv.Rows.Count == 0 || csv.Rows.Any(r => r.Endpoint is null))
-            throw new ArgumentException("invalid_classroom_roster");
         // Every classroom package includes everyone. Do not add this machine to its own contacts.
-        var peers = csv.Rows.Where(r => !localAddresses.Contains(r.Endpoint!, StringComparer.Ordinal)).ToArray();
+        var peers = Parse(bytes).Where(row => !localAddresses.Contains(row.Endpoint!, StringComparer.Ordinal)).ToArray();
         var filtered = new RosterCsvResult(null, peers);
         return RosterImportPreview.Create(current, filtered);
     }

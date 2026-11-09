@@ -1,0 +1,920 @@
+# Codex verification
+
+## 2026-11-07 B1-a — S0 and implementation plan
+
+Scope: local branch codex/lite-chat-ux-b1-20261107, starting 0651128; no WPF, push, PR, release or installation.
+
+Impact (high risk): SQLite migration/restore attribution, classroom receive and attachment/legacy ingress, roster merge/delete/teacher, receipt scheduling. Frozen wire and SchemaV1 remain unchanged. Existing epoch/revision, socket attribution, dedup/clear tombstones, immutable send snapshots and policy generation must survive.
+
+Plan: (1) clarify four BDD specs, (2) additive v14 with pre-upgrade backup and Core contact/teacher/read preference APIs, (3) receive/merge/receipt integration plus ID-prefixed scenarios, (4) focused and required regressions, win-x64 cross-build, reviewable local commits. RR-02 migration follows Emily's 2026-11-07 ruling: disabled generation=0 becomes enabled, disabled generation>0 stays off; record explicit choices going forward. SQLite teacher state is authoritative; JSON projection is B1-b.
+
+Baseline outbox passed: 63 durable SQLite/real TCP checks in isolated build/tmp; initial sandboxed SDK launch was terminated before output and restarted with loopback/build access. Evidence logs: build/b1-a-evidence/ (untracked build output).
+
+### S0 changes and B1-b handoff
+
+- CT-05/06: only recoverable contact-local failure falls back via SAVEPOINT; capacity still rejects, failed database commit never ACKs stored. Automatic source/message/byte quotas remain effective after roster promotion.
+- CT-02/15: retain original targetIp/UUID/localSeq, move v13 outbox principal, reject conflicting nonempty drafts/messages/active sends, preserve late-ACK/read-before-ACK and accepted-socket attribution fences. Multihomed IPs are distinct; names never merge identity.
+- CT-07/13: v14 archive snapshots retain endpoint/name; restored contact reuses id as auto/student, no peer/teacher restoration. Pre-v14 deleted snapshots lack endpoint and are not guessed. Archive legacy rows remain with original scope rather than being attributed to a new person at the same address.
+- TC-03/06: SQLite is authoritative and enforces at most one teacher. B1-b must pass legacy Settings.TeacherIp into ChatStoreOptions.LegacyTeacherIp before Open, then project GetClassroomTeacherIp back to Settings after commit and at startup; projection failure is retryable. Older rows have no reliable modification timestamp: choose matching existing teacher, otherwise ordinal roster id. Conflicting old unknown histories remain intact and diagnosed.
+- RR-02: PM ruling (message 8405ea60-09a2-4233-b016-84907704fdb9): disabled generation=0 becomes on; disabled generation>0 stays off. A legacy no-op click cannot be distinguished and is an accepted boundary. v14 records explicitChoice even for a no-op choice, and noticeShown; only a changed legacy default needs the upgrade notice. B1-b must show and then acknowledge it.
+- MD: forbid an actual recall operation this batch, allow explanatory “does not recall” text; pending deletion requires a stopped/idle exact attempt, deletes its retry work atomically, rejects stale count, preserves newer draft and other items.
+- CT-08 added per Emily (message following 69831058): auto contacts have no automatic attachment download or classroom-file node/access rights. Label/IP edits remain auto. ConfirmAutomaticContact is an explicit, snapshot-fenced adoption; setting teacher is also explicit. Neither creates cryptographic identity/trust. B1-b must expose that confirmation and explain its effect.
+
+### Existing-test adaptations (review required)
+
+All attribution/default changes below are caused by D-27 or D-28; original outcome assertions are retained. No failure from another cause is waived. Emily separately approved the explicit schema-version update below (message 17807a8f-f6af-4c81-b303-5feddfa6f8e1).
+
+| Test location / changed symbol | Old fixture or assertion | New fixture / assertion | Decision | Retained old migration contract? |
+|---|---|---|---|---|
+| ReadThroughChecks.cs:22,29,34,56,67,77 — initial store / Owner / actual received principals | Fixed ip principal and implicit receipt-off default | Explicit policy-off for the first phase; bind actual receive principal, legacy scope and visibility context; original 22 read/receipt/epoch assertions retained on v14 | D-27, D-28 | No; upgraded to v14 |
+| ClassroomSenderOutcomeIndependentChecks.cs:116,459 — ExerciseReceipt and keep-alive receipt | Fixed ip principal for newly received message | Use stored.Principal; all transport/ACK/keep-alive expectations unchanged | D-27 | No; v14 |
+| ClassroomSendChecks.cs:358 — Check 7b receipt seed | Fixed outgoing ip principal reused for received row | Rebind principal from received row before visible read; preserve all resolver/backoff/8-attempt assertions | D-27 | No; v14 |
+| ClassroomReceiptChecks.cs:234 — first incoming receipt seed | Fixed keyA after receive | Set keyA from ClassroomStored.Principal; original 60 retry, ACK, policy and scope assertions retained | D-27 | No; v14 |
+| ClassroomStoreChecks.cs:560 — Fixture.Options | Former B1-a fixture was pinned to v13 | Follow-up now runs all 122 checks on v14; exact adaptations below | D-27/D-28 and Ben mandatory request | No; full v14 suite |
+| ClassroomInboxChecks.cs:164 — Fixture.Options | CM-02/17 explicitly expects unknown ip conversations and old orphaned-legacy projection | Keep old assertions unchanged with Migrations.Take(13); v14 archive semantics tested in CT-07/13 | D-27 (old projection replaced with automatic contacts) | Yes, 161 checks |
+| MessageRecoveryChecks.cs:18,106 — root Open and reopen | Former B1-a root fixture was pinned to v13 | Full v14 root/restart; use received principal and endpoint-specific nickname row; all 32 deletion/recovery assertions retained | D-27 and Ben mandatory request | No; v14 |
+| AttachmentChecks.cs:112 — additive upgrade check | LatestVersion == 13; ListBackups().Count != 0 | LatestVersion == 14; backup condition unchanged | Migration version advance, separately approved by PM | No; v10 to v14 upgrade |
+
+### Scenario mapping
+
+All scenarios below execute through `--contacts`; `--teacher` selects TC and `--receipts` selects RR. WPF presentation, JSON projection and physical devices are not covered by these Core scenarios.
+
+| Spec | Scenario | Source | Result |
+|---|---|---|---|
+| CT-01 | automatic first contact and message commit together | ContactExperienceChecks.cs:75 | PASS |
+| CT-02 | migrate all conversation ownership including v13 outbox | ContactExperienceChecks.cs:95 | PASS |
+| CT-03 | no automatic authority or file privileges | ContactExperienceChecks.cs:139 | PASS |
+| CT-04 | concurrent and duplicate ingress is idempotent | ContactExperienceChecks.cs:147 | PASS |
+| CT-05 | recoverable contact failure falls back without lying about storage | ContactExperienceChecks.cs:153 | PASS |
+| CT-06 | automatic contacts retain source and content budgets | ContactExperienceChecks.cs:161 | PASS |
+| CT-07 | removed sender restores the same student contact | ContactExperienceChecks.cs:170 | PASS |
+| CT-08 | automatic contact confirmation is explicit and does not authenticate identity | ContactExperienceChecks.cs:178 | PASS |
+| CT-13 | removal archives readable history without granting a send route | ContactExperienceChecks.cs:193 | PASS |
+| CT-15 | IP edits fence old routes and never infer multihomed identity | ContactExperienceChecks.cs:202 | PASS |
+| TC-01 | promote existing teacher IP and merge its old conversation | ContactExperienceChecks.cs:214 | PASS |
+| TC-02 | teacher replacement is atomic and keeps the old student | ContactExperienceChecks.cs:219 | PASS |
+| TC-03 | SQLite alone owns the projected teacher address | ContactExperienceChecks.cs:225 | PASS |
+| TC-04 | clear teacher retains student history | ContactExperienceChecks.cs:230 | PASS |
+| TC-05 | removed teacher is archived not a regular student | ContactExperienceChecks.cs:235 | PASS |
+| TC-06 | v13 upgrade backs up and normalizes teachers without data loss | ContactExperienceChecks.cs:240 | PASS |
+| TC-07 | CSV seed chooses only the first nonlocal teacher | ContactExperienceChecks.cs:253 | PASS |
+| RR-01 | new installations enable receipts without claiming a manual choice | ContactExperienceChecks.cs:262 | PASS |
+| RR-02 | migration respects generations and persists one-time notice | ContactExperienceChecks.cs:266 | PASS |
+| RR-03 | valid same-peer communication rearms exhausted receipts | ContactExperienceChecks.cs:274 | PASS |
+| RR-04 | paging and per-target admission avoid head-of-line starvation | ContactExperienceChecks.cs:290 | PASS |
+| RR-05 | disabling drops unsent receipts and prevents historical backfill | ContactExperienceChecks.cs:298 | PASS |
+| MD-02 | local deletion keeps remote data and dedup tombstones | ContactExperienceChecks.cs:305 | PASS |
+| MD-04 | stop and delete is scoped atomic and rejects active work | ContactExperienceChecks.cs:312 | PASS |
+
+Focused result: 24 scenarios / 124 assertions passed. Required regressions and win-x64 cross-build all passed (table below).
+
+### Final review notes
+
+- Duplicate text messages retain monotone local/remote read and stored timestamps and remap queued receipts before removing the extra row. Conflicting legacy delivery proof or active/different attachment states are retained as merge conflicts, not silently discarded.
+- General CSV import preserves the existing selected teacher; use the explicit teacher operation to replace/clear it. Fresh CSV seed takes the first nonlocal teacher and diagnoses additional ones.
+- New CanAutoReceiveAttachments uses a scoped id/source SQL query, preserving the original known-roster loopback fixture without hydrating unrelated roster rows. No test-only product assembly/namespace exceptions were introduced.
+- Pending work retains original targetIp when an IP changes. B1-b should explain a stale old route and offer stop/delete/recompose; it must not silently send old queued text to the new IP.
+- No WPF sources, frozen Wire codecs, SchemaV1, artwork, PM DECISIONS/STATUS or other team verification files changed.
+
+### Final verification — Core eedbcd237107bd9279b1eba6063aa5d7599b7c21
+
+S0 spec commit: 92865f9. All following checks ran on the final Core content, with TMPDIR set to this worktree's real `build/tmp`. Original baseline `--outbox`: 63 checks passed before implementation.
+
+| Check | Exit | Evidence |
+|---|---|---|
+| --contacts | 0 | build/b1-a-evidence/contacts.log (0.96s) |
+| --classroom-all | 0 | build/b1-a-evidence/classroom-all.log (44.15s) |
+| --outbox | 0 | build/b1-a-evidence/outbox.log (5.71s) |
+| --diagnostics | 0 | build/b1-a-evidence/diagnostics.log (0.58s) |
+| --diagnostic-journal | 0 | build/b1-a-evidence/diagnostic-journal.log (0.58s) |
+| --diagnostic-recovery | 0 | build/b1-a-evidence/diagnostic-recovery.log (0.06s) |
+| --diag-independent | 0 | build/b1-a-evidence/diag-independent.log (3.09s) |
+| win-x64-build | 0 | build/b1-a-evidence/win-x64-build.log (4.5s) |
+
+- `--contacts`: 24 ID-prefixed scenarios / 124 assertions; all PASS.
+- `--classroom-all`: prelude suites (read-through 22, outbox 63, deletion 32, UX 26, teacher files 14, shared files 53) plus all 15 focused suites PASS. Attachments 70 real TCP/SQLite/bytes/hash checks; cleanup completed.
+- Diagnostics: recovery 24 and journal 77; independent diagnostics 32/32 PASS. Required standalone flags passed individually.
+- win-x64 build: exit 0, 0 warnings, 0 errors. This is a cross-build, not native WPF execution.
+- `git diff --check` and safety-config strict validation PASS; existing physical-device unknowns remain.
+
+Not executed: WPF runtime/menus/confirmation/upgrade notice/Settings JSON projection, native Windows CI, two physical Windows machines, classroom network, Chinese IME, physical DPI/multiple monitors, native clipboard, Windows junction/path-only checks. No push, PR, merge, release, installation or deployment.
+
+A concurrently created `windows-lite/docs/specs/LINE-PARITY.md` is not this task's file; left untouched and untracked, excluded from these commits.
+
+## Follow-up step 1 and Ben mandatory repairs
+
+- Step 1: Tom 82482e4/f4227e9 cherry-picked as cd20c14/c5bfe5f, original author/coauthor preserved; RR-03 clarified in c4ad1a5. --contacts 143 assertions and --classroom-all passed.
+- Step 2: ClassroomStoreChecks now runs all 122 checks on v14. Successful receive/conflict/address-change paths use returned/resolved principals; D-28 opt-out is explicit. Only CM-02 merge fixtures seed an unknown source through an injected, recoverable auto-contact failure (CT-05) on the actual v14 schema. No successful-ingress paths are pinned to v13.
+- MessageRecoveryChecks root/open/restart moved to v14; receive assigns actual principal, secondary draft fixtures keep their own IP principal, and nickname selection uses its endpoint instead of Single() on the whole roster. All 32 assertions remain.
+- ClassroomInboxChecks keeps its historical v13 contract. v14 corresponding coverage: `CT-13 v14 inbox projects active queued unknown and archived rows without writes`, plus `CT-13 pre-v8 orphan conversation remains a read-only archive`, CT-02 ownership/receipt/draft merge, CT-07 restore and TC-05 archive. New v14 scenario checks combined legacy/classroom unread, per-principal uniqueness, queued attempts, unknown drafts, read-only archive and unchanged WAL bytes.
+- NormalizeChatUxHistory failure now rolls back its transaction, records fixed `contact-normalization-failed`, allows startup, retries next open. New scenario injects pre-COMMIT failure after a real merge and proves the data stays in its original scope, then next startup merges.
+- Pre-v8 orphan `roster:` conversations without RosterRemoved are visible as read-only archives with fallback label 已移除的聯絡人; migration/real SQLite scenario preserves body.
+- teacher.md documents explicit teacher selection changes csv to manual.
+- Step 2 focused results: --contacts 156 assertions, --classroom-store 122, --message-recovery 32, all PASS. Full step2 classroom result recorded after completion. Logs: build/b1-followup/step2-*.log.
+- Step 2 full `--classroom-all`: exit 0, all prelude and 15 focused suites passed; no older outcome assertions removed. v14 adaptation additionally updates automatic-source row counts, D-27 restore/duplicate-add expectations and the explicit v14 migration version. Historical Inbox v13 is paired with the new v14 projection/orphan scenarios above.
+
+## Follow-up step 3 — D-29 blocking Core
+
+Historical D-29 implementation below; D-30 later replaces the outward refusal response while preserving the transactional no-persistence boundary. Additive v15 preserves reviewed v14. BlockedSource stores only explicit local block actions. Receive/legacy/attachment/receipt admission checks share their writer transaction with mutation; source-not-allowed reuses existing errors. Blocking preserves history, cancels queued/active retry work, fences late ACK/attachment writes and demotes teacher atomically; unblock never automatically resumes cancelled work. Auto-download and classroom-file author/node access are filtered. Inbox exposes a Blocked flag without duplicating an empty IP subject for an existing contact.
+
+BK-01..08 Core scenarios: BlockingChecks.cs via --blocking, 25 assertions PASS, including persistent read-only projection, no ingress records/notifications, author/node filtering, queued preservation/manual retry, removal distinction, teacher demotion, v14→v15 backup and two-connection serialized receive. --contacts (explicit v14 contract) 156, --outbox 63, --diagnostics recovery24/journal77 PASS. Logs build/b1-followup/step3-*.log.
+
+S0 blocking clarification: no local backfill; after unblock a new explicit transmission can be accepted because rejected IDs/content are not retained. Network bytes already in flight cannot be recalled. Signed catalog operations received from an unblocked replica remain available for monotone withdrawal semantics, while blocked authors are hidden locally. WPF remains unexecuted. Historical AttachmentChecks v10→v14 fixture setting was initially pending PM approval; Emily subsequently approved explicit Take(14), recorded in the D-30 follow-up below.
+
+
+## Follow-up test adaptation details (current files)
+
+All rows below retain the assertion's data-loss, scope, quota, privacy, rollback or cancellation check. Only changed contact ownership/default fixtures are adapted. The earlier table now describes the final v14 coverage rather than the superseded v13 choice.
+
+| Test file:line | Old assertion / fixture | Current assertion / fixture | Basis | Old migration contract retained? |
+|---|---|---|---|---|
+| ClassroomStoreChecks.cs:43 | Stranger has ip principal; 2 roster rows | Stored principal is roster; 3 rows | D-27 | No; v14 |
+| ClassroomStoreChecks.cs:50 | Claimed identity text still belongs to ip source | Compare actual stored source principal; target's 2 rows unchanged | D-27 | No; source boundary retained |
+| ClassroomStoreChecks.cs:56,535 | Query old ip directly after endpoint move | Resolve actual source principal; old/new address histories stay distinct | D-27 | No; CM-10 boundary retained |
+| ClassroomStoreChecks.cs:132,134 | Default off queues zero | Explicitly turn off then assert zero | D-28 | Old default retained in RR-02 migration fixture |
+| ClassroomStoreChecks.cs:167,191,201,221,237,254,262,276,288,424,436,494 | v13 supplies unknown histories for merge/clear/guard/import fixtures | v14 plus CT-05 auto-contact local failure supplies identical unknown histories; assertions unchanged | D-27; Ben full-v14 request | No; conflict/rollback/consent checks remain |
+| ClassroomStoreChecks.cs:315 | Count 3 incoming rows under ip:* | Count 3 incoming rows, now auto-owned | D-27 | No; source quota still enforced |
+| ClassroomStoreChecks.cs:342 | 2 retained legacy rows have null owner | 2 retained legacy rows join source=auto; diagnostics still exclude addresses/content | D-27 | No; count/privacy retained |
+| ClassroomStoreChecks.cs:367 | New message creates second unknown conversation | Restores same principal and one conversation | D-27 / CT-07 | No |
+| ClassroomStoreChecks.cs:368 | Legacy owner cleared by removal | Legacy row reattaches to restored contact; count stays 1 | D-27 / CT-07 | No |
+| ClassroomStoreChecks.cs:369,370 | Manual add creates new id and empty history | Duplicate refused, original id and 2 messages retained | D-27 | No |
+| ClassroomStoreChecks.cs:371 | Clear deletes 1 row | Clear deletes both preserved rows | D-27 | No; clear scope retained |
+| ClassroomStoreChecks.cs:503,560 | user_version 13 / fixture Take(13) | Explicit 14 / Take(14), old Message/Legacy/Peer contents unchanged | Migration version advance; Ben v14 request | v3 legacy data retained through v14 |
+| MessageRecoveryChecks.cs:18,37,52,78,106,108,111 | v13 root; ip assumptions; Single() roster | v14; stored.Principal; reset isolated pagination principal; resolve after restart; select nickname by endpoint | D-27; Ben full-v14 request | No; all 32 original lifecycle outcomes retained |
+| ContactExperienceChecks.cs:59 | Upgrade uses latest default | Explicit Take(14) | D-29 adds v15; retain already reviewed v14 contract | Yes; BK-08 separately covers v14→v15 |
+
+## Follow-up step 4 — WPF implementation, native acceptance pending
+
+| Specs | Implementation | Verification boundary |
+|---|---|---|
+| CT-10/11 | ClassRoster: IP + optional local note; duplicate opens captured existing IP | Cross-build only |
+| CT-12/14, CT-08 confirmation | ContactManagement shared menu for list right-click and title ⋯; note dialog states local-only; explicit adoption confirmation | Cross-build only |
+| CT-13, BK-01/06/07 | Inbox normal/archive/blocked sections, read-only composer; separate removal/block confirmations; teacher-demotion warning; unblock never auto-retries | Core scenarios PASS; WPF unexecuted |
+| TC-01..07 projection | Runtime supplies LegacyTeacherIp before Open; authoritative teacher projected after startup/mutation; failed JSON save retried by reload/next open; teacher replacement confirmed | Core scenarios PASS; native JSON/UI flow unexecuted |
+| RR-02 | Visible toggle, explanatory text, notice recorded only after shown | Core migration/notice tests PASS; native modal unexecuted |
+| MD-01/03/05 | Hover/focus ⋯ and handled正文 right-click; disabled reason; preserve code newline-copy choices; draft removal / transfer cancel / local delete are separate | Cross-build only; native routing/clipboard/hover unexecuted |
+| BK-02/04 | Deferred pet notification rechecks source block; pending status says stopped due to block; blocked/archived retry and attachment transfer disabled | Core admission/outbox PASS; native pet/UI unexecuted |
+
+Cross-build logs: build/b1-followup/step4-{layout,contacts,actions,final,reviewed,readonly}-build.log; each edited WPF batch built for win-x64. Final WPF code commit: 8e54149. Final readonly cross-build exit 0, zero warnings/errors; preceding layout/contacts/actions/final/reviewed builds also exited 0. git diff --check and safety config strict validation passed (two existing physical/native unknowns remain).
+
+Final Core rerun: contacts 156, blocking 25, outbox 63, diagnostics recovery 24/journal 77, diagnostic-journal 77, diagnostic-recovery 24, diag-independent 32: all exit 0. Logs build/b1-followup/final-*.log and final-results.json. Historical pre-D-30 rerun: full classroom-all exited 1 at AttachmentChecks:112 only: the default upgrade now reaches v15 but the historical assertion requires 14. Prelude plus first 14 suites passed. At that checkpoint no full-green claim was made; PM was asked before changing this old test (fdd40628, repeated ed623eae). Emily later approved the explicit v14 fixture; final rerun is recorded below. WPF runtime, physical Windows, two-machine/classroom, IME/DPI remain unexecuted. No push/PR/merge/release/install/deploy.
+
+
+## D-30 follow-up — approved fixture and Tom integration
+
+| Test file:line | Old assertion / fixture | New assertion / fixture | Basis | Old migration contract retained? |
+|---|---|---|---|---|
+| AttachmentChecks.cs:111–112 | Default Open now reaches v15 while asserting LatestVersion == 14 | Explicit Migration.Default.Take(14); constant 14 and ListBackups().Count != 0 unchanged | Emily's latest ruling, reply to fdd40628; migration version advance | Yes: historical v10→v14. BK-08 separately covers v14→v15 backup |
+| ContactExperienceChecks.cs:244 | Restore/archive overlap not independently guarded | Tom's unchanged automatic-restore / one-inbox-row negative scenario | 3f35778 cherry-picked as f968b52, author/coauthor preserved | v14 |
+| ContactExperienceChecks.cs:254 | Stale archive/live roster overlap not independently guarded | Tom's unchanged live-row-never-removed scenario | Same Tom commit | v14 |
+| ContactExperienceChecks.cs:261 | Row-scoped legacy leak not independently guarded | Tom's unchanged removed-contact legacy isolation scenario | Same Tom commit | v14 |
+| BlockingChecks.cs (BK-02 response assertion) | Blocked transport returns 403 | HTTP 200 normal stored ACK; local Core still rejects persistence in the same transaction | D-30 | New v15 behavior, not a legacy migration waiver |
+
+M2 (`unknownLegacyFilter`) is an equivalent mutant by PM ruling: no product change was made for it. Tom's three new scenarios are retained verbatim; no assertions removed.
+
+D-30 behavior map:
+
+- ClassroomStoreSink.OnMessageAsync: transaction's source-not-allowed result becomes normal message.ack stored with the frozen writer's real content hash; no MessageStored / success-rearm callback. Legacy uses the existing v1 delivered response, not a new v1 wire shape. OnReceiptAsync returns discarded without event or identifying diagnostics.
+- Receive diagnostics: start/rejection and adapter exception paths omit request IDs, including stopped-request rejection before the store can identify a block. Normal stored-message success diagnostics remain unchanged. Normal unblocked storage failures also retain their original UUID/root-cause correlation at the sink; blocked or unreadable block-state failures omit identifiers. Existing DiagnosticChecks:235 remains unchanged and passes; new D-30 privacy tests cover both failure branches. Actual negative test initially caught an ID retained on the stopped-request path; the regression now checks all receiver journal events and a real ZIP export.
+- AttachmentService.HandleAsync: validate offer normally, then catch the transactional block refusal and return existing offered ACK. No attachment metadata/download/complete. A's durable attachment queue completes with zero failures; row remains offered with no CompletedUtc, label 「通知已送出 · 等待收件確認」. Chunk/complete blocking stays enforced.
+- ClassroomSender.SendReceiptAsync: recheck local source-block state before hello, after hello and on retry. Controlled hello peer blocks during the probe and proves zero receipt POSTs; an unblocked positive control sends/completes normally. Already-written network bytes remain outside cancellation guarantees.
+- ChatWindow.Inbox.cs: classroom stored-ACK history label is 「已送出」 (D-30), since that ACK no longer proves persistence. Frozen signed/v2 archive history stays unchanged. Native WPF display is not executed; cross-build only.
+- BlockingChecks covers public private-IP APIs plus isolated real TCP/SQLite sender/outbox and attachment flow. Test-only loopback DB mapping is explicitly documented; a negative assertion proves the product still rejects loopback contacts. No test-only product guard or assembly exception was added. All B table counts remain unchanged during blocked traffic; no notification, auto contact, unread, receipt or attachment records; exported diagnostics exclude source IP, UUIDs, body and filename. Private-IP same-id resend after unblock uses normal CT ownership; no backfill or ID blacklist.
+
+Scope: no frozen Wire/SchemaV1/artwork changes, no new migration beyond additive v15. No push/PR/merge/release/install/deploy. WPF runtime, physical Windows, two-machine/classroom, IME/DPI and native clipboard remain **未執行**; cross-build/Core results do not count as those acceptances.
+
+
+## 第 1 批完成 — 最終驗證（D-30）
+
+Local commits for this follow-up: f968b52 (Tom 3f35778 preserved verbatim), fc7f2a1 (approved historical attachment fixture), acecc54 (D-30 product/scenarios/spec/UI label). These build results cover the final product/test content; the final evidence commit changes documentation/config only.
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release console test build | 0 | 4.88 |
+| blocking | 54 assertions, BK-01..08 + D-30 | 0 | 1.75 |
+| contacts | 169 assertions, including Tom negative scenarios | 0 | 1.27 |
+| teacher | 31 assertions | 0 | 0.34 |
+| receipts | 22 assertions | 0 | 0.42 |
+| classroom-all | Prelude + all 15 suites, attachments 70 | 0 | 45.81 |
+| outbox | 63 assertions | 0 | 5.74 |
+| diagnostics | recovery 24 + journal 77 | 0 | 0.58 |
+| diagnostic-journal | 77 assertions | 0 | 0.55 |
+| diagnostic-recovery | 24 assertions | 0 | 0.06 |
+| diag-independent | 32 assertions | 0 | 2.99 |
+| win-x64-build | 0 warnings, 0 errors; cross-build only | 0 | 3.87 |
+
+Evidence: build/b1-followup/d30-final-results.json and d30-final-*.log. TMPDIR was this worktree's real build/tmp. Earlier failing diagnostic attempt is retained as a resolved regression in d30-diagnostics-repair.log; **no DiagnosticChecks assertions were changed**. Earlier version-14 fixture failure is resolved by the explicitly approved Take(14), not by weakening the version/backup check.
+
+Additional changed behavior / review anchors (acecc54 snapshot; newer Ben-fix anchors below supersede current-file line numbers):
+
+| Area | File:line |
+|---|---|
+| Stored ACK without persistence; blocked receipt/legacy handling | NekoChat.Core/Classroom/Transport/ClassroomStoreSink.cs:36,52,109,132 |
+| Normal error UUID retained only when source is safely unblocked | ClassroomStoreSink.cs:38; ClassroomEndpointAdapter.cs:216,258 |
+| Offered-only attachment ACK after same-transaction block refusal | NekoChat.Core/Attachments/AttachmentService.cs:253 |
+| Outgoing receipt block fences | NekoChat.Core/Classroom/Transport/ClassroomSender.cs:505,594,602 |
+| User-visible classroom sent label | NekoChat.Windows/ChatWindow.Inbox.cs:380 |
+| Failure privacy negative cases | NekoChat.Tests/BlockingChecks.cs:67 |
+| Block-during-hello + positive control | NekoChat.Tests/BlockingChecks.cs:105 |
+| Isolated real TCP/SQLite two-sided send and attachment queue | NekoChat.Tests/BlockingChecks.cs:155 |
+| Private-IP same acknowledged ID after unblock / CT ownership | NekoChat.Tests/BlockingChecks.cs:270 |
+| Approved constant-14 upgrade fixture | NekoChat.Tests/AttachmentChecks.cs:111–112 |
+
+All paths in this anchor table are under windows-lite/. git diff --check and safety config strict validation passed. No Wire codec, SchemaV1 or artwork changed. WPF runtime, native Windows CI, physical Windows, two-machine LAN/classroom, IME/DPI, native clipboard remain **未執行**. No push, PR, merge, release, install or deployment. Next gate belongs to PM: Ben reviews v15/D-30 and Tom runs blocking mutants; this report does not claim their review is complete.
+
+
+## Ben 最終修正 F1–F5（b42a2a4 後）
+
+- F1: Actions:84 / ClassroomSendUiPolicy:74 success says 「已送出。」; cancel outcome :210 says 「已送出（無法再取消）。」. Classroom queued/manual waiting banners use 「接收回應」; storage-unavailable failure text no longer calls it a remote storage confirmation. Attempt/outbox states, evidence fields and ACK validators are unchanged.
+- F2: App.xaml.cs:448/459 now calls NotifyAfterBlockCheckAsync (:478). The block query runs through the runtime Worker, then Dispatcher handles the notification with closing/runtime/listener reference guards. Query failure suppresses notification and records identifier-free fixed diagnostics. The synchronous ChatRuntime helper was removed. Signed/v2 notification callback is unchanged. Native dispatcher behavior remains unexecuted on macOS; source audit and cross-build are the available evidence.
+- F3: Inspection confirmed the prior filtered lookup prevented relaying cached blocked-author bytes. Storage's internal GetClassroomFileForServing (:48) ignores only local author hiding. ClassroomFileService:228/246/249 uses it only for outward status/chunk; local list/Get/Download continue to hide the author. Existing caller-source, grant/IP binding, size/range, ready/cache and withdrawal checks remain. New BK-03 F3 scenario serves exact staged bytes to another permitted node, verifies local hiding, wrong-token rejection, blocked-source rejection and signed withdrawal invalidation of an old grant.
+- F4: blocking.md explicitly accepts diagnostic fail-closed with no UUID/IP when block state cannot be read. Existing D-30 failure privacy scenarios remain unchanged and continue to prove both blocked and unknown-state failures.
+- F5: BK-08 F5 wraps the actual Migration.V15.Apply inside its existing transaction, executes real table creation + partial row/data changes, then injects failure. A canonical read-only snapshot compares user_version, schema and every table value (including sqlite_sequence) before/after. Valid v14 re-open, backup retention and successful next normal v15 upgrade are checked. No new product fault hook or migration format was added.
+
+### Old test adjustments — D-30 文案變更
+
+| File:line | Old assertion | New assertion | Basis | Migration contract? |
+|---|---|---|---|---|
+| ClassroomSendUiPolicyChecks.cs:68 | Confirmed cancel text contains 已送達 | Exact 已送出（無法再取消）。 | D-30 文案變更; Ben F1 | No: UI wording only; stronger exact check |
+| ClassroomSendUiPolicyChecks.cs:74 | AlreadyConfirmed cancel text contains 已送達 | Exact 已送出（無法再取消）。 | D-30 文案變更; Ben F1 | No: UI wording only; stronger exact check |
+| ClassroomSendUiPolicyChecks.cs:300 | Exact 已驗證對方的儲存確認。 | Exact 已送出。 | D-30 文案變更; Ben F1 | No: all DraftCleared/attempt/state assertions retained |
+
+No old assertions were removed; the policy suite still has 133 checks. No signed/v2 wire, schema or vectors changed. Actions.cs:84 is actually in the archived signed/v2 branch, but this one status line was explicitly listed by PM F1 and therefore follows the requested new wording; the frozen protocol/persisted ACK semantics and v2 history/smoke expectations are retained.
+
+### Whole-project wording search and retained matches
+
+Command: rg -n --hidden (excluding .git, build, bin, obj) '已儲存|儲存確認|已確認儲存' . . Full output: build/b1-followup/ben-final-storage-wording-rg.txt. This scans the worktree, not only the three identified lines.
+
+| Retained source match | Reason |
+|---|---|
+| ChatWindow.Inbox.cs:383; App.MessagingSmokeTest.cs:121 | Signed/v2 persisted-message history and its exact native smoke expectation; D-30 classroom shadow ACK does not alter this frozen protocol path |
+| ChatWindow.Actions.cs:79,88 | Signed/v2-only waiting text and local failure to save a received confirmation; neither asserts classroom remote persistence. Its success line :84 follows explicit F1 |
+| ChatWindow.Inbox.cs:337–338; ChatWindow.xaml:220; ChatWindow.ProtocolHints.cs:32 | Explicit negative explanation that legacy confirmation does NOT mean stored/read |
+| ChatWindow.Inbox.cs:552,555; ChatWindow.ClassRoster.cs:105; ChatWindow.Pairing.cs:22; ChatWindow.xaml:274 | Local roster/nickname persistence, not a remote-delivery claim |
+| PairingDialogPresentation.cs:15; preview/pairing-dialog.html | Pairing confirmation persistence is separate from classroom message delivery and its warning remains valid |
+| Historical/spec/verification Markdown quoting old strings | Audit trail and the requested old/new assertion table; not active product text |
+
+Active classroom success/cancel/waiting/error paths no longer use the three searched storage-confirmation phrases. No blanket replacement of signed/v2, local-data or negative safety text was performed.
+
+
+### 第 1 批最終修正完成 — 驗證結果
+
+Product/test commits: 7a3041b (F1/F2), edd53ae (F3/F5 plus F4 spec). The final evidence commit changes docs/config only. WPF was cross-built immediately after F1/F2 (ben-final-ui-build.log), then again after all Core changes (ben-final-win-x64-build.log); both exit 0, zero warnings/errors.
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release test build | 0 | 10.5 |
+| blocking | 65 assertions (54 retained + F5 5 + F3 6) | 0 | 1.47 |
+| contacts | 169 assertions | 0 | 1.13 |
+| classroom-ui-policy | 133 original checks retained | 0 | 0.07 |
+| classroom-files | 53 real TCP/SQLite/share regression checks | 0 | 12.03 |
+| classroom-all | Prelude + all 15 suites including attachments 70 | 0 | 44.52 |
+| outbox | 63 checks | 0 | 5.7 |
+| diagnostics | recovery 24 + journal 77 | 0 | 0.58 |
+| diagnostic-journal | 77 checks | 0 | 0.54 |
+| diagnostic-recovery | 24 checks | 0 | 0.06 |
+| diag-independent | 32 checks | 0 | 3.04 |
+| win-x64-build | cross-build; 0 warnings/errors | 0 | 27.36 |
+
+Evidence: build/b1-followup/ben-final-results.json, ben-final-*.log and ben-final-storage-wording-rg.txt. TMPDIR = this worktree's real build/tmp. git diff --check and safety config strict validation pass; the two existing physical/native unknowns remain. V15 migration body, schema version and frozen wire/schema/artwork are unchanged; only the test wraps v15 for failure injection.
+
+Current regression anchors: BlockingChecks.cs:67 snapshot, :86 V15FailureRollback, :112 BlockedAuthorRelay; ClassroomFileService.cs:228/246/249 outward lookup, ChatStore.ClassroomFiles.cs:48 internal relay lookup; App.xaml.cs:478 Worker/Dispatcher helper. Old assertion table above records all three F1 string changes.
+
+No push, PR, merge, release, install or deployment. WPF runtime/Dispatcher visual behavior, native Windows CI, two physical Windows devices/LAN/classroom, IME/DPI and native clipboard remain **未執行**. Product changes are ready for PM/Ben follow-up review; this is not a claim that the new commits have already passed that independent review.
+
+
+## D-31 B1 CI 準備 — 原生 WPF smoke 與預設 Console 整備
+
+Tom bbef682 was cherry-picked without conflict as 5e27cbc, retaining original author/coauthor and all assertions. Blocking combines Tom's 54→79 with our F3/F5 11 assertions: --blocking = 90. The native smoke implementation and matrix are documented in windows-lite/docs/specs/contacts-ui-smoke.md; Windows runtime results remain pending PM push/Draft PR.
+
+- App.ContactsUiSmokeTest.cs drives the real ChatWindow, native list/body right-click, title/message ⋯ menus, actual IP/note form, teacher replacement/Settings projection, archives/blocking, disabled-delete reason, attachment action labels and persisted one-time receipt notice. Each stage captures only synthetic UI. The duplicate-IP case first selects another conversation, preventing a false pass from an already-selected existing row.
+- Per-window ContactPrompt/ContactDialog hooks require attached IsolatedData runtime plus the exact same Settings/DB root. Before any Save/Open the smoke asserts paths; it never loads or writes daily settings. MessageBox confirmations are auto-answered and recorded, while native IP/note forms are filled/clicked through Loaded hooks. Ordinary UI uses the original MessageBox/ShowDialog behavior.
+- The shared seed creates actual v13 via original migrations without changing Core friend access or frozen SQL. The cross-platform --contacts-ui-seed-check executes 7 assertions against the same source: v13 seed, overwrite refusal, real upgrade, received auto contact/old history/draft, one-time notice and backup. Input/profile guards and original migration semantics are preserved.
+- Incoming HTTP stays loopback; the fixture sink supplies a declared synthetic private source to actual storage via Worker (normal contacts reject loopback). Actual sessions/endpoint validation and receive/dedup transactions still run. JSON declares this mapping; it is not LAN identity proof. Only the loopback receiver starts; no outbox/receipt/classroom background send loops. Sending/receiving states are explicit synthetic Core fixtures for UI binding, not transfer acceptance.
+- windows-2025 runs both package/portable with --contacts-ui-smoke-test; exit/passed/isolation flags and capture existence are required. JSON/PNG upload via always() artifact nekochat-lite-contacts-ui-smoke. Local YAML parse validates syntax/runner; actual Actions/pwsh/WPF are not claimed run on macOS.
+- Existing App.MessageRecoverySmoke now locates current message ⋯ and local delete menu, and uses 編輯本機備註 names. It retains all data/retry/deletion/nickname assertions and adds fail-fast for disabled delete. Popup lookup waits for actual native popup/layout rather than assuming synchronous creation.
+
+### Consolidated old Console test adjustments (PM's latest ruling)
+
+All current-version checks use explicit constants 15 / 35, never Migration.Default.Count; the three extra STRICT tables are v14 ClassroomArchivedContact/ClassroomAutoSource plus v15 BlockedSource. Historical source/preimage versions (v1..13/v5/v13 backups, explicit v10→v14 AttachmentChecks) remain unchanged. No default-suite fixture was newly pinned or moved backward. Previously approved explicit historical Inbox/v13 and contact/v14 fixtures remain separate from the latest-schema checks.
+
+| Test file:line | Old fixture / assertion | New fixture / assertion | Basis; old contract retained? |
+|---|---|---|---|
+| StorageFoundationChecks.cs:39 | current user_version 13 | explicit 15 | migration 版本前進; no |
+| StorageFoundationChecks.cs:40 | SchemaVersion count 13 | explicit 15 | migration 版本前進; record completeness still checked |
+| StorageFoundationChecks.cs:42–43 | 32 total / STRICT application tables | 35 total / STRICT tables, includes all 3 new tables | migration 版本前進; STRICT invariant unchanged |
+| StorageFoundationChecks.cs:302 | CRLF frozen-v1 upgrades to 13 | upgrades to 15 | migration 版本前進; CRLF validation unchanged |
+| StorageTombstoneChecks.cs:26 | v1→current version 13 | 15; same body/draft/clear guards | migration 版本前進 |
+| StorageRosterChecks.cs:68 | current pre-import backup version 13 | 15; same original roster/chat checks | migration 版本前進; historical backups elsewhere unchanged |
+| StorageLegacyRosterChecks.cs:62 | v3→current version 13 | 15; bootstrap still pending | migration 版本前進 |
+| SecurityRevisionChecks.cs:114 | v4→current version 13 | 15; key/revision/pending-receipt/data checks unchanged | migration 版本前進; no signed wire change |
+| LegacyMessageChecks.cs:62 | v5→current 13 / 32 tables | 15 / 35; same original roster id and v5 backup | migration 版本前進 |
+| BackupRestoreChecks.cs:31,49 | restore target 13 | 15; source versions, hash, suspended trust and privacy reset unchanged | migration 版本前進; v1..13 source contracts retained |
+| UiEnhancementChecks.cs:73 | fresh policy disabled/gen0 | D-28 enabled/gen1 | D-28; old default retired |
+| UiEnhancementChecks.cs:77 | first UI startup enables gen1 | same true/gen1 value, now explicit idempotent call | D-28; disable gen2 and user-choice assertions unchanged |
+| StorageReadChecks.cs:42–44 | v2 upgrade disabled/gen0 | enabled/gen1; unsent old queue dropped, reads/history unchanged | D-28 |
+| StorageReadChecks.cs:49–50 | default off phase implicit | first assert new on/gen1, explicitly opt out before testing off/read/no-backfill | D-28; off guards retained as explicit choice |
+| StorageReadChecks.cs:57,61,65 | re-enable/token gen1, disable gen2 | explicit opt-out means re-enable/token gen3, disable gen4 | D-28; monotonic token/stale-ACK guards unchanged |
+| V2StorageFenceChecks.cs:91–95 | wire integration expected old default OFF | set explicit OFF before wire traffic; same off-state and signed/nonce/storage fences | D-28; no signed/v2 wire change |
+| ReceiptServiceChecks.cs:25–28,46 | implicit defaultOFF live-service phase | explicit SetReadReceiptPolicy(false), same no-send/no-backfill assertions | D-28; privacy-off contract retained, not old default |
+| ClassroomRosterChecks.cs:26,63,216 | unknown source supplied by old no-auto default | two merge-only fixtures inject CT-05 recoverable admission fault on latest schema | D-27; original stale-consent/conflict assertions preserved |
+| ClassroomRosterChecks.cs:68 | manual add merges0, 2 unknown legacy rows | merges2, 0 unknown, both rows preserved | D-27 / CT-02 |
+| ClassroomRosterChecks.cs:82,200 | old address queried as unknown scope | resolve source's current auto roster scope; original message/source separation assertion retained | D-27 |
+| LegacyMessageChecks.cs:42 | reuse unknown receive context after first message | recapture admitted scope as real listener does; same 2 unidentifiable arrivals | D-27; stale context rejection elsewhere retained |
+| LegacyMessageChecks.cs:82,85 | removed row read/cleared as unknown IP | original Bob row archive read/cleared; Carol still gets zero old messages | D-27; no cross-person transfer |
+| LegacyMessageChecks.cs:102 | clear former IP scope after auto admission | recapture current row scope before clear; same monotone sequence/count guards | D-27 |
+| LegacyMessageChecks.cs:121 | visibility fixture unknown source | known manual fixture, derives actual scope; same local-read-only/no-receipt guards | D-27 |
+| LegacyMessageChecks.cs:142,153 | other/overflow scope captured before auto admission | recapture after receive for subsequent operations; same isolation/overflow checks | D-27 |
+| LegacyMessageChecks.cs:160 | two concurrent arrivals share obsolete unknown context | known manual contact stabilizes both contexts; same 2 arrivals + 119 paging rows | D-27; concurrency/no-v1-dedup checks unchanged |
+| InboxWorkspaceChecks.cs:24 | unknown legacy id / fixed anonymous label | auto roster at source endpoint / its explicit IP display label | D-27; no identity/trust promotion |
+| InboxWorkspaceChecks.cs:38 | deleted student's unread read under unknown IP | read original student's archived row scope; same unread/no-read-mutation checks | D-27 |
+
+### Product source-guard repair (separately approved by PM)
+
+StorageFix_SourceRules was not changed. Contacts' communication observer and diagnostic sink catches now journal fixed NotificationFailed metadata without IP/content/message UUID. The sink's catch never invokes the sink again; journal errors remain nonblocking by the existing journal contract. A new CT-05 scenario proves throwing sink receives once, body persists without a partial contact, observer throw is isolated, same-session receive recovers and metadata has no identifying content (6 assertions, contacts total 175).
+
+The existing source scanner treats the first property-pattern brace in a catch filter as a catch body. The SQLite constraint filter was rewritten from `e is SqliteException { SqliteErrorCode: 19 }` to equivalent `e is SqliteException sqlite && sqlite.SqliteErrorCode == 19`; no guard relaxation or exception-classification change. Per PM, new product guard violations are fixed in product, not waived in tests.
+
+
+### B1 CI 準備完成 — 最終本機結果
+
+Commits: 5e27cbc (Tom bbef682), 8974fd3 (typed diagnostic isolation + scenario), 185fffc (consolidated version/D-27/D-28 Console adjustments), c4af924 (native smoke/shared seed/CI). The final evidence commit modifies docs/config only.
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release test build | 0 | 2.03 |
+| default-ci | full default Console: 6,570 checks, including unchanged SourceRules 321 | 0 | 70.59 |
+| contacts-ui-seed-check | 7 actual SQLite historical seed/upgrade/isolation checks | 0 | 0.22 |
+| blocking | 90 assertions, Tom + retained F3/F5 | 0 | 1.73 |
+| contacts | 175 assertions (169 retained + 6 diagnostic isolation) | 0 | 1.15 |
+| classroom-ui-policy | 133 checks | 0 | 0.07 |
+| classroom-files | 53 TCP/SQLite checks | 0 | 12.05 |
+| classroom-all | prelude + all 15 suites; attachments 70 | 0 | 44.86 |
+| outbox | 63 checks | 0 | 5.74 |
+| diagnostics | recovery24 + journal77 | 0 | 0.54 |
+| diagnostic-journal | 77 checks | 0 | 0.53 |
+| diagnostic-recovery | 24 checks | 0 | 0.05 |
+| diag-independent | 32 checks | 0 | 3.0 |
+| win-x64-build | cross-build, 0 warnings / 0 errors | 0 | 5.57 |
+
+Evidence: build/b1-followup/d31-final-results.json and d31-final-*.log. All tests used this worktree's real build/tmp as TMPDIR. YAML parsed with Ruby/Psych; windows job resolves to windows-2025 and the contacts artifact uses always(). git diff --check / safety-config strict validation pass. Product source guard, frozen wire/vector files, SchemaV1 and artwork were not weakened or rewritten.
+
+Native WPF smoke, pwsh Actions execution and screenshot artifacts are **未執行／待 Emily push＋Draft PR 的 Windows CI**. Source code and a cross-build are not those results. IME, physical DPI, real two-machine/LAN/classroom acceptance and native clipboard also remain unexecuted. No push/PR/merge/release/install/deploy was performed locally; PM owns push/Draft PR.
+
+
+### PR #28 Windows file-sharing correction (2026-11-08)
+
+PM requested a test-only repair for run 42396110498. The retrieved Windows log confirms `ContactExperienceChecks.cs:82` called `File.ReadAllBytes` on a live SQLite WAL; the Mac baseline passed 175 assertions, so that baseline does not reproduce or clear the Windows failure. No Core/product behavior, protocol, schema, existing guard or workflow is changed.
+
+Impact/plan: retain the open-store before/after SHA-256 assertion; use a narrowly scoped shared test/smoke reader, audit all 87 Console test source files plus linked Shared fixtures and native smoke entrypoints, add positive/negative controls, then run contacts, blocking, default Console and win-x64. Risk is limited to test inspection and Windows handle lifetimes; native results still require PM's CI rerun.
+
+| Inspected file / location | Result / action |
+|---|---|
+| `Shared/TestFixtureFiles.cs:12` (new; linked by both test and WPF project manifests) | `FileStream(Open, Read, ReadWrite \| Delete)` for streamed SHA-256 and exact-byte inspection. No catch, missing-file fallback, newline normalization, DB checkpoint or owner disposal. Sharing does not claim an atomic snapshot of concurrent writes. |
+| `ContactExperienceChecks.cs:75` / `:102` | Keep store open across original WAL before/after read-only-inbox check; switch hash to shared stream. Add 5 exact-byte/open-owner/rename/delete/missing-file checks and 1 real SQLite-write negative control. All original 175 assertions retained: total 181. |
+| `ClassroomInboxChecks.cs:157` | Existing live DB streamed hash already shared ReadWrite; add Delete. Existing no-write and projection assertions unchanged. |
+| `PairingCrashChecks.cs:255`, `V2CrashChecks.cs:172` | Full-directory private-key leak scans can encounter live `.db`, `-wal`, `-shm` or journal files. Use exact shared bytes; preserve size bounds, raw/base64 search and zeroing. |
+| `StorageTombstoneChecks.cs:57,59`, `ContactsUiSeedChecks.cs:19,21` | Shared DB-byte inspection for schema-rejection/seed-overwrite invariants (normally after prior connection disposal). All byte/backup/schema assertions retained. Seed path construction now `Path.Combine(root,"data")`. |
+| `DiagnosticChecks.cs:146,161` | Both retained-generation/lock-file dictionaries use shared exact-byte reads. Owners are disposed before enumeration, so an exclusive live writer-lock is never bypassed. Same file-set and per-generation byte comparisons. |
+| `App.DiagnosticSmokeTest.cs:145,150` | Native retained-history before/after export dictionaries use the same reader; owner lifetime and all-generation preservation assertion unchanged. |
+| `App.AttachmentStartupSmoke.cs:112` | Corrupt DB preservation check uses shared exact bytes after rejected open; same fail-closed assertion. |
+| `BlockingChecks.cs` (Tom tests, F5 `DatabaseSnapshot` at `:67`, `RowCounts` at `:226`) | No unsafe raw DB/WAL read exists. F5 retains `Mode=ReadOnly`, `Pooling=false`, complete canonical schema/version/all-table values, after original store is disposed. Tom row-count checks use scoped SQLite connections. `ZipFile.OpenRead` at `:289` occurs only after awaited export completes and disposes its output. No assertion or product change. |
+| Existing storage/backup/history/security/legacy hash helpers | Already stream with `FileShare.ReadWrite \| FileShare.Delete`; left intact. Backup/report sentinel strings, static vectors/assets/source files, completed diagnostic ZIPs and committed attachment blobs are read after writers close; no sharing correction required. `StreamReader` calls over socket/ZIP-entry streams are not direct file opens. |
+| Native contacts smoke / `ChatWindow.ContactsSmokeFixture.cs` / shared v13 seed | No direct WAL/DB file hash or byte read exists in these files. Native contacts reads state through the Worker/SQLite API, and its captures are real WPF rendering. The existing native file-unchanged check is the diagnostic retained-history check above; no imaginary contacts WAL check is claimed. |
+
+Windows differences audited: filesystem paths use `Path.Combine`/platform-aware helpers; HTTP URL `/` separators and explicitly unsafe path vectors are intentional and unchanged. No additional filename-case bug identified in the audited tests/fixtures; existing intentional case-insensitive installer/Windows path checks remain. Existing DB/stream scopes dispose before recursive fixture deletion, with SQLite helpers using `Pooling=false`; no retry/forced unlock/suppressed cleanup failure introduced. New handle regression renames/deletes while inspection and owner handles are open with Delete sharing, reads the retained bytes, then closes **all** handles before asserting final removal (Windows may defer deletion). CRLF/non-ASCII/NUL bytes are compared without normalization. HTTP CRLF, chat raw-text CRLF and migration-CRLF fixtures test explicit formats, not host-generated newlines, and are unchanged.
+
+Raw audit evidence (local build artifacts): `build/b1-followup/windows-file-read-audit.txt`, `windows-file-read-audit-after.txt`, `windows-platform-audit.txt`; original CI log `windows-ci-42396110498-failed.log`. The latter is read-only GitHub evidence, not a new CI result.
+
+Final local verification (real worktree `build/tmp` used as TMPDIR):
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build-final | Release test build (after final Windows deferred-delete fixture adjustment), 0 warnings / 0 errors | 0 | 6.55 |
+| contacts-final | 181 assertions: 175 retained + 6 new controls | 0 | 2.05 |
+| blocking | 90 assertions, including Tom, F3 and F5 | 0 | 2.36 |
+| contacts-ui-seed-check | 7 real SQLite seed/isolation checks | 0 | 1.03 |
+| default-ci | 6,570 behavior checks; SourceRules 321 unchanged | 0 | 69.96 |
+| win-x64-build | 0 warnings / 0 errors | 0 | 9.63 |
+
+Evidence: `build/b1-followup/windows-wal-results.json`, `windows-wal-*.log`. The final source adjustment only closes the synthetic sharing-regression owner before asserting deletion completion; Release tests were rebuilt and contacts 181 rerun afterward. Default Console includes diagnostic, inbox, tombstone and signed crash/leak-scan regressions. Cross-build includes both modified native smoke fixtures and the linked test reader. `git diff --check` and existing strict safety-config validation pass (the two existing physical/native unknowns remain).
+
+**CI 修正完成（本機）**. No product semantics or existing assertions were weakened. Native Windows file-sharing behavior/WPF/PNG capture results are **未執行／待 Emily push 同一分支重跑 PR #28 CI**; Mac success and cross-compilation do not replace that evidence. IME/physical DPI/two-machine/classroom acceptance remain unexecuted. No push/new PR/merge/release/install/deploy performed.
+
+
+### PR #28 CI round 2: archived selection and composer projection (2026-11-08)
+
+Read-only evidence: GitHub run 42427643109 failed in the package native contacts smoke, after the Windows Console/contacts/blocking steps passed. Retrieved log: `build/b1-followup/windows-ci-42427643109-failed.log`. PM's artifact is `reports/lite-b1-ci-screenshots-20261108/contacts-ui-result.json` and `18-failure.png` under the desktop workspace. The real screenshot shows the removed contact selected in the archive filter, an inactive send button, and the old draft text still visible.
+
+**Confirmed cause, not an inferred slow-runner fix:** `ChatStore.ClassroomInbox.cs`'s removed-subject SELECT intentionally projects `endpoint=NULL`; `ClassroomInboxSnapshot.ToInboxSnapshot` retains that value and the stable roster principal. The old native Wait at `App.ContactsUiSmokeTest.cs:224` required both archive filter 2 and `row.Entry.Endpoint == ContactsManualIp && Removed`. That conjunction cannot succeed for a correctly archived row. The old product also deliberately set filter 2 in both `ManageContactAsync` and settings `DeleteRosterClick`; PM's new CT-13 ruling changes this behavior. No timeout is increased.
+
+| Change | Behavior / protection |
+|---|---|
+| `ChatWindow.ContactManagement.cs` `CompleteContactRemovalAsync` | Both removal entrypoints keep the current filter/search; after actual refreshed data arrives, select the first visible active row, otherwise explicitly clear the conversation to an empty state. Show exactly “已移到封存區，可在篩選切換查看”. Do not select a hidden archived row. |
+| `ChatWindow.Inbox.cs` refresh completion / selection | Only the removal flow (and its smoke observer) requests awaited coalesced refresh completion; ordinary refresh coalescing remains nonblocking. A TaskCompletionSource completes in finally, with asynchronous continuations. Existing view generation / history selection / visible-read guards remain. An explicitly empty selection after removal survives refresh until the user selects a contact. |
+| `ChatWindow.Inbox.cs` `SetDraftText`, `DraftEdited`, `UpdateComposer` | Removed/blocked composer text is an empty UI projection with an explicit read-only placeholder and disabled send/input. `_settingDraft` and the read-only edit guard prevent projection changes from editing the retained buffer. No draft DELETE/UPDATE or epoch/revision change is added. Unblocking/restoring an editable contact shows the retained buffer again. |
+| Status handling | A separate removal-notice flag keeps the useful archive notice visible even when the newly selected row has an attempt. Any later SetStatus or explicit selection clears the exception; ordinary failed attempts still use their message cards, not a second global failure banner. |
+| Settings removal | Uses the same completion helper and flushes drafts before removal. Its confirmation routes through the existing isolated per-window hook; ordinary operation still uses the same MessageBox confirmation. |
+| Native smoke / isolated hooks | Compare the removed row by stable id/principal, explicitly assert its endpoint is null, use the actual list selection after the user changes filter. Observe completion of the actual menu Task and view/history/attachment idle within the existing 12-second Wait; never force the condition or manufacture product state. |
+| Stronger native CT-13 checks/captures | General-filter first-row selection and archive status; manual archive selection with readable body, empty read-only composer and explicit prompt; exact SQLite draft text/epoch/revision plus in-memory buffer after rendering/flush; blocked draft hidden and restored after unblocking; removal of the last visible contact, refresh staying empty, explicit archive access; original draft still exact after dispose/reopen. Screenshots are configured for each new stage, not claimed captured on macOS. |
+| Core regression / specs | New v15 CT-13 scenario asserts exact retained draft and stable archived identity with null endpoint through reopen (5 assertions, contacts 181→186; all existing assertions retained). `contacts.md` records the PM ruling; `contacts-ui-smoke.md` records the stronger native matrix. |
+
+Scope: WPF selection/composer behavior, smoke/observation hooks, additive Core regression, specifications and this verification record. No Core product, migration/schema, wire, journal, CI time limit or daily profile change. Test/build outputs stay under this worktree with real `build/tmp` as TMPDIR. Native package/portable UI and new PNG results require Emily's push and PR #28 CI rerun; IME, physical DPI, two-machine/LAN/classroom acceptance remain unexecuted.
+
+Final local results:
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release Console build, 0 warnings / 0 errors | 0 | 9.05 |
+| contacts | 186 assertions (181 retained + 5 new v15 archive/draft checks) | 0 | 2.58 |
+| contacts-ui-seed-check | 7 SQLite seed/migration/isolation checks | 0 | 0.83 |
+| default-ci | 6,570 behavior checks, unchanged source guards | 0 | 70.19 |
+| win-x64-build-final | WPF + native smoke cross-build after final action-observation changes, 0 warnings / 0 errors | 0 | 7.33 |
+
+Evidence: `build/b1-followup/ci-r2-results.json`, `ci-r2-*.log`; final cross-build is `ci-r2-win-x64-build-final.log`. `git diff --check` and strict safety-config validation pass (two previously recorded native/physical unknowns remain). The additive contacts scenario runs on v15; no previous tests or assertions were relaxed. Native smoke's 12/100/115-second and CI's 150-second bounds remain unchanged.
+
+**CI 第 2 輪修正完成（本機）**. New screenshots are implemented as real native capture steps; they have **not** been produced/accepted on this Mac. Emily must push this local commit to the same PR #28 branch and rerun package/portable native smoke to obtain them. No push, new PR, merge, release, install or deployment performed.
+
+
+### PR #28 CI round 3: portable menu timing, read-only tools and stable avatars (2026-11-08)
+
+Inspected run 42434671689 log (`build/b1-followup/windows-ci-42434671689-failed.log`) and both downloaded JSON/PNG sets under desktop `reports/lite-b1-ci-screenshots-20261108/`. The package JSON reports passed=true / 51 checks / 27 captures. Portable reports 27 checks then `Enumerable.Single` in `ContactsOpenMessageMoreAsync`, with no source line in the single-file stack; `15-failure.png` shows the pending message card and no open popup. Its MD-01 more-menu and body-menu assertions had passed; MD-03 had not yet passed. This is **not** evidence that portable intentionally has different menus.
+
+Confirmed source vulnerabilities: the previous helper performed one Single on the card's visual Button descendants **before any wait**, then after its wait queried the global open-menu enumeration again with another Single. `MessageCard.MessageUpdated` calls Build for action/delivery updates, replacing Content; a realized card alone does not prove its current template/content button subtree is ready. The single-file stack cannot distinguish which Single threw. The fix covers both timing windows, without pretending the old artifact captured a particular intermediate layout frame. Product menu construction has no package/portable branch and always adds copy plus deletion items.
+
+| Scope | Change / evidence |
+|---|---|
+| `App.ContactsUiSmokeTest.cs` message more helper | One existing 12-second Wait now covers reacquiring the expected card by message reference, its current Content's loaded/visible/enabled ⋯, and the popup whose PlacementTarget is **that button**. Require nonzero menu size and exactly one expected delete item plus one “複製整則原文”. Select/capture the matched menu inside the predicate instead of querying again afterward. Ambiguity remains an immediate failure; missing items fail with last/current actual button labels, automation names, enabled states and open-menu item text. No FirstOrDefault fallback, fake pass, timeout increase or menu injection. MD-03 deliberately emits real RefreshActions→Build before opening the pending menu. |
+| Other helper consumer | Initial cross-build exposed the existing `App.MessageRecoverySmoke.cs` consumer; it now uses the same guarded helper and propagates descriptive failures, retaining all deletion/ACK/paging/nickname checks and its original 50-second total bound. The initial CS7036 is recorded in the first build log and is resolved, not waived. |
+| `ChatWindow.xaml` settings | ReadReceiptToggle and its help are adjacent in one named StackPanel; only afterward come cache-clean button and separate cache help. Native smoke asserts real visual coordinates/group order before screenshot 01. Cache help matches ClearCacheAsync's draft-reference retention. |
+| Read-only composer | InsertCodeButton/CodeLanguage now follow editable composer state; attachment and sticker remain disabled for removed/blocked contacts. CircleIconButton previously had no disabled visual even when IsEnabled was false: it now dims the border and uses an arrow cursor. Disabled tooltips explain read-only state. Native smoke checks all tool entrypoints, the actual paperclip template opacity and cursor in archived, blocked, blocked-teacher and last-archive views before their existing captures. |
+| “停止後續重試” | Retained with the **existing** scoped cancel guards: stopping an old failed/unconfirmed attempt is a local operation, not a new send or remote recall. Terminal/cancelled attempts do not gain a new stop action. Message-card tooltip explains this. Native archived fixture requires its pre-existing failed attempt's stop action still available. No queue/attempt/wire logic changed. |
+| Avatar cause / PM ruling | Gray was one existing coat preset, not a presence signal. `seed.GetHashCode(Ordinal)` was process-salted, so the same input could choose different coats after restart. Do **not** collapse all contacts to black. Existing nine-preset order/assets and custom-file priority are retained. |
+| `PeerAvatarPolicy` (Core pure function) / `CatArtwork` | Prefer stable peer/roster identity over mutable note/number seed; no key uses fallback seed, both blank keep index0. UTF-8 SHA-256, first uint32 in explicit big-endian order, modulo palette count. Custom config remains the first branch. Equal key + palette yields equal mapping regardless of OS/process; this is artwork selection, not presence. Different PCs with different unsynchronized local RosterIds are not magically one identity; cross-peer identity/avatar sync remains batch2. Fresh isolated test profiles create new IDs, so colors need not be identical across different CI fixtures. |
+| Additive contacts scenario | CT-14 locks independent SHA vectors (`contact-fixed`→6, `聯絡人甲`→3 for nine presets), blank original fallback, ID over local note, two distinct real child processes, equal mapping in both and parent for 129 synthetic keys, multiple colors and index bounds. 8 new assertions, contacts186→194. Children have no DB/UI/file side effects. Existing 186 assertions retained. Native smoke additionally compares real list avatar pixels against the selected existing coat asset. |
+
+The next runner captures reuse screenshot stages 01 (settings), 03 (avatars), 19/20/22/26 (read-only tools); indices may shift only if future stages are added. They are **configured**, not generated on this Mac. Existing single-step12/global100/watchdog115/CI150-second bounds are unchanged. Source menu diagnostics and explicit rebuild improve failure evidence without weakening the expected UI behavior.
+
+Final local verification (TMPDIR = this worktree’s real `build/tmp`):
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release Console build: 0 warnings / 0 errors | 0 | 9.11 |
+| contacts | 194 assertions (186 retained + 8 stable-avatar assertions; two real child processes) | 0 | 2.79 |
+| contacts-ui-seed-check | 7 real SQLite seed/isolation checks | 0 | 0.84 |
+| default-ci | 6,570 behavior checks, existing source guards unchanged | 0 | 70.29 |
+| win-x64-verified | final current WPF source + menu-rebuild fixture: 0 warnings / 0 errors | 0 | 7.27 |
+
+Evidence: `build/b1-followup/ci-r3-results.json`, `ci-r3-*.log`; final current-source cross-build is `ci-r3-win-x64-verified.log`. The initial signature-consumer compile failure remains in the log and was corrected. Source timestamps were checked against the final WPF DLL to ensure the deliberate pending-card rebuild is included. git diff --check and safety-config strict validation pass. No schema, migration, wire, coat asset, existing guard or CI time-limit changes.
+
+**CI 第 3 輪修正完成（本機）**. Native package/portable execution and the modified settings/tool/avatar screenshots still require Emily to push this local commit and rerun PR #28. The previous package 51-check success is retained as historical evidence, not substituted for acceptance of these new changes. IME, physical DPI, two-device/LAN/classroom acceptance remain unexecuted. No push/new PR/merge/release/install/deploy performed.
+
+
+### Classroom manual EXE first, then PR #28 CI round 4 (2026-11-08)
+
+Step 1 finished **before any round4 source edit**. Source was clean `07ab266b4421e5936bb65a868b128b8747f18fd3` before and after publish. Delivered exactly three files under desktop workspace `reports/lite-b1-test-build/`: `NekoChat-Lite.exe`, `NekoChat-Lite.exe.sha256`, `BUILD-INFO.txt`. The EXE is **225613962 bytes**, SHA-256 **11D52DAB20CFF26BA715758F65DB8B1C1DF253E6BB3F04228012076478DCF3B3**. BUILD-INFO records source, actual command, start/end time and “本機 Mac 交叉發布、非 CI 產物、僅供教室手動試用”. No release, installation or deployment was performed. The later round4 commit does not replace/relabel this immutable 07ab266 test EXE.
+
+Publish uses the CI's Release / win-x64 / self-contained / PublishSingleFile / IncludeNativeLibrariesForSelfExtract settings, including the existing project IncludeAllContentForSelfExtract setting. Initial absolute PublishDir failed SDK Copy with MSB3094 (three sources / one transformed destination) in this apostrophe-containing workspace. Without changing source or bundle flags, a project-relative PublishDir succeeded; the exact output-path-only workaround is disclosed in BUILD-INFO. Logs: `build/b1-followup/classroom-test-publish-07ab266*.log`. `verify_bundle.py` subsequently passed: PE/bundle/assets proof, 415 files, same SHA; `classroom-test-bundle-07ab266.json` explicitly records windowsExecuted=false. This is not a CI-produced binary or proof of physical Windows acceptance.
+
+Immediately reported “測試版 exe 已就緒” + path/size/SHA to Emily's workspace through cmux (message fcc8f1ea-90c2-4ea4-9e92-3cc7f234cb71), then started source edits. Workspace UUID was used after the title alias failed to resolve. Static bundle proof was reported afterward; no silent file replacement.
+
+Round4 baseline: retrieved run42436270908 log confirms `Privacy defaults changed` from alice; `scripts/test-lite-messaging.ps1:64` is the wrapper's FAIL-report reader, not the policy owner. PM reports package and portable contacts smoke each passed62/27PNG; this does not turn the whole failed job green. The stale assumption is in `App.MessagingSmokeTest.cs`; it incorrectly conflated the unchanged preview-OFF default with read-receipt-OFF, which D-28 changed to ON.
+
+#### D-28 old-test comparison table
+
+| Current file:line | Old assertion / report | New assertion / setup | Decision | Historical contract retained? |
+|---|---|---|---|---|
+| App.MessagingSmokeTest.cs:36–46 | `!ShowReactionPreviews && ReadReceiptToggle==false` as privacy defaults | Preview remains OFF; fresh UI and DB must both be ON and ExplicitChoice=false. Then exercise the actual checkbox Click to explicitly opt out, wait for durable OFF + ExplicitChoice=true **before** either peer's .ready rendezvous. No traffic can precede both opt-outs. | D-28 | Old universal OFF default retired; explicit opt-out privacy retained. Historical v13 default remains covered by seed/migration tests. |
+| App.MessagingSmokeTest.cs:64–69 | Outgoing RemoteStoredAt!=null / RemoteReadAt==null described as “default-off” | Same exact persisted-message/ACK/no-remote-read assertion retained, now after explicit UI opt-out. Add OFF/ExplicitChoice and both receipt queues empty. No permissive “null or non-null” replacement. | D-28 | Non-disclosure while user opts out remains fully enforced. |
+| App.MessagingSmokeTest.cs:108–109 | Reopened Enabled=false called a default check | Reopened Enabled=false **and** ExplicitChoice=true after the preceding real user choice; reopening must preserve that choice. | D-28 | Explicit disabled preference persists; not a fresh-install default assertion. |
+| App.MessagingSmokeTest.cs:113 | PASS text advertised “remote-read default off” | PASS text says default ON checked first, explicit UI OFF before traffic, no remote read/queued receipts while opted out, persisted explicit choice. Wrapper still requires PASS and exit0. | D-28 | Report corrected; no success/exit guard weakened. |
+| App.MessagingFixture.cs:27,47 | No dedicated fresh/reopen default assertion | Add ON + ExplicitChoice=false at fresh provisioning and the next unmodified reopen, before UI opt-out. | D-28 | Strengthens default persistence coverage. |
+
+Unchanged guards include preview privacy, no body/IP in notifications, opaque peer reply target, exact two stored messages/raw Unicode/code, signed durable ACK/draft clear, separate unverified legacy scope, timeout retaining one attempt/draft, no invented outgoing history, retry visibility, clipping and orderly restart. No product default, Core, schema, migration, wire or script time limit changed.
+
+Full-repository code/script grep: `build/b1-followup/ci-r4-full-repo-receipt-audit.txt`; initial targeted inventory `ci-r4-receipt-default-audit.txt`. No additional stale default-OFF assertion was found in executable smoke/scripts. Remaining OFF cases are intentional and unchanged:
+
+- `App.DragDropSmokeTest.cs:64` and `ChatWindow.Ui4Preview.cs:25`: explicit fixture policy choice, not a claimed default.
+- `App.UnreadSmokeTest.cs:98–108`: actual UI opt-out, then local-unread-clearing/no-queued-receipt contract.
+- `Shared/ContactsUiSmokeSeed.cs:29`: **historical v13** enabled=false / generation0 seed, required for real v13→current D-28 upgrade. Do not rewrite history into ON.
+- Identity replacement/recovery and offline restore deliberately disable outbound receipts; they are privacy reset flows, not fresh-install default claims.
+- Runtime-unavailable UI fallback can show unchecked/disabled, without asserting a default. Console explicit-OFF and archived migration fixtures remain covered by the previously reviewed D-28 changes.
+
+Raw failing CI log: `build/b1-followup/windows-ci-42436270908-failed.log`. Native two-process WPF messaging and PowerShell execution cannot run on this Mac (pwsh unavailable; Windows WPF unavailable); they require Emily's next same-branch CI push. Physical IME/DPI/two-machine/classroom acceptance remains separate and unverified. The authorized classroom EXE remains the original clean-source 07ab266 file above.
+
+Final local checks (real worktree `build/tmp` as TMPDIR):
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release test build 0 warnings / 0 errors | 0 | 9.58 |
+| contacts | 194 assertions (D-28 default/choice/receipt regressions included) | 0 | 3.08 |
+| receipt-privacy | 7 actual signed service/TCP/SQLite opt-out, disable, no-backfill checks | 0 | 1.1 |
+| default-ci | 6,570 behavior checks; source guards unchanged | 0 | 70.48 |
+| win-x64-build | WPF / both edited fixture files compile, 0 warnings / 0 errors | 0 | 7.23 |
+
+Logs: `build/b1-followup/ci-r4-results.json`, `ci-r4-*.log`. Final `git diff --check` / existing strict safety-config validation pass. Rehashed the delivered 07ab266 EXE after all round4 work: size and SHA unchanged. No blanket OFF→ON replacement, guard deletion, product change or time-limit extension.
+
+**CI 第 4 輪修正完成（本機）**. Await Emily's push to rerun the native packaged/portable signed messaging smoke and PowerShell wrapper. Native success of this changed fixture is not claimed from Mac Core checks or a cross-build. No push/new PR/merge/release/install/deploy performed.
+
+
+### Batch 1 closing hardening for CI round 6 (2026-11-08)
+
+Read-only baseline: GitHub run42437612644 is completed/success at ea1ee583eb80e56f30a2915df66af78c3b09d802; Lite Windows and Relay succeeded, release staging was skipped. That is the pre-hardening baseline, not acceptance of this commit. Viewed actual round5 package `12-teacher-replaced.png` under desktop `reports/lite-b1-ci-screenshots-20261108/第5輪-全部通過/`: selected teacher badge1 and time followed by an orphan separator are present. The old smoke captured immediately after the management action, without waiting for the 180ms viewport read/actual foreground. Screenshot alone cannot distinguish a pending guarded read from unavailable foreground, and is not evidence to bypass RR-06.
+
+| Request | Implemented evidence / boundary |
+|---|---|
+| A1 No paths | Per-window hook has a one-shot `(expected text, answer)` choice; remove, block and teacher replacement each consume No once, then the original Yes path follows. Stable idle/flush baseline compares complete UI students/teachers/selection/filter/search, in-memory/disk/SQLite TeacherIp, stored drafts and every memory buffer ticket/dirty/clearing state. JSON logs each answer and asserts exactly three No responses. This does not manufacture a successful product mutation. |
+| A2 archive/blocked text and retry | Archive title and subtitle exact text are asserted; both the old compatibility retry control and every visible message-card retry must be disabled, while the existing meaningful local stop remains available. Blocked title/subtitle are checked separately. |
+| A3 reachability | Add-contact, title more and cancel-transfer are visible, sized in both dimensions and enabled immediately before activation. Add-contact uses the existing real left-button down/up mechanism with same-process native target guard; dialog form automation is still the original actual form/Loaded hook. |
+| A4 complete menus | General/manual contact, teacher, blocked and archived each compare right-click **and** title against an independent full expected sequence: edit note, edit IP, confirm ordinary contact, teacher action, remove, separator, block/unblock, separator, clear; enabled states are pinned per case. Separators are not dropped. Duplicate/missing/extra/reordered labels fail, even if both menus share the same bug. |
+| A5 prompt window | Install now accepts a declared isolated runtime before AttachRuntimeAsync while still checking Settings/DB exact profile and IsolatedData. Every hook call verifies `_runtime` identity; another runtime/daily profile cannot use it. Constructor has no attached runtime or visible notice; installation now also covers any future prompt during Attach. Reopen checks prompt count from before Attach, actual view idle and a **continuous 500ms** quiet interval within the same12-second Wait before asserting no second notice. |
+| B foreground badge | Real same-process synthetic cover window takes native foreground, then a fresh teacher message is inserted and rendered. Assert main inactive + exactly1 unread (negative control); after closing cover, activate actual main, explicitly open teacher and require native foreground handle match, IsActive, view idle and unread0/badge collapsed. No direct MarkRead or visibility/generation guard changes. JSON records both proof flags and native/window/read-state observations; failure to obtain foreground is a failure with evidence, not a silent pass. This fresh control prevents A1's earlier baseline read from making the foreground check vacuous. |
+| B orphan separator | Confirmed formatting bug: old StringFormat unconditionally appended ` · ` to a valid clock even for empty Delivery. New pure Core MessageMetadataPolicy emits a separator only with both clock and nonblank delivery. WPF binds MetadataText and notifies on delivery/time changes; original raw text and delivery state/semantics stay unchanged. 6 Core cases cover empty/null/blank status, real status, invalid time and both empty; native additionally asserts actual metadata TextBlocks have no trailing dot. |
+| C N1 stale refresh | CompleteContactRemovalAsync now takes the removed RosterId and excludes that id from even a stale list candidate; an empty safe list clears selection. The isolated hook injects one inbox-read IOException **only after** real removal commits. Native must prove the stale list still contains that id yet selected=null/send disabled and typed diagnostic visible, then explicitly recover refresh. No Core/storage/wire failure or mutation is faked. Ordinary profiles have no installed hook. |
+| C N3 old IP | Add one assertion in LegacyMessageChecks after Bob removal/Carol replacement: actual old-IP unknown scope returns0, while the existing Bob archive2/Carol0 assertions remain intact. Historical scope/trust logic not changed. |
+
+N2/N4/N5 and notification-title semantics were not changed. Existing assertion bodies were retained or expanded; no guard/time limit relaxed. New Core assertions add7 total (format6 + old-IP1), so default Console6570→6577; contacts194 and blocking90 remain unchanged. No schema/migration/envelope, receipt policy, network behavior, file sharing or cat asset changes. No republish/replacement of the already-delivered clean07ab266 classroom EXE.
+
+All new native screenshots/foreground/cancellation/error-injection tests are **未執行／待 Emily push 第6輪 Windows CI**. RenderTargetBitmap captures the synthetic main visual, not the whole desktop/cover; foreground is established by native handle and IsActive evidence rather than inferred from a screenshot. Physical classroom/LAN, IME, physical DPI and two-device acceptance remain unexecuted. Only local commits are authorized; no push/PR/merge/release/install/deploy performed.
+
+Final local checks (real worktree `build/tmp` as TMPDIR):
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| tests-build | Release Console build, 0 warnings / 0 errors | 0 | 6.74 |
+| default-ci | 6,577 behavior checks: previous6570 + metadata6 + old-IP negative1 | 0 | 73.11 |
+| contacts | 194 assertions retained | 0 | 3.59 |
+| blocking | 90 assertions retained | 0 | 2.6 |
+| contacts-ui-seed-check | 7 actual SQLite seed/upgrade/isolation checks | 0 | 0.91 |
+| win-x64-build-final | final current WPF source, 0 warnings / 0 errors | 0 | 9.37 |
+
+Logs: `build/b1-followup/b1-final-results.json`, `b1-final-*.log`; final cross-build is `b1-final-win-x64-build-final.log`. Final WPF DLL is newer than the last changed WPF source, covering the fresh background unread control. Source guard unchanged; diff-check and strict safety-config validation pass. A1–A5, B, N1 and N3 are all prepared; nothing deferred due to quota. Native assertions and new screenshots remain pending round6, not locally claimed as passed.
+
+**第 1 批收尾強化完成（本機）**. Local commit only; Emily owns same-branch push/round6. No push/new PR/merge/release/install/deploy or classroom EXE replacement.
+
+
+### D-32 reaction image restoration (2026-11-09)
+
+**D-32 完成（本機）**. Clean baseline HEAD895bc55 on codex/lite-chat-ux-b1-20261107. Source confirms ShowReactionPreviews=false and both its toggle/monitor picker inside the collapsed legacy teacher panel. Pre-change compiled SettingsSource suite:45/exit0. No daily settings, installed binaries, assets or old classroom test EXE were modified.
+
+Impact/plan: medium risk because persisted preference semantics change. (1) Pure Core load/presentation policy + Windows settings explicit-choice field; (2) expose only reaction settings and reuse existing save/display paths; (3) Core/real settings/blocked-receive scenarios and existing native smoke entrypoints; (4) local regressions/cross-build and PM handoff. Frozen wire/schema, cat artwork, two-second timing/aggregation/focus behavior, D-30 same-transaction ingress and Worker notification block checks remain unchanged.
+
+| Spec | File / scenario evidence |
+|---|---|
+| RX-01 | Settings.cs:31 defaults ON. App.MessagingSmokeTest.cs:36 pins fresh ON/non-explicit. ReactionPreferenceChecks RX-01 checks new/missing settings. App.ReactionPreferencesSmoke fresh isolated real-TCP receiver renders the embedded teacher cat without pre-opt-in; App.ReactionSmokeTest tests the default in the actual two-app product event route. |
+| RX-02 | ChatWindow.xaml ReactionSettingsGroup exposes the exact requested toggle and monitor picker; old TeacherIpBox/remember button remain collapsed. Click sets explicit choice and saves. Native asserts IsVisible/sized/enabled/checked plus visible monitor picker/hidden teacher editor, clicks OFF and checks text-only/no image; captures settings and pet. |
+| RX-03 | ReactionPreviewPolicy.AfterLoad(false,false)=true. Settings.LoadWithStatus normalizes old missing/false/true without load-time writes; next normal successful save persists it. Four real JSON fixtures including case-insensitive fields preserve teacher, contact and monitor settings; load/save/reload tested. No DB schema/version change. |
+| RX-04 | ReactionPreviewExplicitChoice=true only on actual toggle Click; pure policy and actual save/reload respect explicit ON/OFF. Later ordinary save never turns explicit OFF back ON. Existing invalid/unavailable settings readonly/no-overwrite tests remain unchanged. |
+| RX-05 | Shared NotifyReactionOrText uses pure ShowImage with the existing teacher rule. Five Core role/OFF cases plus existing ReactionChecks cover four TeacherOnly and unchanged “你再給我滑！”, 2 seconds, count aggregation, bounded queue and TCP compatibility. Native default teacher/nonteacher/peer paths use real PetWindow; focus/display restore code is untouched. |
+| RX-06 | Added five known image reactions through both ClassroomStoreSink legacy and classroom paths after a successful unblocked event control. Normal ACK, no store projection changes, no events. Native fresh-profile real TCP additionally proves same-source blocked ACK with unchanged legacy rows and neither text nor image. Actual application NotifyAfterBlockCheckAsync Worker/Dispatcher identity checks stay intact, including fail-closed unknown state. |
+
+#### D-32 old-test comparison table
+
+| Current test file:line | Old assertion / setup | New assertion / setup | Decision | Historical contract retained? |
+|---|---|---|---|---|
+| windows-lite/NekoChat.Windows/App.MessagingSmokeTest.cs:36 | !ShowReactionPreviews (“Reaction preview privacy default”) | ShowReactionPreviews && !ReactionPreviewExplicitChoice before any click. Ordinary notification body/IP and read-receipt explicit-OFF assertions unchanged. | D-32 | Universal preview-OFF retired; intentional user opt-out privacy retained. Prior D-28 table above describes historical pre-D-32 behavior. |
+| windows-lite/NekoChat.Windows/App.ReactionSmokeTest.cs:55 | First legacy teacher reaction expected generic text as unmodified default, then opt-in | First teacher reaction must render cat image before any toggle; capture it, wait for restore, click OFF, clear previous ordinary reminders before sender rendezvous, then a second real reaction must be text-only/no body/IP. Click ON before all original image/timing/count/reply checks. | D-32 | OFF text/privacy contract preserved as explicit user choice; original artwork/timing/focus/reply checks retained. |
+| windows-lite/NekoChat.Tests/Program.cs | ReactionChecks in default suite only | Keep original47 checks, add31 ReactionPreferenceChecks; --reactions runs both. | D-32 additive | No original assertion removed or weakened. |
+
+Full code/script consumer grep found no other executable ShowReactionPreviews default-OFF assertion. No blanket privacy replacement, source-guard change, timeout extension, asset edit or schema/wire change. Native contacts uses a separate fresh profile, loopback-only mapped synthetic private source and the existing checks/captures JSON/artifact path; ordinary application startup cannot install these hooks. Screenshots contain synthetic data only.
+
+Local results, SDK10.0.403 and real worktree build/tmp as TMPDIR:
+
+| Check | Result / exit |
+|---|---|
+| Pre-change settings-source | 45 / 0 |
+| Release Console build | 0 warnings / 0 errors / exit0 |
+| --reactions | original47 + new31 = 78 / exit0 |
+| --contacts | 194 / exit0 |
+| --blocking | 90 / exit0 |
+| Default Console | 6,608 = previous6,577 + reaction preference31 / exit0 |
+| Final win-x64 WPF cross-build | 0 warnings / 0 errors / exit0 |
+
+Logs: build/d32/{baseline-settings-source,tests-build,reactions,contacts,blocking,default-console,win-x64-build-final}.log and results.json. Strict safety config validation and git diff --check pass. Native package/portable contacts and two-app messaging execution are **未執行，待 Emily push Windows CI**; new screenshots are not claimed from Mac cross-build. Classroom/multiple-monitor/projection, IME, physical DPI and two-device acceptance remain unexecuted. All D-32 work completed; no quota deferral. Local commit only; no push/PR/merge/release/install/deploy. The previously supplied classroom EXE remains unchanged.
+
+
+### Five native reaction captures (2026-11-09; PM follow-up)
+
+**5 款截圖補強完成（本機）**. Baseline clean e6c79ec; pre-change --reactions47+31=78/exit0. Test-only scope: App.ReactionPreferencesSmoke.cs, App.ContactsUiSmokeTest.cs and this handoff/spec documentation; no product code, asset, role, settings, protocol or timeout change.
+
+Plan/evidence: reuse actual loopback/store-event/PetWindow path and existing full-bitmap comparison. Each display waits until the preceding image is inactive **and its Image.Source is null**, then sends once, requires a visible/sized real reaction image, checks literal independent caption/asset expectations and compares full decoded Image.Source pixels to the required embedded PNG. Caption must equal the exact text, excluding accidental ×2. Capture occurs while visible, followed by the existing normal two-second disappearance wait.
+
+| Exact artifact filename (no numeric prefix) | Required caption | Required embedded PNG |
+|---|---|---|
+| reaction-too-fast.png | 講太快了 | raised-paw.png |
+| reaction-cant-keep-up.png | 跟不上 | close-up.png |
+| reaction-dont-understand.png | 聽不懂 | close-up.png |
+| reaction-say-again.png | 再講一次 | raised-paw.png |
+| reaction-stop-scrolling.png | 你再給我滑！ | raised-paw.png |
+
+First four captures remain on the fresh default-ON teacher receiver; last capture remains on the student receiver after the existing TeacherOnly negative control. Existing explicit-OFF/reload/text-only and blocked-no-notice checks remain. A final distinct ordered-ID assertion requires all five capture calls exactly once; file writes precede adding entries to the existing JSON captures list. Existing settings/text-only/blocked screenshots keep their numeric naming; only these five get exact filenames. All are included by existing artifact upload, without a CI workflow change. Step12s/global100s/watchdog115s boundaries remain unchanged.
+
+Local SDK10.0.403 with real build/tmp TMPDIR: --reactions78/exit0 (0.74s), --contacts194/exit0 (1.74s), --contacts-ui-seed-check7/exit0 (0.14s), win-x64 cross-build exit0/0 warnings/0 errors (10.19s). Logs/results: build/reaction-five/*.log, results.json. Diff-check and strict safety config pass. Only test helper code changed, so the related unchanged Console suites ran from the current existing Release test assembly; no product test assertions were weakened.
+
+The new five native renders/pixel assertions/screenshots are **未執行，待 Emily push Windows CI**. Mac cross-build is compile evidence only. Physical classroom/multiple-monitor/IME/DPI/two-device acceptance is still separate. Local commit only; no push/PR/merge/release/install/deploy or replacement of the classroom EXE.
+
+
+### D-33 independent local teacher role (2026-11-09)
+
+Baseline clean d465cec; --reactions78/exit0. Root cause confirmed: TC-03 projects the roster teacher into Settings.TeacherIp, which can be empty on the actual teacher PC; the previous notification role depended on that projection. D-33 adds nullable ThisDeviceIsTeacher and ThisDeviceTeacherExplicitChoice, resolved in actual AttachRuntime before bootstrap/projection. TeacherDevicePolicy independently handles legacy local-IP matching, persistent migrated role, every-startup fixed192.168.24.240/CSV-node positive repair and explicit ON/OFF priority. Explicit OFF also wins over CSV teacher-node hints, as required by “使用者明確選擇永遠優先”. It grants no file/network authority.
+
+Role IP enumeration includes all active private IPv4 adapters, rather than the invitation list's seven-address cap. Ordinary runtime has no IP injection. Existing hooks require an exact isolated Settings/DB/runtime; only that fixture can inject addresses. Native default-IP control deliberately places .240 tenth and asserts no CSV teacher-node shortcut. Separate old JSON profiles actually traverse Attach→empty roster projection→settings save for local10.x teacher and remote-teacher student. After a real role-toggle OFF, a new ChatWindow loads JSON and runs Attach again at .240, remaining OFF. No network adapter was changed. App's 127.0.0.1 role special case is removed entirely; messaging fixture sets an explicit local role, using loopback for transport only.
+
+| Request | Implementation |
+|---|---|
+| RX-07 role/settings/UI | Core/TeacherDevicePolicy.cs; Windows/Settings.cs:33; ChatWindow.ContactManagement.cs:36; Inbox.cs:102 initializes before TC-03; visible XAML checkbox at298 with requested help. Changing roster teacher never changes device role. |
+| RX-08 no student notifications | ReactionPreviewPolicy.Notification returns None for nonteacher TeacherOnly, regardless of preview toggle. NotifyReactionOrText calls neither NotifyReaction nor NotifyChat for None; native verifies four actual receive events/outcomes plus no image/bubble/queued chat. Teacher preview-OFF remains ordinary text, peer sticker unchanged. |
+| RX-08 retained history | Both classroom and legacy page projections set a separate ReactionHistoryLabel; MessageCard renders 11pt annotation instead of normal body, while RawText/id, copy, local deletion, storage and unread behavior remain unchanged. Role refresh updates existing cards too. |
+| No-ID typed caption | ClassroomStoreSink and archived legacy DirectLanListener retain exact nullable wire metadata rather than inferring an id from text. Wire/codecs/schema unchanged. Core real-receive test and native ordinary-notification/history positive control prove manually typed caption stays ordinary text. |
+
+New TeacherDeviceChecks:22 additive checks; --reactions47+31+22=100. Existing assertions retained except the authorized D-33 native behavior changes below. Native screenshots: reaction-teacher-too-fast.png / cant-keep-up / dont-understand / say-again, reaction-student-ignored.png and existing reaction-stop-scrolling.png. Correct asset pixels and exact captions still checked independently; same time limits.
+
+| Old test | New expectation | Basis |
+|---|---|---|
+| App.ReactionPreferencesSmoke teacher role depended on TeacherIp127.0.0.1; student only checked no image | Inject private local IPs before actual Attach; persisted device role drives four teacher images. Student events must return None and produce no text/image/queue; actual history cards must show11pt annotation. | D-33 |
+| App.ReactionSmokeTest “bob-keyword” expected image from no-ID typed “太快了！！” | Before sender rendezvous clear older bubbles; expect ordinary text, no reaction image, persisted LastReaction=null. All five explicit-ID images/timing/count/reply tests stay. | D-33 |
+| App.xaml.cs isolated messaging fixture set TeacherIp127.0.0.1 | Explicit ThisDeviceIsTeacher=true/explicitChoice=true in isolated fixture; no product loopback role shortcut. | D-33 |
+
+Local checks (real build/tmp TMPDIR): Release tests build0/0; --reactions100/exit0, --contacts194/exit0, --blocking90/exit0, seed7/exit0, default Console6630/exit0; win-x64 cross-build0 warnings/0 errors. Logs build/d33/*.log, results.json. One initial test constructor compile error was corrected; a subsequent transient MSBuild child-node exit was resolved with sequential --no-restore -m:1; only the successful current test assembly's100/6630 results are acceptance evidence. No guard weakening, timeout extension, asset/schema/wire edit, deletion or release/installation.
+
+New Windows native role, annotations and screenshots remain **未執行，待 PM push CI**; physical classroom/IME/DPI/multiple-monitor/two-device acceptance remains separate. D-34 was assigned while closing D-33; it follows as a separate local change. No push/PR/merge/release/install/deploy.
+
+
+### D-34 embedded IP-only class roster; combined D-33/D-34 verification (2026-11-09)
+
+D-33 is isolated in local commit7ae81465f70616adacedd587cc931bd2392e9f2e. D-34 follows on that clean baseline. Read the user's roster-source.json student_ips only: exactly37 IPs, .5/.10/.../.185. Its old teacher_ip=.200 is explicitly superseded by D-34; embedded teacher is .240. No names or student numbers were transcribed. README/website remain PM-owned and unchanged.
+
+Plan/impact: reuse ClassroomRosterSeed, bounded CSV parser, snapshot preview, existing roster backup/transaction and teacher uniqueness. Add embedded default resource and explicit add-only adapter; keep first-use automatic behavior separate from old-user confirmed fill. New resources/code remain in the authorized worktree. No schema/migration/wire/asset change and no changes to teacher network authority.
+
+| CT-16 evidence | Implementation |
+|---|---|
+| Resource/selection | Core/Roster/DefaultClassroomRoster.csv embedded in Core.csproj; header matches sidecar CSV, names equal IP, student_number empty. ClassroomRosterSeed.Load prefers sidecar, falls back only when missing, preserves invalid/unreadable/oversized-source failure and uses shared bounded reads for Windows. |
+| Automatic first use | ChatWindow.ClassRoster.cs Bootstrap requires non-archived runtime, ClassRosterInitialized=false and no readonly-invalid-settings fallback; active roster and inbox/history must both be empty. Existing roster/history is left intact and initial processing marked completed. All local IPs excluded through the D-33 full-address adapter. |
+| Student/teacher | Local.5:36 students plus remote teacher.240. Local.240:37 students, no teacher contact, device role still true from D-33 before roster projection. Existing TC-07 import enforces at most one teacher. |
+| Manual fill, completed | Visible settings LoadClassRosterButton (XAML:271), not deferred. Counts a pure preview before confirmation (default No). PreviewMissing filters local/occupied IPs and forces new-row choices, avoiding updates even when an existing nickname equals a missing IP. Yes applies the reviewed snapshot; stale snapshot applies nothing. Existing notes, teacher, bindings and block state retained. No auto merge into old users. |
+| Core22 | DefaultClassroomRosterChecks runs in --contacts and default Console: literal37/teacher/resource/privacy, both self exclusions, role independence, real SQLite, sidecar shared read/priority/invalid/missing cases, upgrade no-op, add-only name-collision/nickname/teacher/block preservation, idempotence and stale CAS negative control. |
+| Native | New App.DefaultRosterSmoke.cs runs actual Attach→role→Bootstrap→projection on four isolated profiles (student, teacher, sidecar, existing). Hook file path must remain inside its exact profile. Student/teacher counts and real UI pinning checked; existing profile retains note. Actual settings button answers No then Yes, proving no roster-token change then36 additions with preserved note. New captures default-classroom-roster and default-classroom-manual-fill enter the existing JSON/artifact. No LAN loops started; no adapter modifications. |
+
+Combined local validation, SDK10.0.403 / actual worktree build/tmp:
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 5.88 |
+| --contacts | original194 + CT-16 new22 =216 | 0 | 1.71 |
+| --reactions | original47 + D-32 preference31 + D-33 role22 =100 | 0 | 0.31 |
+| --blocking | 90 unchanged | 0 | 1.68 |
+| --contacts-ui-seed-check | 7 unchanged | 0 | 0.14 |
+| Default Console | 6652 = D-33 baseline6630 + CT-16 new22 | 0 | 69.26 |
+| Final win-x64 WPF cross-build | 0 warnings / 0 errors | 0 | 5.08 |
+
+Logs/results: build/d34/*.log, results.json. Original guards/assertions retained; only additive Console scenarios. Native hooks/fixtures are synthetic isolated evidence; new role/roster screenshots and Windows assertions are **未執行，待 PM push CI**. Core/cross-build success does not claim classroom/LAN/IME/physical-DPI/multiple-monitor/two-machine acceptance. Both tasks and the optional manual-fill button are completed; no quota deferral. No timeout extension, push/PR/merge/release/install/deploy or classroom EXE replacement.
+
+
+### B1 small fixes after round9 review (2026-11-09)
+
+Baseline clean23393d1. PM reports round9 run42549755344 green, each native package/portable183 checks/50PNG and Ben review PASS; this is PM-supplied pre-change CI evidence, not a claim about this new patch. Local pre-change --contacts194+CT-16 roster22 passes.
+
+Impact/plan: keep roster storage/schema/wire unchanged; expose a read-only known-removal-IP query and feed it into explicit fill preview, add mixed-sidecar negative controls, migrate unused reaction-helper tests to actual dispatch API, then adjust only annotated-card action placement. Ordinary message/attachment layout, current reaction routing, typed/no-ID semantics, and all existing time limits remain protected.
+
+| Request | Implementation / evidence |
+|---|---|
+| N1 respect removed contacts | IChatStore/ChatStore.GetRemovedRosterEndpoints joins RosterRemoved to v14+ ClassroomArchivedContact, returns distinct non-null endpoints. Older schema returns empty; upgraded old snapshots without endpoint are not inferred from names. PreviewMissing requires that removal set and returns Preview+SkippedRemoved. Skip only distinct source candidates that are missing/nonlocal; occupied/local rows are not counted as skipped. UI confirmation plus cancel/complete/no-add status reports exact requested text. Existing snapshot CAS and add-only import remain unchanged. |
+| N1 Core/native | New real SQLite scenario removes .15/.20, re-adds/removes .15 again, then requires exactly2 skipped IPs,35 additions, unchanged tombstone endpoints and repeated-fill no-op. Historical v13→current fixture proves name-looking-like-IP still cannot be used as a guessed endpoint and old snapshot survives. Native existing-user fixture adds a modern removed.15: No keeps the full roster token, confirmation/cancel status reports1 skipped; Yes adds35 and leaves.15 absent, alias preserved, final status reports1. |
+| G1 mixed valid/bad sidecar | New real sidecar contains valid row, bad999.x IP, valid row. Assert source bytes remain that sidecar (no fallback), parser has2 valid rows+1 error and no fatal error. Both auto seed and manual fill attempt actual apply; entire operation must throw before any rows are added. This targets S4's removal of FatalError/Errors checks, which would otherwise accept the surviving valid rows. No separate mutant execution is claimed. |
+| N2 startup arrival | CT-16 explicitly states: if stranger ingress already created a contact before first Attach, auto seed does not run; use the confirmed fill button. Runtime behavior already matches this via nonempty roster/history gate. |
+| N4 remove unused API | Delete ClassroomReactions.ForIncoming; C# source has no definitions/calls remaining. Tests use actual Find+ReactionPreviewPolicy.Notification for teacher/student and unknown-id text fallback; normal explicit-id dispatch behavior unchanged. MatchText remains because the outbound reaction path still references it. Frozen wire vector values/files remain untouched; one historical vector description still mentions the old helper as text, not a caller. |
+| N5 compact annotation | Code confirms no empty document blocks are rendered; the hidden more button's inherited28px minimum was a stacked row below metadata. For reaction-history annotations only, move the same action into a right-side overlay and reserve horizontal text space. Normal messages/attachments unchanged. Native per-card check finds the actual overlay and requires height <= content height + vertical padding +1px, with no stacked button row; existing annotated-history screenshot captures the new layout. |
+
+#### Test adaptation table
+
+| Test | Previous | Current / basis |
+|---|---|---|
+| ReactionChecks:16–17 | ForIncoming teacher accepted / student rejected | Find explicit id + current Notification enum Image/None, all5 reaction roles retained; N4. |
+| ReactionChecks:22,59; SharedPortChecks:51 | Unknown-id ForIncoming=null | Find=null and current dispatch=Text; actual TCP/raw text/id assertions retained; N4. |
+| ReactionChecks:23 | Unused helper's caption-versus-known-ID predicate | Replace obsolete helper contract with current no-ID ordinary-text dispatch check. Existing D-33 TeacherDeviceChecks actual legacy receive preserves body/null id and native typed-caption control unchanged. No product text parsing or routing changes; N4. |
+| DefaultClassroomRosterChecks | PreviewMissing returned import preview only | Read Preview from fill-summary result and supply actual removed-endpoint set. Original22 assertions preserved; add12 removal/mixed-source checks. |
+| App.DefaultRosterSmoke existing-user fixture | One active note, no removal; Yes yielded37 contacts | Keep note, add a removed.15; expect36 contacts after35 additions and no.15. No/token/alias/teacher assertions retained plus exact skipped-text checks; N1. |
+
+Final local checks (SDK10.0.403; real build/tmp TMPDIR):
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 3.60 |
+| --contacts | 194 + roster34 =228 | 0 | 1.81 |
+| --reactions | 47+31+22=100 | 0 | 0.33 |
+| --blocking | 90 | 0 | 1.68 |
+| seed | 7 | 0 | 0.15 |
+| Default Console | 6664 = previous6652 +12 | 0 | 70.58 |
+| Final win-x64 cross-build | 0 warnings / 0 errors | 0 | 5.20 |
+
+Logs/results: build/b1-small-fixes/*.log, results.json. Native skip-count/cancel UI and compact-card geometry/screenshots are **未執行，待 PM push Windows CI**. Existing round9 success does not substitute for these new native assertions. No guard relaxation, schema/migration/wire/cat-asset change, time-limit extension or profile installation. Physical classroom/LAN/IME/DPI/multiple-monitor/two-device acceptance stays separate. N1/G1/N2/N4/N5 all completed locally; no deferred item. Local commit only; no push/PR/merge/release/install/deploy or classroom EXE replacement.
+
+
+### r10 release-blocking annotation crash fix (2026-11-09)
+
+PM reports run42551884462 package native contacts failure after134 checks: MessageCard.Build line263, element already has a logical parent. Source confirms the exact cause: Border was constructed with Child=body; the annotation branch then attempted overlay.Children.Add(body) before replacing Border.Child. body was still owned by Border, so its first annotated build could throw. D-35 was parked separately in scoped stash6a9a12012ad5264ac04e4ffa3b11e12822ae66c6 (only8 synthetic image fixtures; no product changes) before this fix.
+
+Fix: defer Border.Child assignment until the layout branch is chosen. Annotated body belongs to overlay, which belongs to Border; ordinary body belongs directly to Border. body, Button, overlay, Border and other UI elements remain fresh local instances per Build. Whole-file scan found no cached UIElement fields reused across parents; _observed is only MessageView data and the static MessageProperty is a dependency property.
+
+Native regression runs for each of the four real annotated cards: mutate ReactionHistoryLabel null→label to invoke actual MessageUpdated/Build for ordinary and annotated projections; assert fresh Content both times; clear/set actual Message DP to invoke Render again, restore its original BindingBase, apply template/layout and assert fresh content, binding retained and correct11pt label. Existing compact-height check and reaction-student-ignored.png capture follow. Restoring binding preserves virtualization/recycling behavior. No swallow, timeout increase, missing assertion skip or product role change.
+
+Local final results: contacts228/exit0; reactions100/exit0; default Console6664/exit0; final win-x64 cross-build0 warnings/0 errors/exit0 (5.23s). Logs build/r10-crash/*.log and results.json. Console/Core code was unchanged; existing Release test assembly verifies its current sources. New native rebuild assertions and the fixed screenshot remain **未執行，待 PM immediate push/Windows CI**. Physical classroom/IME/DPI/two-device acceptance remains separate. This commit contains only the crash fix, its native regression and this handoff, with no D-35 fixture/code. No push/PR/merge/release/install/deploy.
+
+
+### r11 native rebuild observation correction (2026-11-09)
+
+D-35 was parked in scoped stash5bbc7d4a0f62849d0711b68cb691f7c29a47ea6e before this isolated change. Rebuilt the Console project after stashing, so r11 verification cannot accidentally use the D-35 compiled probe/fixtures left in bin/. Product MessageHistoryView.cs and the r10 single-parent fix are unchanged.
+
+Read the actual round11 contacts-ui-result.json and viewed46-failure.png under reports/lite-b1-ci-screenshots-20261108/第11輪-當機修正/contacts-ui-package. It contains150 passed checks, including the first real11pt annotation render, then the compound fresh-parent assertion; no XamlParseException. The old JSON does not identify which compound subcondition was false, so it cannot establish a second product parent-chain defect. Source also proves the screenshot is misleading for that inference: outer contacts catch called Shot with its original reopened window (still showing settings), after the separate reaction helper's finally hid its local view. That image is not the failed card's window.
+
+The original regression intended to prove a single real MessageCard can Build ordinary→annotated projections and Render/rebind again, allocating new content and displaying the correct annotation without parent reuse. It checked all results synchronously after multiple content/binding/template mutations, without yielding for the current binding/visual presenter/read-refresh state. It also searched descendants of the card without proving those descendants belonged to its current Content.
+
+Correction keeps and strengthens the intent:
+- Before testing, close settings through its actual Done handler if needed; require visible history and existing view idle.
+- After scrolling, require the same loaded/visible card and idle read-refresh state.
+- Each property mutation immediately and independently requires a changed Content reference on that **same** card. It does not wait for an unrelated refresh to make the fresh-reference assertion true.
+- At each phase, use the unchanged12s Wait to require current Content connected through its real VisualTree parent chain to that card, same bound MessageView, correct ordinary TextBox or exact11pt annotation, and visible/idle conversation.
+- DP clear/set must still allocate fresh content synchronously; original binding is restored, must reach BindingStatus.Active, and the final combined invariants still pass. A real rendering/ownership defect still fails.
+- Verify the current overlay's logical parents explicitly (body→overlay→Border, button→overlay); keep original compact-height assertion.
+- Persist reaction-rebuild-observations.json with stage, fresh flags, message identity, loaded/visible/geometry, current-root connection, binding status, settings and labels. Failure also captures the **local reaction window before teardown** as reaction-rebuild-failure. The successful reaction-student-ignored capture remains unchanged.
+
+This addresses a test observation/timing flaw; exact failing old subcondition remains unverified from the prior compound-only artifact. Native proof of the corrected observation requires the next CI, and is not claimed from Mac. No product logic, failure swallowing, timeout extension, guard relaxation or D-35 code is included.
+
+Local: freshly rebuilt Console0 warnings/0 errors; contacts228/exit0, reactions100/exit0, default Console6664/exit0; win-x64 cross-build0 warnings/0 errors/exit0. Logs build/r11-fix/*.log, results.json. Physical classroom/IME/DPI/two-machine checks remain separate. Local commit only; no push/merge/release/install/deploy.
+
+
+### D-35 content-based, bounded attachment thumbnails (2026-11-09)
+
+Resumed only after the isolated r10/r11 fixes were committed and reported. Base for this feature commit is7414ab5; r10 single-parent layout and r11 current-card observation code remain intact. The feature adds static thumbnail formats only: GIF first frame, WebP, TIFF first page, ICO, installed-WIC HEIC/HEIF, retaining PNG/JPEG/BMP. No enlarged viewer/open/copy-image action, schema/wire change, approved cat-asset edit, push or installation.
+
+| Spec | Implementation / evidence |
+|---|---|
+| AP-01 | AttachmentImageProbe recognizes content; AttachmentImage.Decode uses WIC Frames[0] only. Synthetic64×48 red fixtures (ICO16×16) include blue second GIF frame/TIFF page. Core recognizes all8 actual files; native checks actual frozen bitmap and red first-frame pixel, not just presence of a control. |
+| AP-02 | Bounded64KiB header probe covers PNG/JPEG/GIF/WebP/TIFF/ICO/BMP/HEIF. Native filenames deliberately end .data. Fake .jpg, truncated header and malformed container are refused before WIC; valid header with corrupt compressed payload must fail visibly without crashing. File extensions only select an unknown-image hint, never authorize decoding. |
+| AP-03 | Metadata and actual file are capped at25MiB; original ValidDimensions expression is unchanged in Windows and pinned in Core (width/height<=16384, pixels<=32,000,000). Header-known dimensions reject early; WIC first-frame dimensions are rechecked before pixels. Serial Task.Run worker does hashing/header/decode/scale, then copies at most320×200 into a detached frozen bitmap; UI card maximum300×200 remains. Native records a worker thread different from Dispatcher. |
+| AP-04 | Fixed inline hints cover content/size/dimension/hash/decoder failures without raw exception text. Explicit WIC component-not-found/unknown-format or COM class-not-registered errors classify missing codecs; other errors remain decode failures. Native builtins must actually render; optional WebP/HEIC may pass only the explicit missing-codec hint branch, HEIC naming Windows HEIF extension. Each actual status/error-code/notice is written before assertions to attachment-preview-observations.json, distinguishing thumbnail success, missing-codec hint and real failure. No codec availability is assumed from cross-build. |
+| AP-05 | Complete record plus AttachmentPath is required before any file/hash/decoder work. Length and SHA-256 are rechecked using the same stream that denies writers and allows deletion. Pending state with an existing valid blob and tampered completed blob are native negative controls. Staged local sender draft uses identical loader and verifies SHA; generations/cancellation prevent stale card/draft updates. |
+| Native evidence | App.AttachmentPreviewSmoke uses isolated safe profile, actual vault staging/store/history/WPF cards/draft, actual decoding/pixels and per-format attachment-preview-*.png screenshots. Receive completion state is seeded in SQLite after real staging; this is **not** claimed as network-download acceptance. Existing70-check TCP/SQLite attachment suite separately tests transport. Failure captures this helper's own window before teardown; incremental observations and all PNGs upload in the contacts artifact even if later checks fail. Existing12s step/100s deadline/115s watchdog unchanged. |
+| Specs/fixtures | attachments-preview.md AP-01–05 and LINE-PARITY B19 added. Shared embedded fixture bytes have generation/provenance README; no new runtime dependency or download. codebase-safety map updated and strict-valid (same2 physical/native unknowns remain). |
+
+#### Existing-test adaptation
+
+| Test | Before | After / basis |
+|---|---|---|
+| App.DragDropSmokeTest.cs:152 | Assert draft Image.Source immediately after draft metadata appeared | Wait using the existing UntilAsync/deadline for Source, then retain original non-null assertion and screenshot. D-35 deliberately moves decode off Dispatcher; no timeout increase or assertion removal. |
+| Program.cs --attachments/default | Existing attachments70 / default6664 | Preserve all old assertions, register115 new content-probe checks; --attachments185 total, default6779. New --attachment-previews isolates the115 checks. |
+
+Final local verification (SDK10.0.403; real worktree build/tmp; freshly built current test sources):
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 6.27 |
+| --attachment-previews | 115 | 0 | focused run |
+| --attachments | 70 existing +115 preview =185 | 0 | 2.79 |
+| --contacts | 194 +34 roster =228 | 0 | 2.28 |
+| --reactions | 47+31+22=100 | 0 | 0.96 |
+| Default Console | 6779 =6664+115 | 0 | 70.70 |
+| Final win-x64 cross-build | 0 warnings / 0 errors | 0 | 3.49 |
+| git diff --check / strict config | pass / valid | 0 | — |
+
+Logs: build/d35/*.log, results.json. **Native WPF codec outcomes and screenshots are 未執行 on Mac, pending PM push/Windows CI**; implementation of those tests is complete but does not constitute execution evidence. Physical Windows/classroom/two-device/IME/DPI acceptance stays separate. No deferred implementation item; no push/PR/merge/release/install/deploy.
+
+
+### r12 PM 裁決：rebind 改驗證行為（2026-11-09）
+
+**PM 決定，非 Codex 自行放寬斷言。** Emily 提供 run42554609202、head7414ab5 的結果：package153 checks 後停在「Render rebind allocates fresh Content」，實際 reaction-rebuild-failure 截圖可見標示卡正確、緊湊且無崩潰。PM 裁決：相同 binding 值重新套用時允許沿用 Content；移除 rebind 必須配置新物件參照的要求，驗收改看目前可見行為與 ownership。本節取代 r10/r11 紀錄中要求 **Render rebind** 立即產生新 Content 的部分，兩次 **Build** 的 fresh Content 合約仍保留。上述 CI／截圖結論來自 PM 回報，不冒稱為本機原生執行證據。
+
+此 commit 在 D-35 的34987dc 之上，只改 App.ReactionPreferencesSmoke.cs 與本驗證紀錄；產品與 D-35 實作不變：
+
+- 移除 standalone rebind identity check，並移除最後 combined check 的 reboundFresh 條件。reboundFresh 仍寫入觀察 JSON，僅供診斷，不作通過門檻。
+- 保留同一張 card 普通文字→11pt 標示兩次 Build 的「立即換新 Content」斷言。
+- 保留 DP clear/set 與原 BindingBase 復原；過程拋例外仍失敗，不吞錯。
+- 保留當前 Content 的 visual-parent 連接、同一 MessageView、可見／idle、普通文字或正確11pt 標示、BindingStatus.Active 等檢查。
+- 保留 body→overlay→Border、button→overlay 的 logical parent 檢查及原 compact-height 斷言。
+- 不增加逾時、不改截圖或角色規則。四款 TeacherOnly 都走完時，僅少4次已取消的 rebind identity 斷言；其餘既有行為檢查保留。
+
+本機最終驗證（SDK10.0.403、實際 build/tmp TMPDIR）：
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 3.37 |
+| --contacts | 194+34=228 | 0 | 2.80 |
+| --reactions | 47+31+22=100 | 0 | 0.98 |
+| --attachment-previews | 115 | 0 | 0.69 |
+| Default Console | 6779 | 0 | 71.88 |
+| win-x64 cross-build | 0 warnings / 0 errors | 0 | 5.41 |
+| git diff --check / strict config | pass / valid | 0 | — |
+
+Logs: build/r12-fix/*.log、results.json。Windows 原生 r12修正及 D-35 解碼／截圖仍未執行，交由 Emily 一次 push 後跑第13輪。實機、雙機、教室、IME、DPI 仍未完成。不 push／PR／合併／發布／安裝。
+
+
+### r13：接收端本機 blob ID fixture 與缺檔提示（2026-11-09）
+
+已讀取第13輪 contacts-ui-package/attachment-preview-observations.json，並實際檢視51-attachment-preview-failure.png：PNG是NotEligible、HashVerified=false、DecodeAttempted=false、worker=0；卡片已接收但連「另存」都沒有。這證明失敗發生在進入校驗／WIC worker 之前，不是 PNG 解碼器或 SHA 比對失敗。
+
+**根因是 native fixture，非真實接收的完成／雜湊契約退步。** ChatStore.ReceiveAttachmentOffer 刻意將 wireFile.BlobId 換成新的 receiver-local BlobId，避免用遠端 ID 作本機位址。舊 fixture 先將圖存入 wire/staged ID，再把回傳的不同 local ID 紀錄直接標為complete；沒有替 local ID 放檔案。Inbox 以回傳紀錄的本機 ID 查 Vault.Exists，故 AttachmentPath=null；舊 loader 回靜默NotEligible。162 bytes及complete文字均合法，SHA始終為64字元小寫hex；原失敗根本尚未讀取 SHA，與大小寫／base64 無關。
+
+修正與回歸：
+- Native Card fixture 現在取得真正 offered.Record，再跟隨 DownloadAsync 的 Vault.Reserve(local ID)→寫入→CommitAsync(長度/SHA驗證) 流程，成功後才設定合成 state。原 staged ID 刪除；tamper 控制也改破壞 receiver-local 檔。這仍是合成 transfer state，不冒稱 native smoke 已跑真 TCP 下載。
+- Native 逐卡斷言 receiver ID不同於wire ID、投影 state 與實際local AttachmentPath正確，原8格式的 WIC 縮圖／缺codec、first frame、背景worker檢查都保留。
+- 產品補提示：非完成附件保持NotEligible、不開檔不解碼；**完成但path缺失**改VerificationFailed，固定小字「無法驗證檔案，未產生預覽；請重新下載。」實際長度／SHA不符同樣明確提示。這是要求的失敗可見性補強，沒有繞過complete/path/25MiB/SHA/尺寸gate。
+- Native 新增「complete但刪除local blob」負控，要求VerificationFailed、HashVerified=false、DecodeAttempted=false且提示可見，另拍attachment-preview-missing；原有已完成內容遭修改的校驗負控保留。
+- Core AttachmentChecks 增加8項真 TCP PNG回歸：真offer／chunks／Commit／complete ACK產生完成紀錄，驗證receiver-local ID、pending不得預覽、canonical complete及timestamp、Inbox同樣的Vault.Exists/PathFor解析、product Core Eligible、162-byte長度與小寫hex SHA、實際接收位元組／hash、.data名稱仍辨識為PNG；刪除local檔後資格必須拒絕。沒有手動SetAttachmentState來冒充這個Core完成路徑。
+- 舊70項附件斷言及115項probe不改；只新增8項。預設Console本來不註冊整個AttachmentChecks，因此總數仍6779，--attachments變成78+115=193。
+
+本機指定回歸（SDK10.0.403，真實worktree build/tmp）：
+
+| Check | Result | Exit | Wall seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 7.42 |
+| --attachments | 78（原70+新TCP8）+115 probe=193 | 0 | 3.79 |
+| --attachment-previews | 115 | 0 | 0.70 |
+| --contacts | 194+34=228 | 0 | 2.44 |
+| Default Console | 6779 | 0 | 71.59 |
+| win-x64 cross-build | 0 warnings / 0 errors | 0 | 7.44 |
+| git diff --check / strict config | pass / valid | 0 | — |
+
+Logs: build/r13-fix/*.log、results.json；最後補的缺檔截圖呼叫另以windows-final.log完整Rebuild覆蓋（exit0、0警告/0錯誤、MSBuild8.11秒）。新 WPF 原生圖與提示仍未執行，交由 Emily push 後核驗。真TCP完成資格通過不等於Windows WIC縮圖已驗收；實機／教室／雙機／IME／DPI 仍未完成。沒有修改wire／schema／已核准素材、放寬資格、延長逾時、push／PR／合併／發布／安裝。
+
+
+### r14：實際 WIC decoder 盤點、缺解碼器分類與全格式回歸（2026-11-09）
+
+PM 提供 run42557089796／head a15b716 的結果：PNG/JPEG/GIF Ready，WebP DecodeFailed且有提示、不崩潰。這個舊結果沒有registration盤點，不能斷言Windows runner確實缺WebP，亦不能直接將這筆decode錯誤改標無解碼器。
+
+修正：
+- 新 WicDecoderCatalog 使用 Microsoft SDK 正確 GUID與COM vtable前綴，背景呼叫 IWICImagingFactory.CreateDecoder(ContainerFormat, no preferred vendor)，不開圖片，查是否可建立該容器的decoder；成功後核對container、取得IWICBitmapDecoderInfo→IWICComponentInfo的CLSID與component type。私有COM物件在同一呼叫finally釋放；不碰registry、不安裝codec、不加依賴。
+- 只有 **CreateDecoder本身** 明確回COMPONENTNOTFOUND／REGDB_E_CLASSNOTREG 才判NotRegistered；factory建立或inspection失敗、generic E_FAIL、UNKNOWNIMAGEFORMAT、BADIMAGE、一般NotSupported一律Unknown，不冒充缺codec。
+- 產品在同handle長度/SHA/header檢查通過後，才背景盤點。NotRegistered→DecoderUnavailable＋既有固定提示（HEIF指名影像延伸模組）、不啟動像素解碼；Registered→實際WPF解碼，壞檔/失敗維持DecodeFailed；Unknown→DecodeFailed並記QueryError。不再從檔案decode例外的HRESULT推測缺codec。DecodeError改記固定數字HRESULT，不含例外原文。
+- Native先獨立查完8格式並存attachment-decoder-inventory.json，故即使前一張失敗，也有TIFF/ICO/HEIF等後續格式的完整盤點。每張observations寫decoderRegistered（true/false/null）、RegistrationState、container GUID、CLSID、QueryError，以及product盤點狀態/CLSID；workflow一併上傳inventory。
+- 原生每格式都比較獨立盤點與產品結果：Registered必須Ready、實際decode且第一格紅色；NotRegistered必須DecoderUnavailable、無decode、有提示無圖片；Unknown直接失敗。八格式採同規則，沒有可疑格式一律跳過或把DecodeFailed當成功。Hash與盤點仍必須跑在不同於Dispatcher的worker；原size/dimensions/complete/path/SHA、pending/missing/tamper/壞payload/草稿負控全保留，逾時不變。
+- 新Core AttachmentDecoderPolicy承接container與registration/failure純分類；probe新增21項Mac可執行檢查，鎖8個非空唯一容器、WebP/HEIF SDK GUID、success/missing/unknown HRESULT，且Registered/Unknown的失敗永遠不是Unavailable。舊115項不改。
+
+Fixture重驗：原8圖bytes全部未變。Pillow12.3.0/libwebp1.6.0實際load既有44-byte VP8L：RIFF長度44、RGB64×48、中央(220,60,30)，SHA8ec8c864537626bfe31cbb6269bc8c47bea7c6184086c850e97864c0247e03e6；非截斷檔。PNG/JPEG/GIF/TIFF/ICO/BMP也完整解碼；GIF/TIFF第一格紅、第二格藍；HEIC經macOS ImageIO/sips實際轉PNG後驗64×48與紅像素。README記錄來源與可重現指令；build/r14-fix/fixture-validation.json有逐檔SHA/像素/工具版本。Mac解碼成功不代表Windows codec註冊或WPF已成功。
+
+本機驗證（SDK10.0.403、實際worktree build/tmp TMPDIR）：
+
+| Check | Result | Exit | Time |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | MSBuild6.26s |
+| --attachment-previews | 136 =115+21 | 0 | wall1.81s |
+| --attachments | 78+136=214 | 0 | wall2.70s |
+| Default Console | 6800 =6779+21 | 0 | wall71.28s |
+| Final win-x64 cross-build | 0 warnings / 0 errors | 0 | MSBuild5.12s |
+| strict config / git diff --check | valid / pass | 0 | — |
+
+Logs/results及實際fixture解析資料：build/r14-fix/。這次原生COM查詢／WPF分支／截圖未在Mac執行，待PM push Windows CI；未聲稱已證實runner沒有WebP，也未聲稱八種Windows縮圖全過。實體Windows／教室／雙機／IME／DPI仍未完成。不push／PR／合併／發布／安裝。
+
+API依據：[Microsoft CreateDecoder](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwicimagingfactory-createdecoder)、[GetContainerFormat](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwicbitmapdecoder-getcontainerformat)、[GetDecoderInfo](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nf-wincodec-iwicbitmapdecoder-getdecoderinfo)、[SDK wincodec.h](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/wincodec.h)。
+
+
+### r15 PM 裁決：0x88982F8B 初始化失敗屬本機不可用（2026-11-09）
+
+先核實SDK：`wincodec.h` 是WIC介面／GUID宣告；該HRESULT常數實際定義在 Microsoft Windows SDK `shared/winerror.h`：`WINCODEC_ERR_COMPONENTINITIALIZEFAILURE = _HRESULT_TYPEDEF_(0x88982F8BL)`，註解為元件初始化失敗。Microsoft WIC error table及COM error文件也列相同名稱／值。因此依Emily明確裁決處理此精確錯誤；不是把任意未知錯誤改成通過，也不假稱已取得可用decoder CLSID。
+
+- Core enum追加InitializeFailed（保留原enum值），FromCreateResult只對0x88982F8B回此值；Failure將NotRegistered/InitializeFailed映射DecoderUnavailable，Registered/Unknown錯誤維持DecodeFailed。
+- WicDecoderCatalog保留直接query HRESULT；若格式query/inspection丟出的也是精確8B，亦保留InitializeFailed與原QueryError。尚未進入格式query的factory failure、其餘錯誤仍Unknown。產品沿用既有非Registered gate，不進像素解碼，顯示既有固定小字；HEIF提示仍指名Windows HEIF影像延伸模組。
+- Inventory的registration以及逐張observations新增的registration欄會明記InitializeFailed；相容既有registrationState。另記decoderAvailable=false；decoderRegistered=null表示無法完成CLSID／可用註冊驗證，避免把初始化失敗寫成NotRegistered。原QueryError、productRegistrationState及productRegistrationQueryError均保留。
+- Native把InitializeFailed列入Unavailable提示分支，且額外要求獨立probe與產品的QueryError都正好是88982F8B；仍須Status=DecoderUnavailable、DecodeAttempted=false、無圖片且小字可見。每格式既有attachment-preview-*.png照常拍，故webp／heic可以得到實際提示截圖後，繼續TIFF、ICO、HEIC、missing/tamper/壞payload、sender GIF草稿等後續步驟。
+- Registered的Ready／第一格像素斷言、Unknown必敗、全部size/dimension/complete/path/SHA界線、原始fixture bytes及逾時都不改。沒有把runner預期狀態硬編成固定略過，若環境裝好codec，仍必須真Ready。
+- Mac分類測試新增精確8B→InitializeFailed，相鄰8A/8C必為Unknown；四態Failure矩陣多出InitializeFailed→Unavailable一項。保留舊未知HRESULT斷言，probe總數136→140（+4）；附件78+140=218，預設Console6800+4=6804。
+
+本機指定檢查（SDK10.0.403，實際build/tmp TMPDIR）：
+
+| Check | Result | Exit | Wall seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 6.39 |
+| --attachment-previews | 140 =136+4 | 0 | 1.41 |
+| --attachments | 78+140=218 | 0 | 2.93 |
+| Default Console | 6804 =6800+4 | 0 | 70.82 |
+| win-x64 cross-build | 0 warnings / 0 errors | 0 | 7.97 |
+| strict config / git diff --check | valid / pass | 0 | — |
+
+Logs: build/r15-fix/*.log、results.json。r15原生分支及webp/heic提示截圖未在Mac執行，交由Emily push後驗證；不能把r15修正推論為Windows全流程已通過。實機／雙機／教室／IME／DPI仍未完成。只本機commit，不push／PR／合併／發布／安裝。
+
+核對來源：[SDK winerror.h](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/shared/winerror.h)、[Microsoft WIC錯誤碼](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-codec-error-codes)、[COM錯誤說明](https://learn.microsoft.com/en-us/windows/win32/com/com-error-codes-10)。
+
+
+### r16／D-36：ICO 明確不支援，保留負向原生驗收（2026-11-09）
+
+Emily 提供 run42559908788／head1d48e70：PNG/JPEG/GIF/TIFF Ready，WebP InitializeFailed→Unavailable＋提示已過，ICO雖Registered卻DecodeFailed。使用者決策D-36明確拿掉ICO預覽；此次依決策修改產品合約，**不是把ICO的解碼失敗改叫縮圖成功，也不略過該格**。
+
+- AttachmentImageProbe新增NotSupported狀態（append，舊值不變），以內容辨識合法ICO後回Ico/NotSupported/CanDecode=false；既有大小與ICO標頭完整性檢查保留。
+- AttachmentImage將此狀態直接映射明確NotSupported，回固定「此圖片格式不提供預覽（可另存後開啟）」；在產品WIC查詢與像素解碼之前返回。仍先守complete/path/大小/同handle SHA與header，ICO不繞過資料校驗。
+- 原生ICO仍在既有8個fixture迴圈內，明確斷言Format=Ico、Status=NotSupported、DecodeAttempted=false、DecoderRegistration=null、Image=null、提示精確相同且可見、Thumbnail不可見。共用hash/off-UI斷言與attachment-preview-ico截圖照常執行，無continue／skip。獨立WIC inventory的ICO Registered僅是環境資訊；observations標previewSupported=false，文字明記D-36不支援，不寫成功縮圖。
+- 其餘分支保留真縮圖/first-frame斷言；另釘PNG/JPEG/GIF/TIFF/BMP必須有Registered decoder而達Ready，不容許走Unavailable提示當成功。只有WebP/HEIC可依既有精確盤點走Ready或Unavailable（含8B InitializeFailed）；Unknown仍必敗。後續HEIC/BMP、pending/missing/tamper/壞payload、sender GIF草稿程式完整保留，逾時不改。
+- attachments-preview.md AP-01/AP-04與LINE-PARITY B19依D-36註明ICO不支援；fixture README及安全設定同步。ICO原圖仍內嵌作負控，所有fixture bytes、wire/schema及App素材都未動。
+
+舊測試適配（依D-36授權）：AttachmentImageProbeChecks的8格式認定迴圈，原ICO要求CanDecode=true，改明確NotSupported且CanDecode=false；其尺寸、截斷、25MiB斷言原樣保留，其他格式要求Ready不變。另加1項「此ICO實際內嵌PNG，但仍必須是ICO/NotSupported且不可解碼」負控；容器清單描述由supported改recognized，ICO只作盤點，不是產品預覽能力。無其他舊斷言移除。
+
+本機指定檢查（SDK10.0.403、實際build/tmp TMPDIR）：
+
+| Check | Result | Exit | Wall seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 4.14 |
+| --attachment-previews | 141 =140+1 | 0 | 1.68 |
+| --attachments | 78+141=219 | 0 | 2.87 |
+| Default Console | 6805 =6804+1 | 0 | 70.80 |
+| win-x64 cross-build | 0 warnings / 0 errors | 0 | 7.25 |
+| strict config / git diff --check | valid / pass | 0 | — |
+
+Logs: build/r16-fix/*.log、results.json。新原生ICO提示圖與後續步驟未在Mac執行，須待Emily push Windows CI；不能宣稱第16輪以後已全綠。實機／教室／雙機／IME／DPI仍未完成。只本機commit，不push／PR／合併／發布／安裝。

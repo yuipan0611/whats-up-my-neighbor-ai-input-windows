@@ -81,7 +81,7 @@ public partial class ChatWindow
             UpdateComposer(); var outcome = await transmission;
             if (outcome.Completion is Confirmed { DraftCleared: true } && _selected?.ConversationId == conversation) SetDraftText(buffer.Text);
             if (outcome.Completion is Confirmed or AlreadyConfirmed) ClearRecoveredDiagnostic(DiagnosticStage.SendPrepare, writeConfirmed: true);
-            SetStatus(outcome.Code == "ok" ? "已驗證對方的儲存確認。" : outcome.Code switch {
+            SetStatus(outcome.Code == "ok" ? "已送出。" : outcome.Code switch {
                 "unpaired_sender" or "identity_conflict" or "hello_key_mismatch" => "身分或配對不符，請重新核對；未確認送達。",
                 "cancelled" => "已取消當次網路操作；取消不會清除草稿，對方可能已收到。不會自動重送。",
                 "payload_too_large" => "訊息超過對方可接受的上限，請修改後手動傳送。",
@@ -220,7 +220,7 @@ public partial class ChatWindow
             await runtime.Worker.Run(s => s.CompleteClassroomAttempt(started.MessageId, new FailedOutcome("missing_endpoint"), null, started.TryCount));
             SetStatus("缺少對方位址，未傳送；草稿仍在本機。"); return;
         }
-        SetStatus(started.ReusedId ? "正在重試傳送…" : "教室傳送中，等待對方儲存確認…");
+        SetStatus(started.ReusedId ? "正在重試傳送…" : "教室傳送中，等待接收回應…");
         await RefreshInboxAsync();
         ClassroomSendResult outcome;
         try

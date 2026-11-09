@@ -19,16 +19,19 @@ internal static class ReadThroughChecks
         var principal = ClassroomPrincipalKey.ForSourceIp("10.0.0.11");
         var scope = new LegacyHistoryScope(null, "10.0.0.11");
         var active = new VisibleReadContext(principal.Value, true, true, false, true);
+        void Owner(ClassroomPrincipalKey p) { principal = p; scope = new(p.RosterEntryId, p.SourceIp); active = active with { ActiveConversationId = p.Value }; }
         DateTime clock = DateTime.UtcNow;
         long middle = 0, last = 0;
         try
         {
             using (var store = ChatStore.Open(new(root) { UtcNow = () => clock }))
             {
+                store.SetReadReceiptPolicy(false);
                 for (int i = 0; i < 260; i++)
                 {
                     clock = clock.AddMilliseconds(10);
                     var received = (ClassroomStored)store.ReceiveClassroomMessage("10.0.0.11", new(Guid.NewGuid().ToString("D"), "classroom " + i), () => true);
+                    if (i == 0) Owner(received.Principal);
                     if (i == 129) middle = received.LocalSeq;
                     last = received.LocalSeq;
                     clock = clock.AddMilliseconds(10);
@@ -50,7 +53,7 @@ internal static class ReadThroughChecks
                 read = store.MarkClassroomReadThrough(principal, scope, legacyLast, true, active, () => true);
                 Check(read.Marked == 261 && read.Queued == 130, "latest visible legacy anchor clears all earlier unloaded pages and queues only newly read classroom receipts");
                 Check(store.GetClassroomInboxSnapshot().Entries.Single(x => x.Principal == principal).TotalUnread == 0, "latest view clears entire prior unread count");
-                Check(store.ListClassroomMessages(ClassroomPrincipalKey.ForSourceIp("10.0.0.12")).Items.Single().LocalReadAt is null, "other conversation is untouched");
+                Check(store.ListClassroomMessages(other.Principal).Items.Single().LocalReadAt is null, "other conversation is untouched");
                 clock = clock.AddMilliseconds(10);
                 store.ReceiveClassroomMessage("10.0.0.11", new(Guid.NewGuid().ToString("D"), "new after reading"), () => true);
                 Check(store.MarkClassroomReadThrough(principal, scope, last, false, active, () => true).Marked == 0, "old anchor cannot consume future incoming message");
@@ -61,6 +64,7 @@ internal static class ReadThroughChecks
             using (var store = ChatStore.Open(new(Path.Combine(root, "stale-commit")) { Faults = leave }))
             {
                 var received = (ClassroomStored)store.ReceiveClassroomMessage("10.0.0.11", new("stale", "leave before COMMIT"), () => true);
+                Owner(received.Principal);
                 store.SetReadReceiptPolicy(true);
                 var result = store.MarkClassroomReadThrough(principal, scope, received.LocalSeq, false, active, () => leave.Current);
                 Check(result.Reason == "stale-view" && store.ListClassroomMessages(principal).Items.Single().LocalReadAt is null, "leaving view before COMMIT rolls back all local read changes");
@@ -70,6 +74,7 @@ internal static class ReadThroughChecks
             using (var store = ChatStore.Open(new(Path.Combine(root, "ties")) { UtcNow = () => clock }))
             {
                 var a = (ClassroomStored)store.ReceiveClassroomMessage("10.0.0.11", new("tie-a", "A"), () => true);
+                Owner(a.Principal);
                 var b = (ClassroomStored)store.ReceiveClassroomMessage("10.0.0.11", new("tie-b", "B"), () => true);
                 var l = store.ReceiveLegacyMessage(new("L", null), store.GetLegacyReceiveContext("10.0.0.11"), () => true);
                 Check(store.MarkClassroomReadThrough(principal, scope, a.LocalSeq, false, active, () => true).Marked == 1, "classroom tie respects sequence and does not consume later legacy row");

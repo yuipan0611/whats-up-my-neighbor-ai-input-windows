@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using NekoChat.Core;
+using NekoChat.Core.Presentation;
 
 namespace NekoChat.Windows;
 
@@ -40,13 +41,9 @@ internal static class CatArtwork
             }
             catch { }
         }
-        if (!string.IsNullOrWhiteSpace(seed))
-        {
-            int hash = Math.Abs(seed.GetHashCode(StringComparison.Ordinal));
-            string preset = KnownPresets[hash % KnownPresets.Length];
-            return SafePreset(preset);
-        }
-        return Preset("original");
+        // Explicit peer artwork above still wins. Stable identity takes precedence over
+        // mutable local notes; never use randomized string.GetHashCode for persistent UI.
+        return SafePreset(KnownPresets[PeerAvatarPolicy.PresetIndex(peerKey, seed, KnownPresets.Length)]);
     }
     private static BitmapSource LoadPng(string path)
     {

@@ -109,7 +109,7 @@ public partial class App
         bool rejected = false;
         try { await using var invalid = await ChatRuntime.OpenAsync(new(Settings.ForUiTest(corruptRoot), SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true); }
         catch (StoreException) { rejected = true; }
-        Check(rejected && File.ReadAllBytes(database).SequenceEqual(corrupt), "corrupt database remains fail-closed and unmodified");
+        Check(rejected && NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes(database).SequenceEqual(corrupt), "corrupt database remains fail-closed and unmodified");
         File.WriteAllText(Path.Combine(directory, "attachment-startup-result.json"), JsonSerializer.Serialize(new { passed = true, checks, loopbackOnly = true, dailyProfileUsed = false }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }

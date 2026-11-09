@@ -48,7 +48,7 @@ internal static class SharedPortChecks
             byte[] Legacy(string value, string? reaction = null) => JsonSerializer.SerializeToUtf8Bytes(new { text = value, reaction });
             var future = await Post(listener.Port, "/nekochat/v1/direct", Legacy("聽不懂", "future-sticker"));
             Check(future.Status == 200 && direct.TryDequeue(out item) && item.Message.Reaction == "future-sticker" && text.TryDequeue(out caption) && caption.Text == "聽不懂" &&
-                ClassroomReactions.ForIncoming(item.Message.Text, item.Message.Reaction, true) is null, "envelope-free old peer and unknown reaction remain readable ordinary text");
+                ClassroomReactions.Find(item.Message.Reaction) is null && ReactionPreviewPolicy.Notification(true, ClassroomReactions.Find(item.Message.Reaction), true) == ReactionNotificationKind.Text, "envelope-free old peer and unknown reaction remain readable ordinary text");
             foreach (var reaction in ClassroomReactions.All)
             {
                 Check(await DirectLanMessaging.SendDirectAsync("127.0.0.1", reaction.Text, listener.Port, reaction: reaction.Id) &&

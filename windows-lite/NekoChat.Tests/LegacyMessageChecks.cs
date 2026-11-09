@@ -39,6 +39,7 @@ internal static class LegacyMessageChecks
             var expected = store.GetLegacyReceiveContext("10.0.0.1");
             Check(expected is { RosterEntryId: null, RosterRevision: null, ClearRevision: 0 }, "legacy can receive without provisioning a local identity or peer");
             var first = store.ReceiveLegacyMessage(new("raw\r\n🐈", "future-sticker"), expected, () => true);
+            expected = store.GetLegacyReceiveContext("10.0.0.1"); // D-27: recapture after automatic contact admission.
             var second = store.ReceiveLegacyMessage(new("raw\r\n🐈", "future-sticker"), expected, () => true);
             Check(first.Stored && second.Stored && first.LegacySeq != second.LegacySeq && Number(f.Db, "SELECT count(*) FROM LegacyMessage") == 2, "legacy has no fabricated wire id or deduplication");
             Check(Number(f.Db, "SELECT count(*) FROM Message") == 0 && Number(f.Db, "SELECT count(*) FROM Peer") == 0 && Number(f.Db, "SELECT count(*) FROM ReceiptOutbox") == 0,
@@ -58,7 +59,7 @@ internal static class LegacyMessageChecks
             string row;
             using (var old = ChatStore.Open(f.Options with { Migrations = Migration.Default.Take(5).ToArray() })) { row = AddRow(old, "Alice", "10.0.0.1"); }
             using var current = ChatStore.Open(f.Options);
-            Check(Number(f.Db, "PRAGMA user_version") == 13 && Number(f.Db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*'") == 32 &&
+            Check(Number(f.Db, "PRAGMA user_version") == 15 && Number(f.Db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*'") == 35 &&
                 current.GetRosterSnapshot().Single().Entry.Id == row, "real v5 upgrade adds two STRICT legacy tables without changing roster");
             string backup = Path.Combine(f.Data, "backup", current.ListBackups().Single(b => b.Purpose == "upgrade").FileName);
             Check(Number(backup, "PRAGMA user_version") == 5, "upgrade preimage remains standalone true v5");
@@ -78,10 +79,12 @@ internal static class LegacyMessageChecks
             Check(store.ReceiveLegacyMessage(new("Bob still current", null), bobContext, () => true).Stored && store.ListLegacyMessages(new(bob, null)).Items.Count == 2,
                 "clearing prior row does not invalidate new row sharing its former IP");
             store.DeleteRosterEntry(bob, Token(store)); string carol = AddRow(store, "Carol", "10.0.0.1");
-            Check(store.ListLegacyMessages(new(null, "10.0.0.1")).Items.Count == 2 && store.ListLegacyMessages(new(carol, null)).Items.Count == 0,
-                "deleting roster row makes old records anonymous rather than assigning replacement row");
+            Check(store.ListLegacyMessages(new(bob, null)).Items.Count == 2 && store.ListLegacyMessages(new(carol, null)).Items.Count == 0,
+                "D-27 deletion retains original row-scoped archive rather than assigning replacement row");
+            Check(store.ListLegacyMessages(new(null, "10.0.0.1")).Items.Count == 0,
+                "old IP unknown scope stays empty after deletion and replacement; archived Bob bytes never leak into it");
             Check(store.ListLegacyHistories().Single().Scope == new LegacyHistoryScope(null, "10.0.0.1"), "roster deletion changes display scope without promoting trust");
-            var afterDelete = store.ClearLegacyHistory(new(null, "10.0.0.1")); Check(afterDelete.Messages == 2 && store.ListLegacyHistories().Count == 0, "anonymous clear also covers retained arrival scope keys");
+            var afterDelete = store.ClearLegacyHistory(new(bob, null)); Check(afterDelete.Messages == 2 && store.ListLegacyHistories().Count == 0, "anonymous clear also covers retained arrival scope keys");
         }
         using (var f = new Fixture())
         {
@@ -98,6 +101,7 @@ internal static class LegacyMessageChecks
             Check(!store.ReceiveLegacyMessage(new("queued before empty clear", null), captured, () => true).Stored && store.ListLegacyHistories().Count == 0,
                 "clear of empty scope fences previously captured callback");
             var current = store.GetLegacyReceiveContext("10.0.0.1"); var first = store.ReceiveLegacyMessage(new("new", null), current, () => true);
+            current = store.GetLegacyReceiveContext("10.0.0.1"); // D-27: clear the admitted row scope, not its former IP scope.
             store.ClearLegacyHistory(current.Scope); var second = store.ReceiveLegacyMessage(new("new arrival after clear", null), store.GetLegacyReceiveContext("10.0.0.1"), () => true);
             Check(first.Stored && second.Stored && second.LegacySeq > first.LegacySeq && store.ListLegacyMessages(current.Scope).Items.Count == 1, "fresh unidentifiable arrival remains new, sequence never reused");
             bool refused = false; try { Execute(f.Db, "DELETE FROM LegacyScopeRevision"); } catch (SqliteException e) when (e.SqliteErrorCode == 19) { refused = true; }
@@ -116,7 +120,7 @@ internal static class LegacyMessageChecks
         }
         using (var f = new Fixture())
         {
-            using var store = ChatStore.Open(f.Options); var scope = new LegacyHistoryScope(null, "10.0.0.1"); var captured = store.GetLegacyReceiveContext("10.0.0.1");
+            using var store = ChatStore.Open(f.Options); AddRow(store, "Read fixture", "10.0.0.1"); var captured = store.GetLegacyReceiveContext("10.0.0.1"); var scope = captured.Scope;
             var seqs = Enumerable.Range(0, 3).Select(i => store.ReceiveLegacyMessage(new("read" + i, null), captured, () => true).LegacySeq!.Value).ToArray();
             store.SetReadReceiptPolicy(true);
             var visible = new VisibleReadContext(scope.ContextId, true, true, false, true);
@@ -137,7 +141,7 @@ internal static class LegacyMessageChecks
             string row = AddRow(store, "Alice", "10.0.0.1"); store.BindPairedRosterPeer(row, "A", Token(store));
             var captured = store.GetLegacyReceiveContext("10.0.0.1"); store.ReceiveLegacyMessage(new("legacy", null), captured, () => true);
             store.ReceiveVerifiedMessage(new("A", "signed", "Local", "verified")); store.SaveDraft(conv, "keep until clear commits", 0, 1);
-            var other = store.GetLegacyReceiveContext("10.0.0.2"); store.ReceiveLegacyMessage(new("other", null), other, () => true);
+            var other = store.GetLegacyReceiveContext("10.0.0.2"); store.ReceiveLegacyMessage(new("other", null), other, () => true); other = store.GetLegacyReceiveContext("10.0.0.2");
             f.Faults.Before = op => { if (op == "clear-conversation") throw new IOException("injected clear failure"); };
             bool failed = false; try { store.ClearConversation(conv); } catch (IOException) { failed = true; } f.Faults.Before = null;
             Check(failed && store.ListMessages(conv).Items.Count == 1 && store.ListLegacyMessages(captured.Scope).Items.Count == 1 && store.GetDraftState(conv)?.RawText is not null && store.GetLegacyReceiveContext("10.0.0.1") == captured,
@@ -148,14 +152,14 @@ internal static class LegacyMessageChecks
         }
         using (var f = new Fixture())
         {
-            using var store = ChatStore.Open(f.Options); var context = store.GetLegacyReceiveContext("10.0.0.1"); store.ReceiveLegacyMessage(new("preserved", null), context, () => true);
+            using var store = ChatStore.Open(f.Options); var context = store.GetLegacyReceiveContext("10.0.0.1"); store.ReceiveLegacyMessage(new("preserved", null), context, () => true); context = store.GetLegacyReceiveContext("10.0.0.1");
             Execute(f.Db, "UPDATE LegacyScopeRevision SET revision=" + long.MaxValue);
             StoreException? error = null; try { store.ClearLegacyHistory(context.Scope); } catch (StoreException e) { error = e; }
             Check(error?.Kind == StoreErrorKind.ConstraintViolation && store.ListLegacyMessages(context.Scope).Items.Count == 1, "revision overflow rejects clear atomically instead of wrap or deleting content");
         }
         using (var f = new Fixture())
         {
-            using var first = ChatStore.Open(f.Options); using var second = ChatStore.Open(f.Options); var context = first.GetLegacyReceiveContext("10.0.0.1"); using var gate = new ManualResetEventSlim();
+            using var first = ChatStore.Open(f.Options); AddRow(first, "Concurrent legacy fixture", "10.0.0.1"); using var second = ChatStore.Open(f.Options); var context = first.GetLegacyReceiveContext("10.0.0.1"); using var gate = new ManualResetEventSlim();
             var tasks = new[] { first, second }.Select(s => Task.Factory.StartNew(() => { if (!gate.Wait(TimeSpan.FromSeconds(8))) throw new TimeoutException(); return s.ReceiveLegacyMessage(new("same unidentifiable arrival", null), context, () => true); }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)).ToArray();
             gate.Set(); var results = await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(12));
             Check(results.All(r => r.Stored) && first.ListLegacyMessages(context.Scope).Items.Count == 2, "two handles deliberately retain both unidentifiable v1 arrivals");

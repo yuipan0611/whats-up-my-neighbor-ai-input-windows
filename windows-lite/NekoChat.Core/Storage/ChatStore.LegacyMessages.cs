@@ -7,7 +7,7 @@ namespace NekoChat.Core.Storage;
 public sealed partial class ChatStore
 {
     private const string LegacyCaptureSql = "SELECT r.id,rs.revision,coalesce(s.revision,0) FROM (SELECT @ip AS ip) a LEFT JOIN RosterEntry r ON r.endpoint=a.ip LEFT JOIN RosterSecurityRevision rs ON rs.rosterId=r.id LEFT JOIN LegacyScopeRevision s ON s.scopeKey=CASE WHEN r.id IS NULL THEN 'legacy-ip:'||a.ip ELSE 'legacy-row:'||r.id END";
-    private const string LegacyScopeWhere = "((@row IS NOT NULL AND rosterEntryId=@row) OR (@ip IS NOT NULL AND rosterEntryId IS NULL AND sourceIp=@ip))";
+    private string LegacyScopeWhere => _migrations.Count < 14 ? "((@row IS NOT NULL AND rosterEntryId=@row) OR (@ip IS NOT NULL AND rosterEntryId IS NULL AND sourceIp=@ip))" : "((@row IS NOT NULL AND (rosterEntryId=@row OR (rosterEntryId IS NULL AND scopeKey='legacy-row:'||@row))) OR (@ip IS NOT NULL AND rosterEntryId IS NULL AND sourceIp=@ip AND scopeKey='legacy-ip:'||@ip))";
     private static LegacyReceiveContext MapLegacyCapture(SqliteDataReader r, string ip) => new(ip, r.IsDBNull(0) ? null : r.GetString(0), r.IsDBNull(1) ? null : r.GetInt64(1), r.GetInt64(2));
     private static void ValidateLegacyIp(string ip) { if (!LanInvitation.PrivateIPv4(ip)) throw new ArgumentException("Invalid legacy LAN source.", nameof(ip)); }
     private static void ValidateLegacyScope(LegacyHistoryScope scope)
@@ -32,15 +32,21 @@ public sealed partial class ChatStore
             if (message.Reaction is { } reaction && utf8.GetByteCount(reaction) > LegacyDirectProtocol.MaxBodyBytes) return new(false, "invalid-reaction");
         }
         catch (EncoderFallbackException) { return new(false, "invalid-unicode"); }
-        bool Guard(WriteContext ctx) => stillCurrent() && ctx.Query(LegacyCaptureSql, r => MapLegacyCapture(r, expected.SourceIp), ("@ip", expected.SourceIp)).Single() == expected;
+        var guarded = expected;
+        bool Guard(WriteContext ctx) => stillCurrent() && ctx.Query(LegacyCaptureSql, r => MapLegacyCapture(r, expected.SourceIp), ("@ip", expected.SourceIp)).Single() == guarded;
         string? limit = null;
         var legacyResult = Write("legacy-receive", ctx => {
+            if (Blocked(ctx,expected.SourceIp)) return (new LegacyReceiveResult(false,"source-not-allowed"),false);
             // CM-11: v1 messages from sources that are not on the roster share the classroom off-roster budget; refuse the new one, never delete.
-            if (expected.RosterEntryId is null && OffRosterLimit(ctx, expected.SourceIp, Encoding.UTF8.GetByteCount(message.Text)) is { } hit)
+            if (UsesAutomaticBudget(ctx, ResolveClassroomPrincipal(ctx, expected.SourceIp)) && OffRosterLimit(ctx, expected.SourceIp, Encoding.UTF8.GetByteCount(message.Text)) is { } hit)
             { limit = hit; return (new LegacyReceiveResult(false, "offroster-limit"), false); }
-            ctx.Exec("INSERT OR IGNORE INTO LegacyScopeRevision(scopeKey) VALUES(@scope)", ("@scope", expected.Scope.ContextId));
+            var owner = AutoContact(ctx, expected.SourceIp);
+            string? rosterId = owner.RosterEntryId;
+            string scope = rosterId is null ? expected.Scope.ContextId : "legacy-row:" + rosterId;
+            ctx.Exec("INSERT OR IGNORE INTO LegacyScopeRevision(scopeKey) VALUES(@scope)", ("@scope", scope));
+            guarded = ctx.Query(LegacyCaptureSql, r => MapLegacyCapture(r, expected.SourceIp), ("@ip", expected.SourceIp)).Single();
             ctx.Exec("INSERT INTO LegacyMessage(scopeKey,sourceIp,rosterEntryId,rawText,reaction,receivedUtc) VALUES(@scope,@ip,@row,@text,@reaction,@now)",
-                ("@scope", expected.Scope.ContextId), ("@ip", expected.SourceIp), ("@row", expected.RosterEntryId), ("@text", message.Text), ("@reaction", message.Reaction), ("@now", ctx.NowUtc));
+                ("@scope", scope), ("@ip", expected.SourceIp), ("@row", rosterId), ("@text", message.Text), ("@reaction", message.Reaction), ("@now", ctx.NowUtc));
             return (new LegacyReceiveResult(true, "stored-local-only", Convert.ToInt64(ctx.Scalar("SELECT last_insert_rowid()"), CultureInfo.InvariantCulture)), true);
         }, guardRejected: () => new LegacyReceiveResult(false, "stale-legacy-scope"), transactionGuard: Guard);
         if (limit is not null) _options.DiagnosticSink?.Invoke("classroom-offroster-limit scope=" + limit);
@@ -89,14 +95,14 @@ public sealed partial class ChatStore
             bool truncated = CheckpointLocked(); CheckWalSize("legacy-clear"); return new(count, truncated);
         }
     }
-    private static int ClearLegacyScope(WriteContext ctx, LegacyHistoryScope scope)
+    private int ClearLegacyScope(WriteContext ctx, LegacyHistoryScope scope)
     {
         var keys = ctx.Query("SELECT DISTINCT scopeKey FROM LegacyMessage WHERE " + LegacyScopeWhere, r => r.GetString(0), ("@row", scope.RosterEntryId), ("@ip", scope.UnknownSourceIp));
         foreach (string key in keys.Append(scope.ContextId).Distinct(StringComparer.Ordinal))
             ctx.Exec("INSERT INTO LegacyScopeRevision(scopeKey,revision) VALUES(@key,1) ON CONFLICT(scopeKey) DO UPDATE SET revision=revision+1", ("@key", key));
         return ctx.Exec("DELETE FROM LegacyMessage WHERE " + LegacyScopeWhere, ("@row", scope.RosterEntryId), ("@ip", scope.UnknownSourceIp));
     }
-    private static int ClearLegacyForConversation(WriteContext ctx, string conversation)
+    private int ClearLegacyForConversation(WriteContext ctx, string conversation)
     {
         var rows = ctx.Query("SELECT r.id FROM RosterEntry r JOIN Conversation c ON c.peerId=r.peerId WHERE c.id=@conv", r => r.GetString(0), ("@conv", conversation));
         int cleared = 0; foreach (string row in rows) cleared += ClearLegacyScope(ctx, new(row, null)); return cleared;

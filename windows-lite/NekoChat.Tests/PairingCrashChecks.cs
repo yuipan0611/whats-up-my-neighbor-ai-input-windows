@@ -252,7 +252,7 @@ internal static class PairingCrashChecks
     private static bool NoPrivateKeyFiles(string root, ECDsa key)
     {
         byte[] raw = key.ExportPkcs8PrivateKey(), encoded = Encoding.ASCII.GetBytes(Convert.ToBase64String(raw));
-        try { foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) { if (new FileInfo(file).Length > 4 * 1024 * 1024) return false; var bytes = File.ReadAllBytes(file); if (bytes.AsSpan().IndexOf(raw) >= 0 || bytes.AsSpan().IndexOf(encoded) >= 0) return false; } return true; }
+        try { foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) { if (new FileInfo(file).Length > 4 * 1024 * 1024) return false; var bytes = NekoChat.TestFixtures.TestFixtureFiles.ReadAllBytes(file); if (bytes.AsSpan().IndexOf(raw) >= 0 || bytes.AsSpan().IndexOf(encoded) >= 0) return false; } return true; }
         finally { CryptographicOperations.ZeroMemory(raw); CryptographicOperations.ZeroMemory(encoded); }
     }
     private sealed class Node : IAsyncDisposable

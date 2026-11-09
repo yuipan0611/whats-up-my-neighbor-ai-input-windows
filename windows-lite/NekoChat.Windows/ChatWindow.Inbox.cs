@@ -44,6 +44,8 @@ public partial class ChatWindow
     private InboxSnapshot? _snapshot;
     private InboxEntry? _selected;
     private bool _initializedInbox, _changingSelection, _settingDraft, _userOpened, _showInbox = true, _receiverRunning, _sending, _refreshing, _refreshAgain, _readBusy, _stopping, _closingRequested;
+    private bool _selectionClearedAfterRemoval;
+    private TaskCompletionSource? _inboxRefreshCompleted;
     private long _viewGeneration;
     private long _readPolicyEdit;
     private long _manualFormGeneration;
@@ -89,23 +91,22 @@ public partial class ChatWindow
         };
         _saveTimer.Tick += async (_, _) => { _saveTimer.Stop(); await FlushDraftsAsync(); };
         _readTimer.Tick += async (_, _) => { _readTimer.Stop(); await MarkViewportAsync(); };
-        Activated += (_, _) => ViewChanged(); Deactivated += (_, _) => ViewChanged(); StateChanged += (_, _) => ViewChanged(); IsVisibleChanged += (_, _) => ViewChanged();
+        Activated += (_, _) => ViewChanged(); Deactivated += (_, _) => ViewChanged(); StateChanged += (_, _) => ViewChanged(); IsVisibleChanged += async (_, _) => { ViewChanged(); await ShowReadReceiptNoticeAsync(); };
         History.PreviewMouseDown += (_, _) => { if (_selected is not null) { _userOpened = true; _showInbox = false; ViewChanged(); } };
         UpdateComposer(); UpdateShellLayout();
     }
     internal async Task AttachRuntimeAsync(ChatRuntime runtime, int peerPort)
     {
         _diagnosticFailures = []; _runtime = runtime; SetDiagnosticsDirectory(Path.Combine(Path.GetDirectoryName(runtime.DataDirectory)!, "diagnostics")); ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
+        // Resolve from the legacy setting and this device BEFORE TC-03 replaces TeacherIp with the roster projection.
+        InitializeTeacherDeviceRole();
         var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy());
-        if (!runtime.ArchivedIdentityFixture && !policy.Enabled && policy.Generation == 0)
-        {
-            var updated = await runtime.Worker.Run(s => s.SetReadReceiptPolicy(true));
-            policy = updated.Policy;
-        }
         ReadReceiptToggle.IsChecked = policy.Enabled;
         if (runtime.Presence is { } presence) presence.StateChanged += PresenceChanged;
         await BootstrapClassRosterAsync();
+        await SyncTeacherProjectionAsync();
         await RefreshInboxAsync();
+        await ShowReadReceiptNoticeAsync();
     }
     internal void ShowDataFailure(Exception error) => ShowDataFailure(DiagnosticMessage(DiagnosticFault.FromException(error)));
     internal void ShowDataFailure(string message)
@@ -113,12 +114,18 @@ public partial class ChatWindow
     internal void DetachRuntime() { ++_teacherFilesRequest; _pairingWindow?.CloseSafely(); _pairingSelection = null; if (_runtime?.Presence is { } presence) presence.StateChanged -= PresenceChanged; _runtime = null; ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = Visibility.Collapsed; _receiverRunning = false; ReceiverStatus.Text = "接收暫停，等待本機資料就緒。"; RefreshPairingControls(); UpdateComposer(); }
     internal void DataChanged() { if (!_stopping) _ = RefreshInboxAsync(refreshHistory: true); }
     private void PresenceChanged() => Dispatcher.BeginInvoke(new Action(() => { if (!_stopping) { ApplyInboxFilter(); UpdateHeader(); } }));
-    private async Task RefreshInboxAsync(bool refreshHistory = false)
+    private async Task RefreshInboxAsync(bool refreshHistory = false, bool waitForCompletion = false)
     {
         if (_runtime is null || _stopping) return;
-        if (_refreshing) { _refreshAgain = true; return; }
+        if (_refreshing)
+        {
+            _refreshAgain = true;
+            if (waitForCompletion && _inboxRefreshCompleted is { } pending) await pending.Task;
+            return;
+        }
         if (_diagnosticFailures.Count > 0 || _runtime.OutboxFailure is not null || StorageStatus.Text.StartsWith("待送儲存暫停：", StringComparison.Ordinal)) RefreshDiagnosticStatus();
         _refreshing = true;
+        var completed = _inboxRefreshCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         long diagnosticStart = Stopwatch.GetTimestamp();
         _runtime.Diagnostics.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Started);
         try
@@ -126,6 +133,7 @@ public partial class ChatWindow
             do
             {
                 _refreshAgain = false;
+                ContactsSmokeBeforeInboxRead();
                 if (_runtime.ArchivedIdentityFixture)
                 {
                     _snapshot = await _runtime.Worker.Run(s => s.GetInboxSnapshot());
@@ -137,7 +145,7 @@ public partial class ChatWindow
                 }
                 if (_stopping) return;
                 var previous = _selected; var current = previous?.Id;
-                _selected = current is null ? _replyLookupPending ? null : _snapshot.Entries.FirstOrDefault() : _snapshot.Entries.FirstOrDefault(e => e.Id == current);
+                _selected = current is null ? _replyLookupPending || _selectionClearedAfterRemoval ? null : _snapshot.Entries.FirstOrDefault() : _snapshot.Entries.FirstOrDefault(e => e.Id == current);
                 bool changed = previous?.Id != _selected?.Id || previous?.ConversationId != _selected?.ConversationId;
                 if (changed) { _userOpened = false; _historyLoaded = false; History.Rows.Clear(); SetDraftText(CurrentDraft()?.Text ?? ""); ViewChanged(); }
                 ApplyInboxFilter();
@@ -154,12 +162,13 @@ public partial class ChatWindow
             _runtime.Diagnostics.Record(DiagnosticStage.UiRefresh, DiagnosticOutcome.Succeeded, count: _snapshot?.Entries.Count ?? 0, elapsedMs: (long)Stopwatch.GetElapsedTime(diagnosticStart).TotalMilliseconds);
         }
         catch (Exception ex) { ShowStorageError(ex); }
-        finally { _refreshing = false; }
+        finally { _refreshing = false; completed.TrySetResult(); }
     }
     private string StateOf(InboxEntry entry)
     {
         if (_runtime?.ArchivedIdentityFixture != true)
         {
+            if (entry.Blocked) return "已封鎖，歷史唯讀";
             if (entry.Removed) return "已從名單移除，不能發送，可查看對話";
             if (entry.Endpoint is null) return "未設定位址";
             return entry.LegacyUnread > 0 ? "舊版訊息・在線狀態待確認" : "在線狀態待確認";
@@ -177,23 +186,24 @@ public partial class ChatWindow
     private void ApplyInboxFilter()
     {
         if (!_initializedInbox || _snapshot is null) return;
-        string query = InboxSearch.Text.Trim(); bool unread = InboxFilter.SelectedIndex == 1;
-        var entries = _snapshot.Entries.Where(e => !e.IsTeacher && (!unread || e.TotalUnread > 0) && (query.Length == 0 || e.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+        string query = InboxSearch.Text.Trim(); bool unread = InboxFilter.SelectedIndex == 1; int section=InboxFilter.SelectedIndex;
+        var entries = _snapshot.Entries.Where(e => (section==2 ? e.Removed&&!e.Blocked : section==3 ? e.Blocked : !e.IsTeacher&&!e.Removed&&!e.Blocked) && (!unread || e.TotalUnread > 0) && (query.Length == 0 || e.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
             e.StudentNumber?.Contains(query, StringComparison.OrdinalIgnoreCase) == true || e.Endpoint?.Contains(query, StringComparison.OrdinalIgnoreCase) == true)).OrderBy(e => EndpointSortKey(e.Endpoint));
         _changingSelection = true;
         try
         {
-            TeachersList.ItemsSource = _snapshot.Entries.Where(e => e.IsTeacher).Select(e => new InboxRowView(e, StateOf(e))).ToArray();
+            TeachersList.ItemsSource = _snapshot.Entries.Where(e => e.IsTeacher&&!e.Removed&&!e.Blocked).Select(e => new InboxRowView(e, StateOf(e))).ToArray();
             TeachersList.SelectedItem = _showTeacherFiles ? null : TeachersList.Items.OfType<InboxRowView>().FirstOrDefault(e => e.Entry.Id == _selected?.Id);
-            SetTeacherButton.Visibility = _snapshot.Entries.Any(e => e.IsTeacher && !e.Removed) ? Visibility.Collapsed : Visibility.Visible;
+            SetTeacherButton.Visibility = _snapshot.Entries.Any(e => e.IsTeacher && !e.Removed&&!e.Blocked) ? Visibility.Collapsed : Visibility.Visible;
             _inbox.Clear(); foreach (var entry in entries) _inbox.Add(new(entry, StateOf(entry)));
             InboxList.SelectedItem = _showTeacherFiles ? null : _inbox.FirstOrDefault(e => e.Entry.Id == _selected?.Id);
         }
         finally { _changingSelection = false; }
-        InboxCount.Text = $"同學 · {_snapshot.Entries.Count(e => !e.IsTeacher)} 位";
-        bool noEntries = !_snapshot.Entries.Any(e => !e.IsTeacher);
+        InboxCount.Text = $"{(section==2 ? "封存" : section==3 ? "已封鎖" : "同學")} · {_inbox.Count} 位";
+        bool noEntries = !_snapshot.Entries.Any(e => !e.IsTeacher&&!e.Removed&&!e.Blocked);
         InboxEmpty.Text = noEntries ? "尚無同學對話。\n新增名單後，即可開始一對一聊天。" : "沒有符合搜尋或篩選的同學。";
-        AddFirstContactButton.Visibility = noEntries ? Visibility.Visible : Visibility.Collapsed;
+        if(section>=2) InboxEmpty.Text=section==2 ? "沒有封存的對話。" : "沒有已封鎖的聯絡人。";
+        AddFirstContactButton.Visibility = noEntries && section<2 ? Visibility.Visible : Visibility.Collapsed;
         InboxEmptyPanel.Visibility = _inbox.Count == 0 ? Visibility.Visible : Visibility.Collapsed; UpdatePresenceView();
     }
     private static uint EndpointSortKey(string? endpoint)
@@ -210,6 +220,7 @@ public partial class ChatWindow
     }
     private async Task SelectEntryAsync(InboxEntry entry, bool userOpened, long? focusSequence = null)
     {
+        _selectionClearedAfterRemoval = false; _showRemovalNotice = false;
         ++_selectionRequest; ++_teacherFilesRequest; _showTeacherFiles = false; History.Visibility = Visibility.Visible; _replyLookupPending = false;
         _selected = entry; _userOpened = userOpened; _showInbox = false; _historyLoaded = false; _beforeMessage = _beforeLegacy = _beforePending = null;
         ApplyInboxFilter(); ViewChanged(); History.Rows.Clear(); EnsureDraft(entry); SetDraftText(CurrentDraft()?.Text ?? "");
@@ -245,10 +256,10 @@ public partial class ChatWindow
         _ = RefreshAttachmentDraftAsync();
     }
     private DraftEditBuffer? CurrentDraft() => _selected?.ConversationId is { } id && _drafts.TryGetValue(id, out var buffer) ? buffer : null;
-    private void SetDraftText(string text) { _settingDraft = true; try { Draft.Text = text; } finally { _settingDraft = false; } }
+    private void SetDraftText(string text) { _settingDraft = true; try { Draft.Text = _selected is { Removed: true } or { Blocked: true } ? "" : text; } finally { _settingDraft = false; } }
     private void DraftEdited(object sender, TextChangedEventArgs e)
     {
-        if (!_initializedInbox || _settingDraft) return;
+        if (!_initializedInbox || _settingDraft || _selected is { Removed: true } or { Blocked: true }) return;
         if (CurrentDraft() is { Clearing: false } buffer) { try { buffer.Edit(Draft.Text); _saveTimer.Stop(); _saveTimer.Start(); } catch (Exception ex) { ShowStorageError(ex); } }
         UpdateComposer();
     }
@@ -288,12 +299,20 @@ public partial class ChatWindow
     {
         if (!_initializedInbox) return;
         var buffer = CurrentDraft(); bool attached = _runtime is not null; bool ready = attached && _runtime!.CanSend && (_runtime.ArchivedIdentityFixture ? _selected?.Pairing == PairingState.Paired : _selected?.CanSend == true);
-        bool isRemoved = _selected?.Removed == true;
+        bool isRemoved = _selected?.Removed == true || _selected?.Blocked == true;
+        // Hide the projection only: never edit/clear the retained draft buffer or its SQLite row.
+        if (isRemoved && Draft.Text.Length > 0) SetDraftText("");
+        else if (!isRemoved && Draft.IsReadOnly) SetDraftText(buffer?.Text ?? "");
         Draft.IsReadOnly = isRemoved;
         Draft.IsEnabled = !_showTeacherFiles && !_stopping && !_closingRequested && (attached ? buffer is { Clearing: false } : _receiverRunning) && !isRemoved;
         bool hasAttachment = _attachmentDraft is not null;
         bool valid = hasAttachment ? Encoding.UTF8.GetByteCount(Draft.Text) <= (_runtime?.MaximumTextBytes ?? 65536) : !string.IsNullOrWhiteSpace(Draft.Text) && (_runtime?.MaximumTextBytes is not { } limit || V2Text.Check(Draft.Text, limit) == V2TextProblem.None);
         AttachFileButton.IsEnabled = Draft.IsEnabled && !_sending && !_attachmentDraftLoading && !_attachmentBusy && _runtime?.Attachments is not null;
+        InsertCodeButton.IsEnabled = Draft.IsEnabled && !isRemoved;
+        CodeLanguage.IsEnabled = InsertCodeButton.IsEnabled;
+        AttachFileButton.ToolTip = isRemoved ? "此對話為唯讀，無法附加檔案或相片。" : "附加檔案或相片 · 每則 1 個，最多 25 MiB";
+        InsertCodeButton.ToolTip = isRemoved ? "此對話為唯讀，無法插入程式碼。" : "插入程式碼";
+        ToolTipService.SetShowOnDisabled(AttachFileButton, true); ToolTipService.SetShowOnDisabled(InsertCodeButton, true);
         RemoveAttachmentButton.IsEnabled = !_sending && !_attachmentBusy;
         SendButton.IsEnabled = !_attachmentDraftLoading && (!hasAttachment || _runtime?.Attachments is not null) &&
             !_attachmentBusy && !_closingRequested && !_sending && _activeSend.IsCompleted && _receiverRunning && valid && (attached ? ready && buffer is { Clearing: false } : true);
@@ -302,7 +321,8 @@ public partial class ChatWindow
         TeacherReactions.Visibility = teacher ? Visibility.Visible : Visibility.Collapsed;
         PeerReactions.Visibility = Visibility.Collapsed;
         StickerButton.Visibility = !_showTeacherFiles && _selected is not null && !teacher ? Visibility.Visible : Visibility.Collapsed;
-        StickerButton.IsEnabled = CanSendReaction && _selected?.CanSend == true;
+        StickerButton.IsEnabled = Draft.IsEnabled && !isRemoved && CanSendReaction && _selected?.CanSend == true;
+        StickerButton.ToolTip = isRemoved ? "此對話為唯讀，無法傳送貼圖。" : "傳送貼圖"; ToolTipService.SetShowOnDisabled(StickerButton, true);
         TeacherReactions.IsEnabled = ScrollReaction.IsEnabled = CanSendReaction && _selected?.CanSend == true && !isRemoved;
         var attempt = _selected?.Attempt; AttemptBanner.Visibility = Visibility.Collapsed;
         bool cancelling = attempt is not null && _runtime?.IsAttemptCancellationRequested(attempt.MessageId, attempt.TryCount) == true;
@@ -310,28 +330,31 @@ public partial class ChatWindow
         RetryAttempt.IsEnabled = ready && !_sending && !_attachmentDraftLoading && !hasAttachment && attempt is { State: not "sending" } && attempt.RawSnapshot == Draft.Text;
         CancelAttemptButton.IsEnabled = !_closingRequested && attached && !cancelling && attempt is { State: not ("cancelled" or "confirmed" or "superseded") } &&
             (attempt.State != "sending" || _runtime!.CanCancelAttempt(attempt.MessageId, attempt.TryCount));
+        // A local stop remains useful for pre-existing attempts, even in a read-only archive.
+        CancelAttemptButton.ToolTip = "停止本機後續重試，不會向對方傳送訊息，也不會收回已送出的訊息。";
         ClearConversationButton.IsEnabled = attached && _selected is not null && buffer?.Clearing != true;
         CheckIdentityButton.IsEnabled = _runtime?.ArchivedIdentityFixture == true && !_identityRecoveryBusy && !_closingRequested;
         int byteCount = Encoding.UTF8.GetByteCount(Draft.Text);
         int maxBytes = _runtime?.MaximumTextBytes ?? 65536;
         string count = byteCount > 55000 ? $"{byteCount} / {maxBytes} UTF-8 位元組 · " : "";
-        string prompt = !attached ? "Enter 傳送 · Shift＋Enter 換行" :
+        string? readOnlyPrompt = _selected?.Blocked == true ? "此對象已封鎖，僅供查看歷史；草稿已保留。" :
+            _selected?.Removed == true ? "這是封存對話，僅供查看歷史；草稿已保留。" : null;
+        string prompt = readOnlyPrompt ?? (!attached ? "Enter 傳送 · Shift＋Enter 換行" :
             buffer is null ? "選擇一位同學後開始聊天" :
-            _selected?.Removed == true ? "這位同學已從名單移除，無法傳送訊息。" :
             _selected?.Endpoint is null ? "請從對話選單編輯對方 IP 位址" :
             !_runtime!.CanSend ? "教室傳送服務尚未就緒…" :
             !valid && Draft.Text.Length > 0 ? "⚠️ 訊息容量超過上限" :
-            "Enter 傳送 · Shift＋Enter 換行";
+            "Enter 傳送 · Shift＋Enter 換行");
         DraftStatus.Text = count + prompt;
-        DraftPlaceholder.Text = _selected is null ? "選擇對象後輸入訊息…" : "傳訊息給" + _selected.DisplayName + "…";
+        DraftPlaceholder.Text = readOnlyPrompt ?? (_selected is null ? "選擇對象後輸入訊息…" : "傳訊息給" + _selected.DisplayName + "…");
         DraftPlaceholder.Visibility = Draft.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        SyncAttemptMessage(); Status.Visibility = attempt is not null ? Visibility.Collapsed : Visibility.Visible; UpdateShellLayout();
+        SyncAttemptMessage(); Status.Visibility = attempt is not null && !_showRemovalNotice ? Visibility.Collapsed : Visibility.Visible; UpdateShellLayout();
     }
     private void UpdateHeader()
     {
         if (_showTeacherFiles) { ConversationTitle.Text = "課堂檔案"; ConversationMeta.Text = "全班共用 · 老師與同學都能分享"; TrustBanner.Visibility = Visibility.Collapsed; return; }
         ConversationTitle.Text = _selected?.DisplayName ?? "選擇一位同學";
-        ConversationMeta.Text = _selected is { } entry ? entry.Removed || entry.Endpoint is null ? StateOf(entry) :
+        ConversationMeta.Text = _selected is { } entry ? entry.Removed || entry.Blocked || entry.Endpoint is null ? StateOf(entry) :
             entry.DisplayName == entry.Endpoint ? (entry.IsTeacher ? "老師" : "同學") + " · 一對一聊天" : entry.Endpoint : "對話紀錄保存在本機";
         bool legacy = CurrentRecipientIsLegacy;
         TrustBanner.Visibility = legacy || History.Rows.Any(r => r.Legacy) ? Visibility.Visible : Visibility.Collapsed;
@@ -378,13 +401,13 @@ public partial class ChatWindow
             var attachmentRows = _runtime.Attachments is { } attachments ? await attachments.HistoryAsync(entry.ConversationId ?? "") : [];
             if (selection != _selectionRequest || entry.Id != _selected?.Id) return;
             var crRows = page.Classroom?.Items.Select(m => new MessageView("cr:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
-                m.Direction == "outgoing" ? (m.DeliveryLabel ?? (m.RemoteReadAt is not null ? "已讀" : m.RemoteStoredAt is not null ? "對方已儲存" : "")) : (m.LocalReadAt is not null ? "本機已讀" : ""), peerAvatar) { MessageId = m.MessageId }) ?? [];
+                m.Direction == "outgoing" ? (m.DeliveryLabel ?? (m.RemoteReadAt is not null ? "已讀" : m.RemoteStoredAt is not null ? "已送出" : "")) : (m.LocalReadAt is not null ? "本機已讀" : ""), peerAvatar) { MessageId = m.MessageId, ReactionHistoryLabel = ReactionPreviewPolicy.HistoryLabel(m.Reaction, IsThisDeviceTeacher, m.Direction == "outgoing") }) ?? [];
             crRows = crRows.Select(row => { row.Attachment = attachmentRows.FirstOrDefault(a => a.LocalSeq == row.Sequence); if (row.Attachment is { } storedAttachment) row.Attachment = _runtime.AttachmentView(storedAttachment); if (row.Attachment is { } info) row.Delivery = info.StateText; row.AttachmentAction = AttachmentActionAsync; row.AttachmentPath = row.Attachment is { } a && _runtime.Attachments is { } service && service.Vault.Exists(a.File) ? service.Vault.PathFor(a.File.BlobId) : null; return row; });
             var rows = page.Message?.Items.Select(m => new MessageView("v2:" + m.LocalSeq, m.RawText, m.Direction == "outgoing", false, m.LocalSeq, m.CreatedUtc,
                 m.Direction == "outgoing" ? m.RemoteReadAt is not null ? "已讀" : "對方已儲存" : m.LocalReadAt is not null ? "本機已讀" : "", peerAvatar)) ?? [];
-            var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""), peerAvatar)) ?? [];
+            var legacy = page.Legacy?.Items.Select(m => new MessageView("v1:" + m.LegacySeq, m.RawText, false, true, m.LegacySeq, m.ReceivedUtc, LegacyIncomingLabel + (m.LocalReadAt is not null ? " · 本機已讀" : ""), peerAvatar) { ReactionHistoryLabel = ReactionPreviewPolicy.HistoryLabel(m.Reaction, IsThisDeviceTeacher) }) ?? [];
             var existing = History.Rows.Where(x => x.AttemptId is null).ToDictionary(m => m.Key, StringComparer.Ordinal); int oldCount = existing.Count;
-            foreach (var row in crRows.Concat(rows).Concat(legacy)) { if (!_runtime.ArchivedIdentityFixture && !row.Key.StartsWith("v2:", StringComparison.Ordinal)) row.DeleteLocal = () => ConfirmDeleteLocalMessageAsync(entry, row); if (existing.TryGetValue(row.Key, out var old)) { old.Delivery = row.Delivery; old.AttachmentPath = row.AttachmentPath; old.Attachment = row.Attachment; } else existing.Add(row.Key, row); }
+            foreach (var row in crRows.Concat(rows).Concat(legacy)) { row.ContactReadOnly=entry.Removed||entry.Blocked; if (!_runtime.ArchivedIdentityFixture && !row.Key.StartsWith("v2:", StringComparison.Ordinal)) { row.DeleteLocal = () => ConfirmDeleteLocalMessageAsync(entry, row); row.DeleteDisabledReason = () => LocalMessageDeleteReason(entry, row); } if (existing.TryGetValue(row.Key, out var old)) { old.Delivery = row.Delivery; old.ReactionHistoryLabel = row.ReactionHistoryLabel; old.AttachmentPath = row.AttachmentPath; old.Attachment = row.Attachment; old.ContactReadOnly=row.ContactReadOnly; old.RefreshActions(); } else existing.Add(row.Key, row); }
             var sorted = existing.Values.OrderBy(m => m.Utc, StringComparer.Ordinal).ThenBy(m => m.Legacy).ThenBy(m => m.Sequence).ToArray();
             for (int i = 0; i < sorted.Length; i++)
             {
@@ -551,6 +574,7 @@ public partial class ChatWindow
             if (result.Changed || result.Reason == "unchanged")
             {
                 if (generation == _manualFormGeneration) { _editingRosterId = result.EntryId; _manualFormSnapshot = result.SnapshotToken; SaveContactButton.Content = "儲存這位同學"; DeleteContactButton.IsEnabled = true; SaveContactFeedback.Foreground = System.Windows.Media.Brushes.DarkGreen; SaveContactFeedback.Text = "✅ 名單已儲存"; }
+                await SyncTeacherProjectionAsync();
                 if (generation == _manualFormGeneration) await LoadManualFormAsync(result.EntryId);
                 SetStatus(result.Changed ? "名單已儲存。" : "名單沒有變動。"); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync();
                 if (id is null)
@@ -576,11 +600,12 @@ public partial class ChatWindow
         {
             var preview = await _runtime.Worker.Run(s => s.PreviewRosterDelete(id));
             if (!preview.CanDelete) { SetStorageNotice(RosterFailure(preview.Reason)); return; }
-            if (MessageBox.Show(this, preview.Notice, "移除名單標籤", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+            if (ContactPrompt("只從這台電腦的名單移除，歷史會保留在封存區，不會封鎖對方。", "移除聯絡人", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+            await FlushDraftsAsync();
             await _runtime.InvalidatePairingAsync("roster_delete");
             var result = await _runtime.Worker.Run(s => s.DeleteRosterEntry(id, preview.SnapshotToken, preview.ToConfirmation()));
             if (!result.Changed) { SetStorageNotice(RosterFailure(result.Reason)); return; }
-            await LoadManualFormAsync(null); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await RefreshInboxAsync(true); SetStatus("名單標籤已移除，對話仍保留。");
+            await SyncTeacherProjectionAsync();await LoadManualFormAsync(null); _runtime.Presence?.Refresh(); ResetRecipientProtocolHints(); await CompleteContactRemovalAsync(id);
         }
         catch (Exception ex) { ShowStorageError(ex); }
     }
@@ -588,7 +613,9 @@ public partial class ChatWindow
         "roster_changed" => "名單已變動，尚未儲存。請保留目前輸入，重新開啟設定後再檢查。",
         "confirmation_mismatch" => "名單已被修改，請重新開啟設定後再確認刪除。",
         "not-found" => "這筆名單已不存在。",
-        "duplicate-endpoint" => "這個 IP 已在名單中，請編輯原本那位同學。",
+        "duplicate-endpoint" => "這個 IP 已在名單中，可開啟既有對話。",
+        "blocked" => "此 IP 已封鎖，請先解除封鎖。",
+        "merge_conflict" => "兩邊的草稿或訊息有衝突，資料已保留，請先處理再合併。",
         "duplicate-student-number" => "學號已存在，請檢查原本的名單。",
         "invalid-endpoint" => "請填寫可用的同網段 IPv4；不能填自己、廣播或回送位址。",
         "invalid-student-number" => "學號需為 1 到 12 位數字，或留白。",
@@ -665,11 +692,11 @@ public partial class ChatWindow
         Draft.SelectedText = "\n```" + language + "\n" + selection + "\n```\n"; Draft.Select(start + language.Length + 5, selection.Length); Draft.Focus();
     }
     private void ReactionPreviewToggleClick(object sender, RoutedEventArgs e)
-    { if (UpdateSettings(settings with { ShowReactionPreviews = ReactionPreviewToggle.IsChecked == true })) SetStatus(ReactionPreviewToggle.IsChecked == true ? "已允許課堂反應圖片；一般訊息提醒仍不顯示正文。" : "桌面提醒僅顯示姓名與新訊息。"); }
+    { if (UpdateSettings(settings with { ShowReactionPreviews = ReactionPreviewToggle.IsChecked == true, ReactionPreviewExplicitChoice = true })) SetStatus(ReactionPreviewToggle.IsChecked == true ? "已開啟課堂反應貓咪圖；一般訊息提醒仍不顯示正文。" : "課堂反應圖片已關閉，只顯示文字提醒。"); }
     private async void ReloadDataClick(object sender, RoutedEventArgs e)
     {
         if (_runtime is null) { DataRetryRequested?.Invoke(); return; }
-        try { long edit = ++_readPolicyEdit; var policy = await _runtime.Worker.Run(s => s.GetReadReceiptPolicy()); if (edit == _readPolicyEdit) { ReadReceiptToggle.IsChecked = policy.Enabled; ReadReceiptToggle.IsEnabled = true; } await FlushDraftsAsync(); _historyLoaded = false; await RefreshInboxAsync(true); }
+        try { long edit = ++_readPolicyEdit; var policy = await _runtime.Worker.Run(s => s.GetReadReceiptPolicy()); if (edit == _readPolicyEdit) { ReadReceiptToggle.IsChecked = policy.Enabled; ReadReceiptToggle.IsEnabled = true; } await SyncTeacherProjectionAsync(); await FlushDraftsAsync(); _historyLoaded = false; await RefreshInboxAsync(true); }
         catch (Exception ex) { ShowStorageError(ex); }
     }
     private void ShowStorageError(Exception exception, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")

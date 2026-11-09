@@ -119,6 +119,12 @@ public sealed partial class ChatStore : IChatStore
             }
 
             RunMigrations((int)version);
+            try { NormalizeChatUxHistory(); }
+            catch (Exception error) when (DiagnosticFault.Catchable(error))
+            {
+                ContactDiagnostic("contact-normalization-failed");
+                _options.Diagnostics?.Record(DiagnosticStage.StorageWrite, DiagnosticOutcome.Failed, error: error);
+            }
 
             // 4. recovery: no network, no sending. sending → unconfirmed.
             _recoveredAttempts = Write("recover", ctx =>
@@ -201,7 +207,7 @@ public sealed partial class ChatStore : IChatStore
             {
                 if (m.ForeignKeysOff) ExecRaw(_write, "PRAGMA foreign_keys=OFF");   // must be outside the transaction
                 using var tx = _write.BeginTransaction(deferred: false);
-                var ctx = new WriteContext(_write, tx, Iso(_options.UtcNow()), _options.AppVersion);
+                var ctx = new WriteContext(_write, tx, Iso(_options.UtcNow()), _options.AppVersion, _options.LegacyTeacherIp, fromVersion == 0);
                 m.Apply(ctx);
                 long recorded = Convert.ToInt64(ctx.Scalar("PRAGMA user_version"), CultureInfo.InvariantCulture);
                 if (recorded != m.ToVersion)
@@ -276,7 +282,7 @@ public sealed partial class ChatStore : IChatStore
             {
                 using var tx = _write.BeginTransaction(deferred: false);
                 _options.Faults?.AfterBegin(op);
-                var ctx = new WriteContext(_write, tx, Iso(_options.UtcNow()), _options.AppVersion);
+                var ctx = new WriteContext(_write, tx, Iso(_options.UtcNow()), _options.AppVersion, _options.LegacyTeacherIp);
                 if (transactionGuard is not null && !transactionGuard(ctx)) { tx.Rollback(); return guardRejected!(); }
                 var (value, commit) = body(ctx);
                 if (commit) _options.Faults?.BeforeCommit(op);

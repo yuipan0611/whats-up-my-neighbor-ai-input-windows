@@ -13,6 +13,15 @@ internal static class MessageFormattingChecks
             if (!result) throw new Exception("Message formatting: " + description);
         }
 
+        const string stamp = "2026-11-08T02:20:00Z";
+        string clock = DateTimeOffset.Parse(stamp).ToLocalTime().ToString("HH:mm");
+        Check(MessageMetadataPolicy.Format(stamp, "") == clock, "empty delivery shows only the clock, without a dangling separator");
+        Check(MessageMetadataPolicy.Format(stamp, null) == clock, "null delivery has no separator");
+        Check(MessageMetadataPolicy.Format(stamp, "  ") == clock, "blank delivery has no separator");
+        Check(MessageMetadataPolicy.Format(stamp, "本機已讀") == clock + " · 本機已讀", "clock and real delivery use one separator");
+        Check(MessageMetadataPolicy.Format("invalid", "已送出") == "已送出", "missing clock does not add a leading separator");
+        Check(MessageMetadataPolicy.Format(null, null) == "", "missing clock and delivery stay empty");
+
         MessageDocument Parse(string source)
         {
             var doc = MessageDocument.Parse(source);

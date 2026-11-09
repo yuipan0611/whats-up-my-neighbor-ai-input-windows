@@ -22,8 +22,8 @@ internal static class ClassroomRosterChecks
         int checks = 0;
         void Check(bool ok, string name) { checks++; if (!ok) throw new Exception($"Classroom roster #{checks}: {name}"); }
 
-        // ① messages from x / y belong to A / B and show the roster name; ② z is out-of-roster and never auto-added.
-        using (var f = new Fixture())
+        // D-27/CT-05: only these legacy merge fixtures inject a recoverable auto-contact failure to retain unknown history.
+        using (var f = new Fixture(fallback: true))
         {
             using var store = ChatStore.Open(f.Options);
             string a = Add(store, new("甲", "1", false, X)), b = Add(store, new("乙", "2", false, Y));
@@ -35,7 +35,7 @@ internal static class ClassroomRosterChecks
                 names[histories.Single(h => h.Scope.RosterEntryId == b).Scope.RosterEntryId!] == "乙", "① history groups resolve to the roster names");
             Check(histories.Single(h => h.Scope.RosterEntryId is null) is { Scope.UnknownSourceIp: Z, Messages: 2 } &&
                 RosterEntryView.OutOfRosterLabel(Z) == "名單外・10.0.0.9", "② z is its own out-of-roster conversation");
-            Check(store.GetRosterSnapshot().Count == 2 && Number(f.Db, "SELECT count(*) FROM RosterEntry WHERE endpoint='" + Z + "'") == 0, "② an unknown source is never added to the roster");
+            Check(store.GetRosterSnapshot().Count == 2 && Number(f.Db, "SELECT count(*) FROM RosterEntry WHERE endpoint='" + Z + "'") == 0, "D-27 CT-05 recoverable admission failure preserves unknown source without a partial contact");
             Check(Number(f.Db, "SELECT count(*) FROM Peer") == 0 && Number(f.Db, "SELECT count(*) FROM Message") == 0 &&
                 store.GetLocalIdentitySnapshot() is { PublicSpkiBase64: null, CredentialRef: null }, "⑦ receiving and attributing needs no key, peer or pairing");
 
@@ -59,13 +59,13 @@ internal static class ClassroomRosterChecks
             Check(Texts(store, new(saved.Mutation.EntryId, null)).Count == 4, "② later messages from z now belong to the new row");
         }
 
-        // ② without confirmation the roster row is added but the old out-of-roster history is not silently re-attributed.
-        using (var f = new Fixture())
+        // D-27/CT-02: explicit manual addition merges the preserved unknown history without the retired consent requirement.
+        using (var f = new Fixture(fallback: true))
         {
             using var store = ChatStore.Open(f.Options);
             Receive(store, Z, "old-1"); Receive(store, Z, "old-2");
             var added = store.SaveManualRosterEntry(null, new("丙", null, false, Z), Token(store), null);
-            Check(added.Mutation.Changed && added.MergedMessages == 0 && Number(f.Db, "SELECT count(*) FROM LegacyMessage WHERE rosterEntryId IS NULL") == 2, "② no consent: history stays out-of-roster");
+            Check(added.Mutation.Changed && added.MergedMessages == 2 && Number(f.Db, "SELECT count(*) FROM LegacyMessage WHERE rosterEntryId IS NULL") == 0, "D-27 explicit manual add merges both old legacy rows without losing history");
             Check(store.SaveManualRosterEntry(null, new("丁", null, false, W), Token(store), new LegacyMergeConsent(Y, 1)).Mutation.Reason == "legacy_merge_mismatch", "② consent never applies to a different address");
         }
 
@@ -79,7 +79,7 @@ internal static class ClassroomRosterChecks
             Check(change.Changed && store.GetRosterSnapshot().Single(r => r.Entry.Id == b).Entry.Endpoint == W, "③ B's address changed to w");
             Receive(store, W, "b-after"); Receive(store, Y, "y-stranger");
             Check(Texts(store, new(b, null)).SequenceEqual(["b-before", "b-after"]), "③ B keeps the old message and receives from w");
-            Check(Texts(store, new(null, Y)).SequenceEqual(["y-stranger"]) && Texts(store, new(a, null)).Count == 0, "③ y is now out-of-roster y");
+            Check(Texts(store, new(null, Y)).SequenceEqual(["y-stranger"]) && Texts(store, new(a, null)).Count == 0, "D-27 old source y now owns a distinct automatic contact");
             Check(store.GetRosterSnapshot().Single(r => r.Entry.Id == b).Entry.PeerId is null && Number(f.Db, "SELECT count(*) FROM Peer") == 0, "③ moving an address creates or moves no peer identity");
         }
 
@@ -197,18 +197,24 @@ internal static class ClassroomRosterChecks
         var context = store.GetLegacyReceiveContext(ip);
         if (!store.ReceiveLegacyMessage(new(text, null), context, () => true).Stored) throw new Exception("Classroom roster fixture: not stored");
     }
-    private static IReadOnlyList<string> Texts(ChatStore store, LegacyHistoryScope scope) => store.ListLegacyMessages(scope).Items.Select(m => m.RawText).ToArray();
+    private static IReadOnlyList<string> Texts(ChatStore store, LegacyHistoryScope scope) => store.ListLegacyMessages(scope.RosterEntryId is null && store.GetRosterSnapshot().FirstOrDefault(r => r.Entry.Endpoint == scope.UnknownSourceIp)?.Entry.Id is { } id ? new(id, null) : scope).Items.Select(m => m.RawText).ToArray();
     private static long Number(string path, string sql)
     { using var c = new SqliteConnection("Data Source=" + path + ";Mode=ReadOnly;Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; return Convert.ToInt64(cmd.ExecuteScalar()); }
     private static void Execute(string path, string sql)
     { using var c = new SqliteConnection("Data Source=" + path + ";Pooling=False"); c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
 
+    private sealed class AdmissionFault : IStoreFaults
+    {
+        public void AfterBegin(string operation) { if(operation=="auto-contact")throw new IOException("synthetic CT-05 admission failure"); }
+        public void BeforeCommit(string operation) { } public void AfterCommit(string operation) { }
+    }
     private sealed class Fixture : IDisposable
     {
         internal string Data { get; } = Path.Combine(Path.GetTempPath(), "neko-classroom-" + Guid.NewGuid().ToString("N"));
         internal string Db => Path.Combine(Data, "nekochat.db");
-        internal ChatStoreOptions Options => new(Data) { UtcNow = () => new DateTime(2026, 11, 3, 3, 4, 5, DateTimeKind.Utc) };
-        internal Fixture() => Directory.CreateDirectory(Data);
+        private readonly bool _fallback;
+        internal ChatStoreOptions Options => new(Data) { Faults = _fallback ? new AdmissionFault() : null, UtcNow = () => new DateTime(2026, 11, 3, 3, 4, 5, DateTimeKind.Utc) };
+        internal Fixture(bool fallback=false) { _fallback=fallback; Directory.CreateDirectory(Data); }
         public void Dispose() => Directory.Delete(Data, true);
     }
 }

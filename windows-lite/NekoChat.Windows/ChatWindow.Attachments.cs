@@ -54,17 +54,38 @@ public partial class ChatWindow
         }
         catch (Exception error) { if (!_closingRequested && request == _attachmentLoad && ReferenceEquals(runtime, _runtime)) { SetStatus("無法讀取附件草稿，請重新開啟此對話。文字已保留。" + AttachmentException.Describe(error)); UpdateComposer(); } }
     }
+    private long _draftPreviewRequest;
+    private CancellationTokenSource? _draftPreviewCancellation;
     private void RenderAttachmentDraft()
     {
         AttachmentDraftPanel.Visibility = _attachmentDraft is null ? Visibility.Collapsed : Visibility.Visible;
         UpdateShellLayout();
-        AttachmentDraftImage.Source = null;
+        long previewRequest = ++_draftPreviewRequest;
+        _draftPreviewCancellation?.Cancel(); _draftPreviewCancellation?.Dispose(); _draftPreviewCancellation = new();
+        AttachmentDraftImage.Source = null; AttachmentDraftImage.Visibility = Visibility.Collapsed;
+        AttachmentDraftPreviewHint.Text = ""; AttachmentDraftPreviewHint.Visibility = Visibility.Collapsed;
         if (_attachmentDraft is not { } draft) return;
         AttachmentDraftText.ToolTip = draft.File.Name;
         AttachmentDraftText.Text = draft.File.Name + "\n" + AttachmentSize(draft.File.Size) + (_runtime?.Attachments is null ? " · 附件暫停；移除附件後可傳文字" : " · 待傳附件");
-        if (_runtime?.Attachments is { } service && service.Vault.Exists(draft.File))
-            AttachmentDraftImage.Source = AttachmentImage.Load(service.Vault.PathFor(draft.File.BlobId), draft.File.Name);
-        AttachmentDraftImage.Visibility = AttachmentDraftImage.Source is null ? Visibility.Collapsed : Visibility.Visible;
+        if (_runtime?.Attachments is { } service)
+            _ = RenderDraftPreviewAsync(service, draft, previewRequest, _draftPreviewCancellation.Token);
+    }
+    private async Task RenderDraftPreviewAsync(AttachmentService service, AttachmentDraft draft, long request, CancellationToken cancellation)
+    {
+        try
+        {
+            var result = await AttachmentImage.LoadDraftAsync(draft, service.Vault.PathFor(draft.File.BlobId), cancellation);
+            if (request != _draftPreviewRequest || _closingRequested || cancellation.IsCancellationRequested || _attachmentDraft?.File.BlobId != draft.File.BlobId) return;
+            AttachmentDraftImage.Source = result.Image;
+            AttachmentDraftImage.Visibility = result.Image is null ? Visibility.Collapsed : Visibility.Visible;
+            AttachmentDraftPreviewHint.Text = result.Notice;
+            AttachmentDraftPreviewHint.Visibility = string.IsNullOrEmpty(result.Notice) ? Visibility.Collapsed : Visibility.Visible;
+        }
+        catch (Exception error) when (DiagnosticFault.Catchable(error))
+        {
+            if (request == _draftPreviewRequest && !_closingRequested && !cancellation.IsCancellationRequested)
+            { AttachmentDraftPreviewHint.Text = "這台電腦無法預覽此圖片格式（可另存後用看圖程式開啟）。"; AttachmentDraftPreviewHint.Visibility = Visibility.Visible; }
+        }
     }
     internal static string AttachmentSize(long bytes) => bytes >= 1024 * 1024 ? $"{bytes / (1024d * 1024):0.##} MB" : bytes >= 1024 ? $"{bytes / 1024d:0.##} KB" : bytes + " B";
     private bool CanAddAttachment() => !_attachmentDraftLoading && !_attachmentBusy && !_sending && !_closingRequested && Draft.IsEnabled && !Draft.IsReadOnly && _runtime?.Attachments is not null;
@@ -174,22 +195,5 @@ public partial class ChatWindow
         public override void Write(ReadOnlySpan<byte> buffer) { Check(buffer.Length); base.Write(buffer); }
         public override void SetLength(long value) { if (value > AttachmentLimits.MaximumFileBytes) throw new AttachmentException("too_large"); base.SetLength(value); }
         public override void WriteByte(byte value) { Check(1); base.WriteByte(value); }
-    }
-}
-
-internal static class AttachmentImage
-{
-    internal static bool ValidDimensions(int width, int height) => width is > 0 and <= 16384 && height is > 0 and <= 16384 && (long)width * height <= 32_000_000;
-    internal static ImageSource? Load(string path, string name)
-    {
-        if (!new[] { ".png", ".jpg", ".jpeg", ".bmp" }.Contains(Path.GetExtension(name).ToLowerInvariant())) return null;
-        try
-        {
-            using var stream = File.OpenRead(path);
-            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.None);
-            if (decoder.Frames.Count == 0 || !ValidDimensions(decoder.Frames[0].PixelWidth, decoder.Frames[0].PixelHeight)) return null;
-            stream.Position = 0; var bitmap = new BitmapImage(); bitmap.BeginInit(); bitmap.CacheOption = BitmapCacheOption.OnLoad; bitmap.DecodePixelWidth = Math.Min(320, decoder.Frames[0].PixelWidth); bitmap.StreamSource = stream; bitmap.EndInit(); bitmap.Freeze(); return bitmap;
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or NotSupportedException or FileFormatException or ArgumentException or InvalidOperationException) { return null; }
     }
 }

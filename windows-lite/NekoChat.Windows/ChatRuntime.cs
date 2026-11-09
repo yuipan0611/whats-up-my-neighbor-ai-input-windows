@@ -192,9 +192,10 @@ internal sealed class ChatRuntime : IAsyncDisposable
     }
     internal string? QueuedStatus(string id) {
         Volatile.Read(ref _outboxSnapshot).TryGetValue(id, out var item);
+        if(item?.Error=="source_blocked") return "已停止（已封鎖）；解除封鎖後可手動重送。";
         return item?.State switch {
             "queued" => "等待傳送；連線恢復後會自動續送。",
-            "sending" => "傳送中，等待對方儲存確認。",
+            "sending" => "傳送中，等待接收回應。",
             "cancelled" => "已取消自動續送；可重試或從本機刪除。",
             "failed" => item.Error switch { "missing_file" => "附件副本已遺失，請重新選檔。", "recipient_changed" => "對方名單或 IP 已改變，請確認對象。", "unsupported_version" => "對方版本不支援，請更新後重試。", "payload_too_large" or "legacy_payload_too_large" => "訊息超過對方上限，請修改後另送。", "legacy_delivery_unconfirmed" or "classroom-may-have-delivered" => "先前傳送可能已送達，請確認後再手動重試。", "capacity_exceeded" => "對方訊息空間已滿，請對方清理後再重試。", "wrong_recipient" or "source_not_allowed" => "對方拒絕此來源，請核對名單及 IP 位址。", "conflict" => "訊息識別資料不一致，請重新確認後另送。", "invalid_payload" => "對方無法接受訊息格式，請修改後另送。", _ => "目前無法完成傳送，請確認對方狀態後重試或從本機刪除。" },
             _ => null
@@ -216,7 +217,7 @@ internal sealed class ChatRuntime : IAsyncDisposable
             store = ChatStore.Open(new(data) {
                 RosterExcludedEndpoints = () => LanInvitation.LocalAddresses().ToArray(),
                 TextValidator = text => V2Text.Check(text, configuration?.MaximumTextBytes ?? V2Text.ProductMaxUtf8Bytes) == V2TextProblem.None,
-                AppVersion = version, Diagnostics = diagnostics
+                AppVersion = version, Diagnostics = diagnostics, LegacyTeacherIp = source.Value.TeacherIp
             });
             var imported = source.CanImportLegacyRoster && source.Value.Contacts.Count <= NekoChat.Core.Roster.RosterCsv.MaxRows ? source.ImportLegacyRoster(store) : null;
             string? warning = !source.CanImportLegacyRoster ? "設定檔無法讀取；原檔保留，未從這份設定匯入名單。" : source.Value.Contacts.Count > NekoChat.Core.Roster.RosterCsv.MaxRows ? "舊名單超過單次載入上限，尚未載入；請聯絡班級包提供者協助。" : imported is { Skipped: > 0 } ? $"舊名單已匯入；略過 {imported.Skipped} 筆無效或重複資料。" : null;

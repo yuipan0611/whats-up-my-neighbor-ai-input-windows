@@ -71,7 +71,7 @@ public static class ClassroomSendUiPolicy
         if (outcome.Success || outcome.Completion is Confirmed or AlreadyConfirmed)
         {
             bool draftCleared = outcome.Completion is Confirmed { DraftCleared: true };
-            string text = outcome.Route == ClassroomRoute.Classroom ? "已驗證對方的儲存確認。" : "已送達（舊版同學）。";
+            string text = outcome.Route == ClassroomRoute.Classroom ? "已送出。" : "已送達（舊版同學）。";
             return new ClassroomSendDecision(AttemptActionKind.None, null, text, draftCleared);
         }
 
@@ -138,7 +138,7 @@ public static class ClassroomSendUiPolicy
             return new ClassroomSendDecision(
                 AttemptActionKind.None,
                 null,
-                "對方無法儲存確認，尚未確認送達；對方可能已收到，請檢查後手動重送。",
+                "對方未能完成接收回應，尚未確認送達；對方可能已收到，請檢查後手動重送。",
                 false);
         }
 
@@ -168,7 +168,7 @@ public static class ClassroomSendUiPolicy
         return state switch
         {
             "queued" => "等待傳送；連線恢復後會自動續送。",
-            "sending" => "手動傳送中，等待對方儲存確認。",
+            "sending" => "手動傳送中，等待接收回應。",
             "cancelled" => "當次嘗試已取消，訊息未送出；草稿仍在本機。",
             "failed" => "上一次嘗試未送出；草稿仍在本機，可以重新手動傳送。",
             "unconfirmed" => "上一次嘗試尚未確認送達（對方可能已收到，也可能沒收到）；不會自動重送，要再送請按重送。",
@@ -207,7 +207,7 @@ public static class ClassroomSendUiPolicy
 
         return result.Reason switch
         {
-            "confirmed" or "already_confirmed" or "terminal" => "已送達（對方已確認儲存）。",
+            "confirmed" or "already_confirmed" or "terminal" => "已送出（無法再取消）。",
             "unconfirmed" or "ack_mismatch" => "已取消，但對方可能已收到；不會自動重送。",
             "discarded" or "stale" => "當次嘗試已改變，未取消新的嘗試。請重新讀取。",
             "failed" => "傳送失敗，未送出；草稿仍在本機。",

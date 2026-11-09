@@ -36,7 +36,7 @@ public sealed class ClassroomFileService : IAsyncDisposable
         _store=store; _attachments=attachments; _secrets=secrets; _peers=peers; _ownIp=ownIp;
         NodeId=store.EnsureClassroomFileNode(); store.RecoverClassroomFiles();
     }
-    private SharePeer[] Peers() => _peers().Where(p=>LanInvitation.PrivateIPv4(p.Ip)&&p.Port is >0 and <=65535).Distinct().OrderByDescending(p=>p.Teacher).ThenBy(p=>p.Ip,StringComparer.Ordinal).Take(64).ToArray();
+    private SharePeer[] Peers() => _peers().Where(p=>!_store.IsSourceBlocked(p.Ip)&&!_store.IsAutomaticContact(p.Ip)&&LanInvitation.PrivateIPv4(p.Ip)&&p.Port is >0 and <=65535).Distinct().OrderByDescending(p=>p.Teacher).ThenBy(p=>p.Ip,StringComparer.Ordinal).Take(64).ToArray();
     private bool Allowed(string ip) => Peers().Any(p=>p.Ip==ip);
     public bool IsTeacherNode { get; set; }
     public string HostStatus => IsTeacherNode ? "本機提供課堂檔案 · 同學協助備援" : Peers().Any(p=>p.Teacher&&Recent(_online.GetValueOrDefault(p))) ? "老師電腦在線" : _online.Any(p=>Recent(p.Value)) ? "同學備援接管中" : "本機模式 · 等待其他節點上線";
@@ -225,7 +225,7 @@ public sealed class ClassroomFileService : IAsyncDisposable
                 if(request.Operation.Kind=="withdraw")Cancel(request.Operation.File.Id); if(changed)Notify(); return Json(new SharePushAck(true));
             }
             if(request.Id is null||!AttachmentLimits.IsHash(request.Id))throw new AttachmentException("invalid_id");
-            var row=_store.GetClassroomFile(request.Id); string? path=row is null?null:LocalPath(row);
+            var row=_store.GetClassroomFileForServing(request.Id); string? path=row is null?null:LocalPath(row);
             if(operation=="status")
             {
                 string grant="";
@@ -243,10 +243,10 @@ public sealed class ClassroomFileService : IAsyncDisposable
             await _attachments.ServeLane.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                if(!Live()||_store.GetClassroomFile(request.Id) is null||_attachments.CacheClearing)throw new AttachmentException("unavailable");
+                if(!Live()||_store.GetClassroomFileForServing(request.Id) is null||_attachments.CacheClearing)throw new AttachmentException("unavailable");
                 byte[] bytes=new byte[request.Count];await using(var file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read,65536,FileOptions.Asynchronous)){file.Position=request.Offset;await file.ReadExactlyAsync(bytes,token).ConfigureAwait(false);}
                 await Task.Delay(30,token).ConfigureAwait(false);
-                if(!Live()||_store.GetClassroomFile(request.Id) is null)throw new AttachmentException("withdrawn");return new(200,bytes,true);
+                if(!Live()||_store.GetClassroomFileForServing(request.Id) is null)throw new AttachmentException("withdrawn");return new(200,bytes,true);
             }
             finally{_attachments.ServeLane.Release();}
         }

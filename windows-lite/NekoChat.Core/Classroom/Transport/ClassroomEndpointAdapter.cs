@@ -10,6 +10,7 @@ namespace NekoChat.Core.Classroom.Transport;
 /// </summary>
 public interface IClassroomTransportSink
 {
+    void OnCommunicationSucceeded(string sourceIp) { }
     Task<ClassroomTransportResponse?> OnMessageAsync(string sourceIp, string localIp, ClassroomRequest request, Func<bool> stillCurrent, CancellationToken cancellation);
     Task<ClassroomTransportResponse?> OnReceiptAsync(string sourceIp, string localIp, ClassroomRequest request, Func<bool> stillCurrent, CancellationToken cancellation);
     Task<ClassroomTransportResponse?> OnLegacyDirectAsync(string sourceIp, DirectMessage message, Func<bool> stillCurrent, CancellationToken cancellation);
@@ -170,6 +171,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         }
 
         string session = _sessions.Issue(sourceIp);
+        try { _sink?.OnCommunicationSucceeded(sourceIp); } catch { }
         byte[] ack = ClassroomPacketWriter.HelloOk(v.Request!.ClientNonce!, session, localIp, sourceIp, _capabilities);
         return new ClassroomTransportResponse(200, ack);
     }
@@ -211,7 +213,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _diagnostics?.Record(DiagnosticStage.ReceiveCommit, DiagnosticOutcome.Failed, error: ex, messageId: req.MessageId);
+            _diagnostics?.Record(DiagnosticStage.ReceiveCommit, DiagnosticOutcome.Failed, error: ex);
             return Error(ClassroomCodes.StorageUnavailable);
         }
     }
@@ -253,7 +255,7 @@ public sealed class ClassroomEndpointAdapter : IClassroomRequestEndpoint
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _diagnostics?.Record(DiagnosticStage.ReceiveReceipt, DiagnosticOutcome.Failed, error: ex, messageId: req.MessageId);
+            _diagnostics?.Record(DiagnosticStage.ReceiveReceipt, DiagnosticOutcome.Failed, error: ex);
             return Error(ClassroomCodes.StorageUnavailable);
         }
     }

@@ -15,13 +15,17 @@ internal sealed class MessageView(string key, string rawText, bool outgoing, boo
     public string Key { get; } = key;
     public string? MessageId { get; init; }
     public string RawText { get; } = rawText;
+    private string? _reactionHistoryLabel;
+    public string? ReactionHistoryLabel { get => _reactionHistoryLabel; set { if (_reactionHistoryLabel != value) { _reactionHistoryLabel = value; PropertyChanged?.Invoke(this, new(nameof(ReactionHistoryLabel))); } } }
     public bool Outgoing { get; } = outgoing;
     public bool Legacy { get; } = legacy;
     public long Sequence { get; } = sequence;
-    public string Utc { get; set; } = utc;
+    private string _utc = utc;
+    public string Utc { get => _utc; set { if (_utc != value) { _utc = value; PropertyChanged?.Invoke(this, new(nameof(MetadataText))); } } }
+    public string MetadataText => MessageMetadataPolicy.Format(Utc, Delivery);
     public ImageSource? PeerAvatar { get; } = peerAvatar;
     private string _delivery = delivery;
-    public string Delivery { get => _delivery; set { if (_delivery != value) { _delivery = value; PropertyChanged?.Invoke(this, new(nameof(Delivery))); } } }
+    public string Delivery { get => _delivery; set { if (_delivery != value) { _delivery = value; PropertyChanged?.Invoke(this, new(nameof(Delivery))); PropertyChanged?.Invoke(this, new(nameof(MetadataText))); } } }
     private AttachmentRecord? _attachment;
     public AttachmentRecord? Attachment { get => _attachment; set { if (_attachment != value) { _attachment = value; PropertyChanged?.Invoke(this, new(nameof(Attachment))); } } }
     private int _progress;
@@ -32,8 +36,12 @@ internal sealed class MessageView(string key, string rawText, bool outgoing, boo
     public int AttemptTryCount { get; set; }
     public bool AttemptFailed { get; set; }
     public Func<Task>? RetrySend { get; set; }
+    public string? RetryDisabledReason { get; set; }
     public Func<Task>? CancelSend { get; set; }
     public Func<Task>? DeleteLocal { get; set; }
+    public Func<string?>? DeleteDisabledReason { get; set; }
+    public bool AttemptSending { get; set; }
+    public bool ContactReadOnly { get; set; }
     internal void RefreshActions() => PropertyChanged?.Invoke(this, new(nameof(RetrySend)));
     public event PropertyChangedEventHandler? PropertyChanged;
 }
@@ -59,24 +67,24 @@ public sealed class MessageCard : UserControl
         if (_observed is not null) { _observed.PropertyChanged += MessageUpdated; Build(_observed); }
     }
     private void MessageUpdated(object? sender, PropertyChangedEventArgs e)
-    { if (sender is MessageView message && e.PropertyName is nameof(MessageView.Attachment) or nameof(MessageView.AttachmentProgress) or nameof(MessageView.Delivery) or nameof(MessageView.RetrySend)) Build(message); }
+    { if (sender is MessageView message && e.PropertyName is nameof(MessageView.Attachment) or nameof(MessageView.AttachmentProgress) or nameof(MessageView.Delivery) or nameof(MessageView.RetrySend) or nameof(MessageView.ReactionHistoryLabel)) Build(message); }
     private void Build(MessageView message)
     {
         var body = new StackPanel();
         if (message.Attachment is { } attachment)
         {
             var fileBody = new StackPanel();
-            if (message.AttachmentPath is { } path && AttachmentImage.Load(path, attachment.File.Name) is { } image)
-                fileBody.Children.Add(new Image { Source = image, MaxWidth = 300, MaxHeight = 200, Stretch = Stretch.Uniform, Margin = new(0,0,0,8) });
+            fileBody.Children.Add(new AttachmentPreviewView(attachment, message.AttachmentPath));
             fileBody.Children.Add(Literal(attachment.File.Name, wrap: true));
             fileBody.Children.Add(Literal(ChatWindow.AttachmentSize(attachment.File.Size) + " · " + attachment.StateText + (attachment.State == "receiving" ? $" {message.AttachmentProgress}%" : attachment.Direction == "outgoing" && attachment.State == "offered" && message.AttachmentProgress > 0 ? $" · 下載進度 {message.AttachmentProgress}%" : ""), wrap: true));
             var actions = new WrapPanel { Margin = new(0,6,0,0) };
             void Button(string label, string action) {
                 var button = new Button { Content = label, Margin = new(0,0,8,4), Padding = new(8,4,8,4), MinHeight = 30 };
+                if(message.ContactReadOnly && action is "download" or "retry") { button.IsEnabled=false; button.ToolTip="此對話為唯讀，無法啟動附件傳輸。"; ToolTipService.SetShowOnDisabled(button,true); }
                 button.Click += async (_,_) => { if (message.AttachmentAction is { } invoke) await invoke(attachment, action); };
                 actions.Children.Add(button);
             }
-            if (attachment.State is "queued" or "sending" or "receiving" || attachment.Direction == "outgoing" && attachment.State == "offered") Button("取消", "cancel");
+            if (attachment.State is "queued" or "sending" or "receiving" || attachment.Direction == "outgoing" && attachment.State == "offered") Button("取消傳輸", "cancel");
             else if (attachment.Direction == "incoming" && attachment.State != "complete") Button("下載", "download");
             else if (attachment.Direction == "outgoing" && attachment.State is not ("complete" or "offered" or "unavailable")) Button("重試", "retry");
             if (attachment.State == "complete" && attachment.Problem == "confirmation_pending") Button("重送確認", "download");
@@ -84,7 +92,9 @@ public sealed class MessageCard : UserControl
             fileBody.Children.Add(actions);
             body.Children.Add(new Border { Child = fileBody, Background = Brush("#F1F5FA"), BorderBrush = Brush("#DCE3EC"), BorderThickness = new(1), CornerRadius = new(8), Padding = new(10), Margin = new(0,4,0,6) });
         }
-        var document = MessageDocument.Parse(message.Attachment?.Caption ?? message.RawText);
+        if (message.ReactionHistoryLabel is { } label)
+            body.Children.Add(new TextBlock { Text = label, FontSize = 11, TextWrapping = TextWrapping.Wrap, Foreground = Brush("#596B80") });
+        var document = MessageDocument.Parse(message.ReactionHistoryLabel is null ? message.Attachment?.Caption ?? message.RawText : "");
 
         for (int i = 0; i < document.Blocks.Count; i++)
         {
@@ -157,13 +167,16 @@ public sealed class MessageCard : UserControl
                 timer.Start();
             };
 
-            var menu = new ContextMenu();
+            var menu = new ContextMenu { Tag = "code-copy" };
             foreach (var mode in new[] { ("保留原換行", CodeCopyNewlines.Preserve), ("使用 LF 換行", CodeCopyNewlines.Lf), ("使用 CRLF 換行", CodeCopyNewlines.CrLf) })
             {
                 var choice = new MenuItem { Header = mode.Item1 };
                 choice.Click += (_, _) => ShowCopyFeedback(document.CopyCode(block, mode.Item2));
                 menu.Items.Add(choice);
             }
+            menu.Items.Add(new Separator());
+            var codeDelete = DeleteItem(message); menu.Items.Add(codeDelete);
+            menu.Opened += (_, _) => UpdateDeleteItem(codeDelete, message);
             copyBtn.ContextMenu = menu;
 
             DockPanel.SetDock(copyBtn, Dock.Right);
@@ -215,40 +228,40 @@ public sealed class MessageCard : UserControl
             Margin = new(0, 4, 0, 0),
             HorizontalAlignment = message.Outgoing ? HorizontalAlignment.Right : HorizontalAlignment.Left
         };
-        string prefix = DateTimeOffset.TryParse(message.Utc, out var utc) ? utc.ToLocalTime().ToString("HH:mm") + " · " : "";
-        metadata.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(MessageView.Delivery)) { Source = message, StringFormat = prefix + "{0}" });
+        metadata.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(MessageView.MetadataText)) { Source = message });
         body.Children.Add(metadata);
         if (message.AttemptId is not null)
         {
             var actions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0,4,0,0) };
             var retry = new Button { Content = "重試傳送", IsEnabled = message.RetrySend is not null, FontSize = 12, Margin = new(0,0,8,0),
-                ToolTip = message.RetrySend is null ? "請先傳送或清空正在編輯的其他內容，再重試這則訊息。" : "重試這則訊息，不會重複建立新的訊息" };
+                ToolTip = message.RetryDisabledReason ?? (message.RetrySend is null ? "請先傳送或清空正在編輯的其他內容，再重試這則訊息。" : "重試這則訊息，不會重複建立新的訊息") };
             retry.Click += async (_,_) => { if (message.RetrySend is { } invoke) await invoke(); }; actions.Children.Add(retry);
             if (message.CancelSend is { } cancel)
-            { var button = new Button { Content = "取消當次", FontSize = 12 }; button.Click += async (_,_) => await cancel(); actions.Children.Add(button); }
+            { var button = new Button { Content = "停止後續重試", FontSize = 12, ToolTip = "停止本機後續重試，不會向對方傳送訊息，也不會收回已送出的訊息。" }; button.Click += async (_,_) => await cancel(); actions.Children.Add(button); }
             body.Children.Add(actions);
         }
 
+        // Assign Child only after choosing its layout; a body cannot belong to Border and overlay simultaneously.
         var card = new Border
         {
-            Child = body,
             Background = Brush(message.Outgoing ? "#E9EFFD" : "#F3F6FA"),
             CornerRadius = new(12),
             Padding = new(12, 8, 12, 8),
             MaxWidth = 520
         };
 
-        var rawMenu = new ContextMenu();
-        var rawCopy = new MenuItem { Header = "複製整則原文" };
-        rawCopy.Click += (_, _) => ShowCopyFeedback(message.RawText);
-        rawMenu.Items.Add(rawCopy);
-        if (message.DeleteLocal is not null)
+        var more = new Button { Content = "⋯", ToolTip = "訊息操作", Padding = new(8,0,8,0),
+            HorizontalAlignment = HorizontalAlignment.Right, Opacity = 0 };
+        System.Windows.Automation.AutomationProperties.SetName(more, "訊息操作");
+        more.Click += (_, _) => { var menu = ActionMenu(message); menu.PlacementTarget = more; menu.IsOpen = true; };
+        if (message.ReactionHistoryLabel is not null)
         {
-            var delete = new MenuItem { Header = "從本機刪除…" };
-            delete.Click += async (_, _) => { if (message.DeleteLocal is { } remove) await remove(); };
-            rawMenu.Items.Add(delete);
+            // Keep the existing action reachable without reserving an empty row under a small annotation.
+            var overlay = new Grid(); body.Margin = new Thickness(0, 0, 40, 0);
+            more.Width = 32; more.Height = 28; more.VerticalAlignment = VerticalAlignment.Center;
+            overlay.Children.Add(body); overlay.Children.Add(more); card.Child = overlay;
         }
-        card.ContextMenu = rawMenu;
+        else { body.Children.Add(more); card.Child = body; }
 
         var avatarImage = new Image
         {
@@ -286,7 +299,46 @@ public sealed class MessageCard : UserControl
             rowGrid.Children.Add(card);
         }
 
+        rowGrid.MouseEnter += (_, _) => more.Opacity = 1;
+        rowGrid.MouseLeave += (_, _) => { if (!rowGrid.IsKeyboardFocusWithin) more.Opacity = 0; };
+        rowGrid.GotKeyboardFocus += (_, _) => more.Opacity = 1;
+        rowGrid.LostKeyboardFocus += (_, _) => { if (!rowGrid.IsMouseOver) more.Opacity = 0; };
+        rowGrid.ContextMenu = new ContextMenu();
+        rowGrid.AddHandler(ContextMenuService.ContextMenuOpeningEvent, new ContextMenuEventHandler((_, e) => {
+            for (DependencyObject? node = e.Source as DependencyObject; node is not null;
+                node = node is Visual ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
+                if ((node as FrameworkElement)?.ContextMenu?.Tag as string == "code-copy") return;
+            e.Handled = true;
+            var menu = ActionMenu(message, e.OriginalSource as TextBox);
+            menu.PlacementTarget = rowGrid; menu.IsOpen = true;
+        }), true);
         Content = rowGrid;
+    }
+
+    private MenuItem DeleteItem(MessageView message)
+    {
+        var item = new MenuItem { Header = message.AttemptId is null ? "從這台電腦刪除…" : "停止傳送並刪除…" };
+        UpdateDeleteItem(item, message);
+        item.Click += async (_, _) => { if (message.DeleteLocal is { } remove) await remove(); };
+        return item;
+    }
+    private static void UpdateDeleteItem(MenuItem item, MessageView message)
+    {
+        string? reason = message.DeleteDisabledReason?.Invoke() ?? (message.DeleteLocal is null ? "此紀錄不支援本機刪除。" : null);
+        item.IsEnabled = reason is null; item.ToolTip = reason;
+        ToolTipService.SetShowOnDisabled(item, true);
+    }
+    private ContextMenu ActionMenu(MessageView message, TextBox? selected = null)
+    {
+        var menu = new ContextMenu();
+        if (selected?.SelectionLength > 0) {
+            string text = selected.SelectedText;
+            var copySelection = new MenuItem { Header = "複製選取文字" };
+            copySelection.Click += (_, _) => ShowCopyFeedback(text); menu.Items.Add(copySelection);
+        }
+        var copy = new MenuItem { Header = "複製整則原文" };
+        copy.Click += (_, _) => ShowCopyFeedback(message.RawText); menu.Items.Add(copy);
+        menu.Items.Add(DeleteItem(message)); return menu;
     }
 
     private void ShowCopyFeedback(string text)

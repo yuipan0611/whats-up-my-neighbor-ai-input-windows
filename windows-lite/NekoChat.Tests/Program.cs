@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using NekoChat.Core;
 
+if (NekoChat.Tests.PeerAvatarChecks.RunChild(args)) return;
 if (await NekoChat.Tests.AttachmentChecks.RunChildAsync(args)) return;
 if (NekoChat.Tests.ClassroomKillChecks.RunChild(args)) return;
 if (NekoChat.Tests.IdentityRecoveryChecks.RunChild(args)) return;
@@ -17,6 +18,12 @@ if (NekoChat.Tests.StorageReadChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageLegacyRosterChecks.RunChild(args)) return;
 if (NekoChat.Tests.StorageBackupChecks.RunChild(args)) return;
+if (args.SequenceEqual(new[] { "--reactions" })) { await ReactionChecks.Run(); await NekoChat.Tests.ReactionPreferenceChecks.Run(); await NekoChat.Tests.TeacherDeviceChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--contacts-ui-seed-check" })) { NekoChat.Tests.ContactsUiSeedChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--blocking" })) { await NekoChat.Tests.BlockingChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--contacts" })) { await NekoChat.Tests.ContactExperienceChecks.Run(); NekoChat.Tests.DefaultClassroomRosterChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--teacher" })) { await NekoChat.Tests.ContactExperienceChecks.Run("TC-"); return; }
+if (args.SequenceEqual(new[] { "--receipts" })) { await NekoChat.Tests.ContactExperienceChecks.Run("RR-"); return; }
 if (args.SequenceEqual(new[] { "--diag-independent" })) { try { await NekoChat.Tests.DiagnosticIndependentChecks.RunAsync(); } catch (InvalidOperationException e) { Console.Error.WriteLine(e.Message); Environment.Exit(1); } return; }
 if (args.SequenceEqual(new[] { "--diagnostic-recovery" })) { NekoChat.Tests.DiagnosticRecoveryChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--diagnostic-journal" })) { await NekoChat.Tests.DiagnosticChecks.RunAsync(); return; }
@@ -31,7 +38,8 @@ if (args.SequenceEqual(new[] { "--classroom-listener" })) { await NekoChat.Tests
 if (args.SequenceEqual(new[] { "--classroom-inbox" })) { NekoChat.Tests.ClassroomInboxChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-ui-policy" })) { NekoChat.Tests.ClassroomSendUiPolicyChecks.Run(); return; }
-if (args.SequenceEqual(new[] { "--attachments" })) { await NekoChat.Tests.AttachmentChecks.RunAsync(); return; }
+if (args.SequenceEqual(new[] { "--attachments" })) { await NekoChat.Tests.AttachmentChecks.RunAsync(); NekoChat.Tests.AttachmentImageProbeChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--attachment-previews" })) { NekoChat.Tests.AttachmentImageProbeChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-files" })) { await NekoChat.Tests.ClassroomFileChecks.RunAsync(); return; }
 if (args.SequenceEqual(new[] { "--teacher-files" })) { NekoChat.Tests.TeacherFileChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-ux" })) { NekoChat.Tests.ClassroomUxChecks.Run(); return; }
@@ -258,6 +266,9 @@ Reject(() => DirectLanMessaging.SendDirectAsync("8.8.8.8", "bad").GetAwaiter().G
 Reject(() => DirectLanMessaging.SendDirectAsync("127.0.0.1", "   ").GetAwaiter().GetResult(), "empty message rejected");
 checks += await DirectMessagingChecks.Run();
 checks += await ReactionChecks.Run();
+checks += NekoChat.Tests.AttachmentImageProbeChecks.Run();
+checks += await NekoChat.Tests.ReactionPreferenceChecks.Run();
+checks += await NekoChat.Tests.TeacherDeviceChecks.Run();
 checks += NekoChat.Tests.MessageFormattingChecks.Run();
 checks += NekoChat.Tests.UiEnhancementChecks.Run();
 checks += NekoChat.Tests.RosterCsvChecks.Run();
@@ -274,6 +285,7 @@ checks += await NekoChat.Tests.DiagnosticChecks.RunAsync();
 checks += await NekoChat.Tests.StorageRosterChecks.Run();
 checks += await NekoChat.Tests.StorageLegacyRosterChecks.Run();
 checks += await NekoChat.Tests.ClassroomRosterChecks.Run();
+checks += NekoChat.Tests.DefaultClassroomRosterChecks.Run();
 checks += NekoChat.Tests.ClassroomStoreChecks.Run();
 checks += NekoChat.Tests.ClassroomInboxChecks.Run();
 checks += NekoChat.Tests.StorageBackupChecks.Run();

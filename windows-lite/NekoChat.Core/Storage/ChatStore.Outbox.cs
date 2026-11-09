@@ -91,6 +91,7 @@ public sealed partial class ChatStore
 
     public OutboxItem? ClaimOutbox(string id, bool force = false) => Write<OutboxItem?>("outbox-claim", ctx => {
         var row = ListOutbox().SingleOrDefault(x => x.MessageId == id);
+        if (row is not null && Blocked(ctx,row.TargetIp)) return (null,false);
         if (row is null || row.State != "queued") return (null, false);
         if (!force && ctx.Scalar("SELECT count(*) FROM ClassroomOutbox WHERE messageId=@id AND nextAttemptUtc<=@now", ("@id", id), ("@now", ctx.NowUtc)) is not (long and 1)) return (null, false);
         if (!row.MessageId.StartsWith("download:", StringComparison.Ordinal) && ClassroomTarget(ctx, row.Principal) != row.TargetIp)
@@ -119,6 +120,7 @@ public sealed partial class ChatStore
     public bool OutboxCurrent(string id) => Read(c => {
         using var cmd = c.CreateCommand();
         cmd.CommandText = "SELECT count(*) FROM ClassroomOutbox o LEFT JOIN RosterEntry r ON o.principal='roster:'||r.id WHERE o.messageId=@id AND o.state='sending' AND (CASE WHEN o.principal GLOB 'ip:*' THEN substr(o.principal,4) ELSE r.endpoint END)=o.targetIp";
+        if (_migrations.Count>=15) cmd.CommandText += " AND NOT EXISTS(SELECT 1 FROM BlockedSource b WHERE b.ip=o.targetIp)";
         cmd.Parameters.AddWithValue("@id", id); return cmd.ExecuteScalar() is long count && count == 1;
     });
 
@@ -134,6 +136,7 @@ public sealed partial class ChatStore
     });
 
     public bool RetryOutbox(string id) => Write("outbox-retry", ctx => {
+        if (Blocked(ctx,ctx.Scalar("SELECT targetIp FROM ClassroomOutbox WHERE messageId=@id",("@id",id)) as string)) return (false,false);
         int changed = ctx.Exec("UPDATE ClassroomOutbox SET state='queued',nextAttemptUtc=@now,error=NULL WHERE messageId=@id AND state IN ('queued','failed','cancelled')", ("@id", id), ("@now", ctx.NowUtc));
         return (changed > 0, changed > 0);
     });
@@ -171,6 +174,7 @@ public sealed partial class ChatStore
     });
 
     public void EnqueueAttachmentDownload(AttachmentRecord row) => Write("outbox-download", ctx => {
+        if(Blocked(ctx,row.PeerIp)) return (0,false);
         string id = "download:" + row.LocalSeq.ToString(CultureInfo.InvariantCulture);
         int changed = ctx.Exec("INSERT OR IGNORE INTO ClassroomOutbox(messageId,principal,targetIp,peerPort,attachmentSeq,state,nextAttemptUtc,createdUtc) VALUES(@id,@p,@ip,@port,@a,'queued',@now,@now)",
             ("@id", id), ("@p", row.Principal), ("@ip", row.PeerIp), ("@port", row.PeerPort), ("@a", row.LocalSeq), ("@now", ctx.NowUtc));

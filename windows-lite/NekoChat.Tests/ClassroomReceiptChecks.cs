@@ -231,6 +231,7 @@ public static class ClassroomReceiptChecks
             long seqB = ((ClassroomStored)rxResult).LocalSeq;
 
             // B marks message as visible read
+            keyA = ((ClassroomStored)rxResult).Principal; // D-27 automatic contact ownership
             var visResult = storeB.MarkClassroomVisibleRead(keyA, new[] { seqB }, new VisibleReadContext(keyA.Value, true, true, false, true));
             Check(visResult.Marked == 1 && visResult.Queued == 1, "storeB marked read and queued 1 outbox receipt");
 

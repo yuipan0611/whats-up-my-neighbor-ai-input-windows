@@ -22,10 +22,11 @@ internal static class ReceiptServiceChecks
             if (privacyPhase && scope == Scope.ArchivedProtocol) return;
             checks++; if (!ok) throw new Exception("Receipt worker: " + label);
         }
-        await using var f = new Fixture(); var clock = new Clock(); await using var service = new ReadReceiptService(f.A, f.ClientA, f.ListenerB.Port, clock);
+        await using var f = new Fixture(); f.A.SetReadReceiptPolicy(false); // D-28: explicitly exercise opt-out rather than the retired default.
+        var clock = new Clock(); await using var service = new ReadReceiptService(f.A, f.ClientA, f.ListenerB.Port, clock);
         string first = await f.Send(); f.Read(first); service.Start(); await Until(() => Volatile.Read(ref service.Passes) > 0);
         Check(!f.A.GetReadReceiptPolicy().Enabled && f.A.ListPendingReadReceipts().Count == 0 && Volatile.Read(ref service.Attempts) == 0 && f.B.ListMessages(f.ConvB).Items.Single().RemoteReadAt is null,
-            "defaultOFF local visible-read queues/sends no receipt through an actual running service");
+            "D-28 explicit OFF local visible-read queues/sends no receipt through an actual running service");
         f.A.SetReadReceiptPolicy(true); string second = await f.Send(); f.Read(second); service.Pulse();
         await Until(() => f.B.ListMessages(f.ConvB).Items.Single(m => m.MessageId == second).RemoteReadAt is not null && f.A.ListPendingReadReceipts().Count == 0);
         Check(Volatile.Read(ref service.Attempts) == 1 && f.B.ListMessages(f.ConvB).Items.Single(m => m.MessageId == first).RemoteReadAt is null,
@@ -42,7 +43,7 @@ internal static class ReceiptServiceChecks
         if (scope == Scope.SharedPrivacy)
         {
             await service.DisposeAsync();
-            Console.WriteLine($"Shared receipt privacy: {checks} actual service/TCP/SQLite defaultOFF, opt-in, disable and no-backfill checks; signed fixture, not classroom protocol acceptance.");
+            Console.WriteLine($"Shared receipt privacy: {checks} actual service/TCP/SQLite explicit-OFF, opt-in, disable and no-backfill checks; signed fixture, not classroom protocol acceptance.");
             return checks;
         }
         privacyPhase = false;

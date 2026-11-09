@@ -111,9 +111,9 @@ internal static class ClassroomSenderOutcomeIndependentChecks
         try
         {
             using var store = NekoChat.Tests.Loopback.OpenStore(dir);
-            var principal = ClassroomPrincipalKey.ForSource(PeerIp)!.Value;
             store.SetReadReceiptPolicy(true);
             var stored = store.ReceiveClassroomMessage(PeerIp, new(ClassroomPacketWriter.NewMessageId(), "你好 receipt-marker"), () => true) as ClassroomStored ?? throw new InvalidOperationException("fixture: incoming message not stored");
+            var principal = stored.Principal; // D-27: receive owns the authoritative roster principal.
             store.MarkClassroomVisibleRead(principal, new[] { stored.LocalSeq }, new VisibleReadContext(principal.Value, true, true, false, true));
             var pending = store.ListPendingClassroomReceipts();
             if (pending.Count != 1) throw new InvalidOperationException("fixture: expected exactly one pending receipt, got " + pending.Count);
@@ -454,9 +454,9 @@ internal static class ClassroomSenderOutcomeIndependentChecks
             try
             {
                 using var store = NekoChat.Tests.Loopback.OpenStore(dir);
-                var principal = ClassroomPrincipalKey.ForSource(PeerIp)!.Value;
                 store.SetReadReceiptPolicy(true);
                 var stored = (ClassroomStored)store.ReceiveClassroomMessage(PeerIp, new(ClassroomPacketWriter.NewMessageId(), "keep-alive receipt"), () => true);
+                var principal = stored.Principal; // D-27 authoritative receive owner
                 store.MarkClassroomVisibleRead(principal, new[] { stored.LocalSeq }, new VisibleReadContext(principal.Value, true, true, false, true));
                 var pending = store.ListPendingClassroomReceipts().Single();
                 await using var peer = new KeepAlivePeer(ReceiptPeer());

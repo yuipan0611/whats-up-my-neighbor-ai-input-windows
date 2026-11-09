@@ -15,7 +15,7 @@ internal static class MessageRecoveryChecks
         string firstId; long survivor;
         try
         {
-            using (var store = ChatStore.Open(new(root)))
+            using (var store = ChatStore.Open(new(root) { Migrations = Migration.Default.Take(14).ToArray() }))
             {
                 Check(store.SaveClassroomDraft(principal, "第一則失敗", 0, 1).Saved, "save first draft");
                 var first = (AttemptStarted)store.BeginClassroomSend(principal, "第一則失敗", 0, 1); firstId = first.MessageId;
@@ -34,6 +34,7 @@ internal static class MessageRecoveryChecks
                 Check(store.CompleteClassroomAttempt(firstId, new RemoteStoredOutcome(DateTime.UtcNow, ChatStore.ClassroomFingerprint("第一則失敗", null)), "10.0.0.11", 1) is Discarded, "late ACK cannot revive deleted attempt");
 
                 var rx = (ClassroomStored)store.ReceiveClassroomMessage("10.0.0.11", new("incoming-delete", "刪這一則"), () => true);
+                principal = rx.Principal;
                 Check(!store.DeleteClassroomMessage(other, rx.LocalSeq).Deleted, "wrong conversation cannot delete message");
                 Check(store.DeleteClassroomMessage(principal, rx.LocalSeq).Deleted && !store.DeleteClassroomMessage(principal, rx.LocalSeq).Deleted, "single message deletion is idempotent");
                 Check(store.ReceiveClassroomMessage("10.0.0.11", new("incoming-delete", "刪這一則"), () => true) is ClassroomClearedDuplicate, "remote retransmit cannot revive local deletion");
@@ -48,6 +49,7 @@ internal static class MessageRecoveryChecks
 
                 // Outgoing deletion must also discard its confirmed attempt, so a duplicate ACK cannot recreate it.
                 var rxOther = (ClassroomStored)store.ReceiveClassroomMessage("10.0.0.12", new("other", "另一個對話"), () => true);
+                other = rxOther.Principal;
                 Check(store.DeleteClassroomMessage(principal, survivor).Deleted && store.CompleteClassroomAttempt(second.MessageId, new RemoteStoredOutcome(DateTime.UtcNow, ChatStore.ClassroomFingerprint("第二則", null)), "10.0.0.11", 1) is Discarded, "outgoing deletion survives late ACK");
                 Check(store.ListClassroomMessages(other).Items.Single().LocalSeq == rxOther.LocalSeq, "other conversation unchanged");
 
@@ -70,9 +72,10 @@ internal static class MessageRecoveryChecks
 
                 var added = store.SaveManualRosterEntry(null, new("同學", "01", false, "10.0.0.21"), RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot()));
                 Check(added.Changed, "nickname fixture");
-                var row = store.GetRosterSnapshot().Single().Entry;
+                var row = store.GetRosterSnapshot().Single(r => r.Entry.Endpoint == "10.0.0.21").Entry;
                 Check(store.SaveManualRosterEntry(row.Id, new("本機綽號", row.StudentNumber, row.IsTeacher, row.Endpoint), RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot())).Changed, "existing nickname API remains usable");
             }
+            principal = ClassroomPrincipalKey.ForSourceIp("10.0.0.11");
             using (var pages = ChatStore.Open(new(Path.Combine(root, "pagination"))))
             {
                 for (int i = 1; i <= 205; i++)
@@ -100,11 +103,12 @@ internal static class MessageRecoveryChecks
                 Check(buffer.CompleteWrite(preserved, preserved.PersistClassroom(edits, principal)) && edits.GetClassroomDraftState(principal).RawText == "等待確認時輸入的下一則", "post-ACK edit stays in classroom storage, not signed/v2 storage");
                 Check(edits.BeginClassroomSend(principal, preserved.Text, preserved.Epoch, preserved.Revision) is AttemptStarted, "post-ACK next message remains sendable");
             }
-            using (var store = ChatStore.Open(new(root)))
+            using (var store = ChatStore.Open(new(root) { Migrations = Migration.Default.Take(14).ToArray() }))
             {
+                principal = store.ResolveClassroomPrincipal("10.0.0.11")!.Value;
                 Check(store.ListClassroomMessages(principal).Items.Count == 0 && store.ListClassroomPendingMessages(principal).Count == 0 && store.GetClassroomDraftState(principal).RawText is null, "deletions survive restart");
                 Check(store.ListLegacyMessages(new(null, "10.0.0.11")).Items.Count == 0 && store.ListClassroomMessages(other).Items.Single().RawText == "另一個對話", "legacy deletion and other history survive restart");
-                var row = store.GetRosterSnapshot().Single().Entry;
+                var row = store.GetRosterSnapshot().Single(r => r.Entry.Endpoint == "10.0.0.21").Entry;
                 Check(row is { DisplayName: "本機綽號", StudentNumber: "01", Endpoint: "10.0.0.21", IsTeacher: false }, "nickname survives restart without identity/IP changes");
             }
         }

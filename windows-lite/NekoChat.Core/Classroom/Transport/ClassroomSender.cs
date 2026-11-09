@@ -24,6 +24,8 @@ public sealed record ClassroomReceiptSendResult(bool Completed, string Status, s
 
 public sealed class ClassroomSender
 {
+    public event Action<string>? CommunicationSucceeded;
+    private void ReportCommunication(string ip) { try { CommunicationSucceeded?.Invoke(ip); } catch { } }
     private readonly IChatStore _store;
     private readonly DiagnosticJournal? _diagnostics;
     private readonly HttpClient _http;
@@ -198,6 +200,7 @@ public sealed class ClassroomSender
                         return (false, null, null, helloResult.RemoteCode ?? helloResult.Code, false);
                     }
 
+                    ReportCommunication(targetIp);
                     return (true, helloResult.Hello.Session, ClassroomRoute.Classroom, null, false);
                 }
                 else if (helloStatus == 400 && helloRespBytes.AsSpan().SequenceEqual(ExactLegacyBody))
@@ -499,8 +502,9 @@ public sealed class ClassroomSender
     {
         ArgumentNullException.ThrowIfNull(receipt);
         ArgumentNullException.ThrowIfNull(stillCurrent);
+        bool Current() => stillCurrent() && !_store.IsSourceBlocked(receipt.TargetIp);
 
-        if (!stillCurrent())
+        if (!Current())
         {
             return new ClassroomReceiptSendResult(false, "stale_policy");
         }
@@ -587,7 +591,7 @@ public sealed class ClassroomSender
         }
         session = initialProbe.Session;
 
-        if (!stillCurrent())
+        if (!Current())
         {
             return new ClassroomReceiptSendResult(false, "stale_policy");
         }
@@ -595,6 +599,7 @@ public sealed class ClassroomSender
         // 2. Send receipt (with stale_session single retry)
         for (int receiptTry = 0; receiptTry < 2; receiptTry++)
         {
+            if (!Current()) return new ClassroomReceiptSendResult(false, "stale_policy");
             byte[] receiptBytes = ClassroomPacketWriter.ReceiptRequest(receipt.MessageId, session!, targetIp);
 
             try

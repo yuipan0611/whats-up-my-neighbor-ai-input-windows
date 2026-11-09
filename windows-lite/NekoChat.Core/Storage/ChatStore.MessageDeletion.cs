@@ -56,6 +56,8 @@ public sealed partial class ChatStore
             var old = FindClassroomAttempt(ctx, messageId);
             if (old is null || old.Principal != principal.Value) return (new LocalDeleteResult(false, "not-found"), false);
             if (old.Count != expectedTryCount) return (new LocalDeleteResult(false, "stale-attempt"), false);
+            if (_migrations.Count >= 13 && ctx.Scalar("SELECT count(*) FROM ClassroomOutbox WHERE messageId=@id AND state='sending'", ("@id", messageId)) is long active && active != 0)
+                return (new LocalDeleteResult(false, "not-idle"), false);
             if (old.State is "confirmed" or "superseded" || old.State == "sending" && (_migrations.Count < 13 || ctx.Scalar("SELECT count(*) FROM ClassroomOutbox WHERE messageId=@id", ("@id", messageId)) is not (long and 1))) return (new LocalDeleteResult(false, "not-idle"), false);
             if (_migrations.Count >= 13) ctx.Exec("DELETE FROM ClassroomOutbox WHERE messageId=@id AND principal=@p", ("@id", messageId), ("@p", principal.Value));
             var draft = ReadClassroomBinding(ctx, principal.Value);

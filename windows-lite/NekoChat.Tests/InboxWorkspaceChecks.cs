@@ -21,8 +21,8 @@ internal static class InboxWorkspaceChecks
             Check(snapshot.Entries.Take(3).Select(e => e.RosterId).SequenceEqual(new[] { teacher, student, alias }), "teacher then numeric student number, stable rows (not recency/name) order");
             Check(snapshot.TotalUnread == 3 && snapshot.Entries.Single(e => e.RosterId == student).TotalUnread == 2 && snapshot.Entries.Single(e => e.RosterId == alias).Unread == 1,
                 "total unread deduplicates aliased conversation while keeping per-scope legacy unread");
-            Check(snapshot.Entries.Single(e => e.RosterId == student) is { LastIsLegacy: true, LastText: "unverified row history" } && snapshot.Entries.Single(e => e.Id == "legacy-ip:10.0.0.4").NotificationName == "未驗證來源",
-                "separate legacy summary and private notification label exclude unknown source IP");
+            Check(snapshot.Entries.Single(e => e.RosterId == student) is { LastIsLegacy: true, LastText: "unverified row history" } && snapshot.Entries.Single(e => e.Endpoint == "10.0.0.4").NotificationName == "10.0.0.4",
+                "D-27 auto contact uses its explicit local IP label without promoting identity");
             var draft = f.Store.GetDraftState(f.Conversation)!; f.Store.SaveDraft(f.Conversation, "manual only", draft.Epoch, draft.Revision + 1);
             var started = (AttemptStarted)f.Store.BeginManualSend(f.Conversation, "manual only", draft.Epoch, draft.Revision + 1); f.Store.CompleteAttempt(started.MessageId, new UnconfirmedOutcome());
             var entry = f.Store.GetInboxSnapshot().Entries.Single(e => e.RosterId == alias);
@@ -35,7 +35,7 @@ internal static class InboxWorkspaceChecks
             snapshot = f.Store.GetInboxSnapshot();
             Check(snapshot.Entries.Single(e => e.RosterId == reused).LegacyUnread == 0 && snapshot.Entries.Single(e => e.Id == "legacy-ip:10.0.0.1").LegacyUnread == 1,
                 "deleted-row legacy history remains findable and never transfers to reused IP owner");
-            Check(f.Store.GetUnreadCount(f.Conversation) == 1 && f.Store.ListLegacyMessages(new(null, "10.0.0.1")).Items.Single().LocalReadAt is null,
+            Check(f.Store.GetUnreadCount(f.Conversation) == 1 && f.Store.ListLegacyMessages(new(student, null)).Items.Single().LocalReadAt is null,
                 "all Inbox reads leave local unread and receipt state untouched");
             f.Store.ClearConversation(f.Conversation); Check(f.Store.GetInboxSnapshot().Entries.Single(e => e.RosterId == alias).Draft?.RawText is null,
                 "clear reflected without stale draft/attempt/message snippet");

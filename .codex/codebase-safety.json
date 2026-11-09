@@ -5,7 +5,7 @@
     "name": "NekoChat Windows Lite",
     "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",
     "repo_root": ".",
-    "last_reviewed": "2026-11-06"
+    "last_reviewed": "2026-11-09"
   },
   "instructions": {
     "files": [
@@ -68,7 +68,13 @@
       "Runtime owns a per-profile diagnostic journal separate from SQLite. Typed optional journal parameters connect sender, receiver, storage and attachments; metadata recording never waits for file I/O. UI uses localized codes and a bounded manual export.",
       "Classroom visible reads advance a merged classroom/legacy timeline cursor through unloaded pages; local marks and opt-in receipts commit atomically under the existing view generation guard.",
       "Normal classroom viewport reads skip transactions when the current inbox snapshot has no unread messages; incoming updates refresh the snapshot and retain view-generation guards.",
-      "DiagnosticRecoveryPolicy keeps unresolved stage/code failures separate, chooses the most urgent warning and removes only recovered flows. No-runtime diagnostic export uses OpenReadOnly and never starts a writer or rotates history."
+      "DiagnosticRecoveryPolicy keeps unresolved stage/code failures separate, chooses the most urgent warning and removes only recovered flows. No-runtime diagnostic export uses OpenReadOnly and never starts a writer or rotates history.",
+      "Schema v14 backs up pre-upgrade SQLite, atomically auto-adds bounded source-IP contacts with receive/legacy/attachment commits, preserves archive ids, merges v13 queue ownership without changing original targetIp, and enforces a single local teacher. Auto source is not file/pairing trust; label/IP edits preserve it until explicit confirmation.",
+      "Migration15 adds explicit local source-IP blocking; immediate writer transactions gate ingress and queued work. Unblock never auto-resumes cancelled work. WPF reads authoritative teacher state, projects Settings with retry, separates archive/blocked lists, and exposes scoped local deletion. Cross-build evidence is separate from unexecuted native UI acceptance.",
+      "D-30: blocked valid classroom sends get normal stored ACKs but no local persistence; legacy uses existing delivered and offers use offered, never complete. Blocked receipt ACK is discarded; outgoing receipts recheck local blocking after hello. Receive diagnostics omit identifiers before admission. Classroom UI labels this acknowledgement sent, not proof of remote storage.",
+      "Local hiding of blocked classroom-share authors is separate from serving already cached replicas to other permitted nodes. Relay lookup still excludes withdrawn content and keeps source/grant/range/ready checks. WPF notification block queries run on the storage Worker before Dispatcher notification; unknown state suppresses notification without identifiers.",
+      "D-31 explicit native contacts smoke runs only in a new safe ui-test-data profile. Per-window auto-dialog hooks require the exact isolated settings/DB root; ordinary prompts retain MessageBox behavior. Shared historical-v13 seed is test-only and refuses overwrite; loopback synthetic sources and seeded transfer states are declared, not LAN/physical acceptance.",
+      "Attachment previews require complete persisted metadata or a staged draft, a bounded real file and a same-handle SHA-256 recheck before content-header recognition and WIC. A serial background worker copies only a bounded first-frame thumbnail into detached frozen UI pixels; per-card cancellation and draft generations reject stale results. No new wire fields, persistence states or image actions."
     ],
     "external_integrations": []
   },
@@ -211,6 +217,70 @@
     {
       "fact": "Pure recovery regression covers overlapping persistent/transient failures; read-only export preserves all four generations byte for byte, and unknown custom exception messages map to OtherException.",
       "source": "windows-lite/NekoChat.Core/Diagnostics/DiagnosticRecoveryPolicy.cs; windows-lite/NekoChat.Tests/DiagnosticRecoveryChecks.cs; windows-lite/NekoChat.Tests/DiagnosticChecks.cs"
+    },
+    {
+      "fact": "CT/TC/RR/MD Core scenarios use real SQLite plus controlled protocol peers; receipt processing pages fairly and valid same-peer communication re-arms bounded retries. Receipt defaults and explicit choices/notices migrate under D-28 generation rules.",
+      "source": "windows-lite/NekoChat.Tests/ContactExperienceChecks.cs; windows-lite/NekoChat.Core/Storage/ChatStore.Contacts.cs; windows-lite/NekoChat.Core/Classroom/Transport/ClassroomReceiptService.cs"
+    },
+    {
+      "fact": "ClassroomStore and MessageRecovery run v14 using stored principals; historical Inbox v13 is paired with v14 projection/archive scenarios. Blocking v15 has backup and transaction-race coverage. WPF projection and physical acceptance remain unexecuted.",
+      "source": "docs/team/CODEX-VERIFICATION.md; windows-lite/docs/specs/contacts.md"
+    },
+    {
+      "fact": "D-30 uses real isolated TCP/SQLite durable text and attachment queues plus receiver row-count and diagnostic ZIP checks; a controlled hello peer tests read-receipt blocking in flight with a positive control. Product loopback guards stay intact; physical/UI acceptance remains separate.",
+      "source": "windows-lite/NekoChat.Tests/BlockingChecks.cs; windows-lite/docs/specs/blocking.md; docs/team/CODEX-VERIFICATION.md"
+    },
+    {
+      "fact": "BK-08 explicitly injects failure after real v15 DDL and partial data writes, compares canonical v14 schema/data, reopens v14 and successfully retries v15. BK-03 proves exact cached-byte relay after author blocking while preserving local hiding, grants and signed withdrawal.",
+      "source": "windows-lite/NekoChat.Tests/BlockingChecks.cs; windows-lite/docs/specs/blocking.md; docs/team/CODEX-VERIFICATION.md"
+    },
+    {
+      "fact": "Contacts native smoke drives actual forms/menus/teacher projection/archive/block/delete states and captures synthetic WPF UI. CI runs package and portable on windows-2025, requiring JSON isolation flags and captures; actual native results must be checked after PM push, separate from local cross-build.",
+      "source": "windows-lite/NekoChat.Windows/App.ContactsUiSmokeTest.cs; Shared/ContactsUiSmokeSeed.cs; .github/workflows/nekochat-windows-lite.yml; windows-lite/docs/specs/contacts-ui-smoke.md"
+    },
+    {
+      "fact": "Fallback peer avatars use stable identity-first UTF-8 SHA-256 and explicit big-endian indexing; distinct real child processes lock mapping and distribution. Existing custom-avatar lookup and nine-coat assets remain first priority; unsynchronized local roster IDs are not shared peer identity.",
+      "source": "windows-lite/NekoChat.Core/Presentation/PeerAvatarPolicy.cs; windows-lite/NekoChat.Tests/PeerAvatarChecks.cs; windows-lite/NekoChat.Windows/CatArtwork.cs"
+    },
+    {
+      "fact": "Message metadata formatting is pure and omits orphan separators; native contacts hardening uses pre-Attach exact-runtime/profile hooks, complete cancellation snapshots, real-input reachability and foreground/read negative-positive controls. Removed roster IDs are excluded from stale UI selection; native additions still require CI execution.",
+      "source": "windows-lite/NekoChat.Core/Presentation/MessageMetadataPolicy.cs; windows-lite/NekoChat.Tests/MessageFormattingChecks.cs; windows-lite/NekoChat.Windows/ChatWindow.ContactsSmokeFixture.cs; windows-lite/NekoChat.Windows/App.ContactsUiSmokeTest.cs; docs/team/CODEX-VERIFICATION.md"
+    },
+    {
+      "fact": "D-32 reaction images default ON; legacy values without explicit choice normalize ON without load-time writes, while visible-toggle choices persist. Shared preview policy retains teacher-only routing; receive transaction and Worker notification block gates stay in place.",
+      "source": "windows-lite/NekoChat.Core/ReactionPreviewPolicy.cs; windows-lite/NekoChat.Windows/Settings.cs; windows-lite/NekoChat.Windows/ChatWindow.xaml; windows-lite/NekoChat.Tests/ReactionPreferenceChecks.cs; windows-lite/docs/specs/reactions.md"
+    },
+    {
+      "fact": "D-33 local teacher presentation role resolves before roster TeacherIp projection, with fixed-default-IP startup repair and explicit-choice priority. Student TeacherOnly events are silently retained with a small history annotation; wire-null reaction metadata remains ordinary text. Test local-address injection requires the exact isolated runtime/profile.",
+      "source": "windows-lite/NekoChat.Core/TeacherDevicePolicy.cs; windows-lite/NekoChat.Windows/ChatWindow.ContactManagement.cs; windows-lite/NekoChat.Core/ReactionPreviewPolicy.cs; windows-lite/NekoChat.Windows/MessageHistoryView.cs; windows-lite/docs/specs/reactions.md"
+    },
+    {
+      "fact": "D-34 embeds an IP-only 37-student/.240-teacher seed. Sidecar overrides the embedded source; first empty roster/history seeds once, while existing users only add missing IPs after confirmation with snapshot CAS. Explicit add-only choices preserve nicknames/roles and self exclusion uses all local addresses.",
+      "source": "windows-lite/NekoChat.Core/Roster/DefaultClassroomRoster.csv; windows-lite/NekoChat.Core/Roster/ClassroomRosterSeed.cs; windows-lite/NekoChat.Windows/ChatWindow.ClassRoster.cs; windows-lite/NekoChat.Tests/DefaultClassroomRosterChecks.cs; windows-lite/docs/specs/contacts.md"
+    },
+    {
+      "fact": "Confirmed class roster fill excludes distinct known IPs from RosterRemoved/ClassroomArchivedContact snapshots and reports skips without guessing old endpoint-free snapshots. Explicit-id reaction dispatch uses Find/Notification; the unused ForIncoming helper is removed. Annotation actions overlay the card instead of reserving a blank row.",
+      "source": "windows-lite/NekoChat.Core/Storage/ChatStore.Roster.cs; windows-lite/NekoChat.Core/Roster/ClassroomRosterSeed.cs; windows-lite/NekoChat.Windows/ChatWindow.ClassRoster.cs; windows-lite/NekoChat.Tests/DefaultClassroomRosterChecks.cs; windows-lite/NekoChat.Windows/MessageHistoryView.cs"
+    },
+    {
+      "fact": "Content-based image probes bound size and known dimensions before installed WIC decoding. Windows fixtures distinguish actual first-frame thumbnails from explicit missing-codec hints and capture their own window before teardown; synthetic completed receive metadata does not claim network-transfer acceptance.",
+      "source": "windows-lite/NekoChat.Core/Attachments/AttachmentImageProbe.cs; windows-lite/NekoChat.Windows/AttachmentImage.cs; windows-lite/NekoChat.Tests/AttachmentImageProbeChecks.cs; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs; windows-lite/docs/specs/attachments-preview.md"
+    },
+    {
+      "fact": "Incoming attachment offers allocate a receiver-local blob ID independently of the sender wire ID. Native preview fixtures must reserve/commit bytes under the returned receiver record before marking completion; a complete record lacking its local path shows a fixed verification hint rather than silent NotEligible. Real TCP PNG regression pins canonical complete state, local path, lowercase hex SHA and content-based preview eligibility.",
+      "source": "windows-lite/NekoChat.Core/Storage/ChatStore.Attachments.cs#ReceiveAttachmentOffer; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs; windows-lite/NekoChat.Windows/AttachmentImage.cs; windows-lite/NekoChat.Tests/AttachmentChecks.cs"
+    },
+    {
+      "fact": "Preview decoder availability comes from content-independent WIC CreateDecoder(container GUID), recording the selected component CLSID, not a generic image exception. All eight formats use the same Registered/NotRegistered/Unknown policy: only definitive missing registration is DecoderUnavailable; registered corrupt data and unknown queries remain DecodeFailed. Native inventory is saved before per-file decoding and unknown registration fails the smoke.",
+      "source": "windows-lite/NekoChat.Core/Attachments/AttachmentDecoderPolicy.cs; windows-lite/NekoChat.Windows/WicDecoderCatalog.cs; windows-lite/NekoChat.Windows/AttachmentImage.cs; windows-lite/NekoChat.Tests/AttachmentImageProbeChecks.cs; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs"
+    },
+    {
+      "fact": "PM r15 classifies only WINCODEC_ERR_COMPONENTINITIALIZEFAILURE (0x88982F8B) during a format-specific decoder query as InitializeFailed and operationally DecoderUnavailable, with no pixel decode. It is distinct from NotRegistered and Unknown; neighboring/other unknown HRESULTs still fail native smoke. Observations preserve exact registration/error and represent unavailable vs unproven registration separately.",
+      "source": "windows-lite/NekoChat.Core/Attachments/AttachmentDecoderPolicy.cs; windows-lite/NekoChat.Windows/WicDecoderCatalog.cs; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs; windows-lite/NekoChat.Tests/AttachmentImageProbeChecks.cs; windows-lite/docs/specs/attachments-preview.md"
+    },
+    {
+      "fact": "D-36 deliberately excludes ICO attachment previews by content before any product WIC query/decode, returning explicit NotSupported and a fixed save-as hint even when the ICO embeds PNG pixels. ICO stays in native fixture/informational inventory and must prove hint/no-decode/no-image with a screenshot; PNG/JPEG/GIF/TIFF/BMP remain strict Ready controls, WebP/HEIF follow confirmed availability.",
+      "source": "windows-lite/NekoChat.Core/Attachments/AttachmentImageProbe.cs; windows-lite/NekoChat.Windows/AttachmentImage.cs; windows-lite/NekoChat.Tests/AttachmentImageProbeChecks.cs; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs; windows-lite/docs/specs/attachments-preview.md"
     }
   ]
 }

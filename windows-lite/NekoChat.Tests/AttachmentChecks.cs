@@ -11,6 +11,7 @@ using NekoChat.Core.Classroom.Transport;
 using NekoChat.Core.Classroom.Wire;
 using NekoChat.Core.Storage;
 using NekoChat.Core.Roster;
+using NekoChat.TestFixtures;
 
 namespace NekoChat.Tests;
 
@@ -108,8 +109,8 @@ public static class AttachmentChecks
             string oldDir = Path.Combine(root, "old"); var p = ClassroomPrincipalKey.ForSourceIp("127.0.0.1");
             using (var old = ChatStore.Open(new(oldDir) { Migrations = Migration.Default.Take(10).ToArray() }))
                 old.ReceiveClassroomMessage("127.0.0.1", new(Guid.NewGuid().ToString("D"), "舊紀錄"), () => true);
-            using (var upgraded = ChatStore.Open(new(oldDir)))
-            { Check(upgraded.ListClassroomMessages(p).Items.Single().RawText == "舊紀錄", "migration keeps text"); Check(upgraded.LatestVersion == 13 && upgraded.ListBackups().Count != 0, "additive migration and backup"); }
+            using (var upgraded = ChatStore.Open(new(oldDir) { Migrations = Migration.Default.Take(14).ToArray() }))
+            { Check(upgraded.ListClassroomMessages(p).Items.Single().RawText == "舊紀錄", "migration keeps text"); Check(upgraded.LatestVersion == 14 && upgraded.ListBackups().Count != 0, "additive migration and backup"); }
             string source = Path.Combine(root, "課堂.py"); await File.WriteAllBytesAsync(source, small);
             await using (var sender = new Node(Path.Combine(root, "a")))
             await using (var receiver = new Node(Path.Combine(root, "b")))
@@ -139,6 +140,34 @@ public static class AttachmentChecks
                 var incoming = receiver.Store.ListAttachments().Single();
                 Check(receiver.Files.Vault.Exists(incoming.File), "known-seat small attachment automatically receives");
                 Check(incoming.Caption == "" && receiver.Store.ListClassroomMessages(ClassroomPrincipalKey.ForRosterEntry(incoming.Principal[7..])).Items.Count == 1, "attachment-only message accepted");
+            }
+            // AP-05 r13: actual TCP offer/chunks/SHA commit, not a manually completed store row.
+            string pngPath = Path.Combine(root, "synthetic-png.data");
+            byte[] png = AttachmentPreviewFixtures.Read("png"); await File.WriteAllBytesAsync(pngPath, png);
+            await using (var sender = new Node(Path.Combine(root, "preview-a")))
+            await using (var receiver = new Node(Path.Combine(root, "preview-b")))
+            {
+                var outgoing = await Send(sender, receiver, pngPath);
+                var offered = receiver.Store.ListAttachments().Single();
+                Check(offered.File.BlobId != outgoing.File.BlobId, "AP-05 TCP receiver allocates local id independently of sender");
+                Check(!receiver.Files.Vault.Exists(offered.File) && !AttachmentImageProbe.Eligible(offered.State, false, offered.File.Size),
+                    "AP-05 real pending offer has no local path and is not preview eligible");
+                await receiver.Files.DownloadAsync(offered.LocalSeq);
+                var complete = receiver.Store.GetAttachment(offered.LocalSeq)!;
+                string? previewPath = receiver.Files.Vault.Exists(complete.File) ? receiver.Files.Vault.PathFor(complete.File.BlobId) : null;
+                Check(complete.State == "complete" && complete.CompletedUtc is not null, "AP-05 real download persists canonical completed state");
+                Check(previewPath is not null && AttachmentImageProbe.Eligible(complete.State, previewPath is not null, complete.File.Size),
+                    "AP-05 real completed receive passes the product preview qualification");
+                Check(complete.File.Size == png.Length && AttachmentLimits.IsHash(complete.File.Sha256) &&
+                    complete.File.Sha256 == Convert.ToHexStringLower(SHA256.HashData(png)), "AP-05 real receive keeps lowercase hex SHA-256 and exact length");
+                byte[] received = TestFixtureFiles.ReadAllBytes(previewPath!);
+                Check(received.SequenceEqual(png) && Convert.ToHexStringLower(SHA256.HashData(received)) == complete.File.Sha256,
+                    "AP-05 receiver local file contains exact TCP bytes with matching stored SHA-256");
+                Check(AttachmentImageProbe.Inspect(received, received.Length) is { Format: AttachmentImageFormat.Png, CanDecode: true },
+                    "AP-02 real completed PNG with .data name passes content recognition");
+                receiver.Files.Vault.Delete(complete.File.BlobId);
+                Check(!AttachmentImageProbe.Eligible(complete.State, receiver.Files.Vault.Exists(complete.File), complete.File.Size),
+                    "AP-05 deleted local copy cannot become decode eligible despite complete metadata");
             }
             string large = Path.Combine(root, "large.zip"); byte[] big = RandomNumberGenerator.GetBytes(6 * 1024 * 1024); await File.WriteAllBytesAsync(large, big);
             await using (var sender = new Node(Path.Combine(root, "large-a")))

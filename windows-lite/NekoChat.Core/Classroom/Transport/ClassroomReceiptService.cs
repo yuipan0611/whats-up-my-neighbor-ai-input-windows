@@ -35,10 +35,14 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
 
     private sealed class EventState
     {
+        public required string TargetIp { get; init; }
         public int Attempts { get; set; }
         public long NextAttemptTimestamp { get; set; }
     }
 
+    private long? _scanAfter;
+    private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _batch = new(1, 1);
     private readonly Dictionary<string, EventState> _states = new(StringComparer.Ordinal);
     private readonly HashSet<string> _inFlightTargets = new(StringComparer.Ordinal);
 
@@ -68,6 +72,8 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
         _ownIp = ownIp;
         _clock = clock ?? TimeProvider.System;
         _ownIpResolver = ownIpResolver;
+        _sender.CommunicationSucceeded += PeerSucceeded;
+        _store.ClassroomCommunicationSucceeded += PeerSucceeded;
     }
 
     public static TimeSpan CalculateBackoff(int attemptCount)
@@ -88,6 +94,17 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
             _loop = Task.Run(LoopAsync);
             _timer = Task.Run(TimerAsync);
         }
+        Pulse();
+    }
+
+    private void PeerSucceeded(string ip)
+    {
+        lock (_gate)
+            foreach (var pair in _states.Where(p => p.Value.TargetIp == ip).ToArray())
+            {
+                if (_inFlightTargets.Contains(ip)) continue;
+                pair.Value.Attempts = 0; pair.Value.NextAttemptTimestamp = 0;
+            }
         Pulse();
     }
 
@@ -142,6 +159,13 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
 
     public async Task ProcessOutboxBatchAsync()
     {
+        await _batch.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        try { await ProcessBatchCoreAsync().ConfigureAwait(false); }
+        finally { _batch.Release(); }
+    }
+
+    private async Task ProcessBatchCoreAsync()
+    {
         if (_lifetime.IsCancellationRequested) return;
 
         // D-10: Outbound read receipts require policy enabled
@@ -149,30 +173,24 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
         {
             lock (_gate)
             {
-                _states.Clear();
+                _states.Clear(); _seen.Clear(); _scanAfter = null;
             }
             return;
         }
 
-        var pending = _store.ListPendingClassroomReceipts(50);
+        var pending = _store.ListPendingClassroomReceipts(50, _scanAfter);
         if (pending.Count == 0)
         {
             lock (_gate)
             {
-                _states.Clear();
+                foreach (var key in _states.Keys.Where(k => !_seen.Contains(k)).ToArray()) _states.Remove(key);
+                _seen.Clear(); _scanAfter = null;
             }
-            return;
+            pending = _store.ListPendingClassroomReceipts(50);
         }
-
-        if (pending.Count < 50)
-        {
-            var activeKeys = new HashSet<string>(pending.Select(r => $"{r.Principal.Value}:{r.MessageId}"), StringComparer.Ordinal);
-            lock (_gate)
-            {
-                var deadKeys = _states.Keys.Where(k => !activeKeys.Contains(k)).ToList();
-                foreach (var k in deadKeys) _states.Remove(k);
-            }
-        }
+        if (pending.Count == 0) return;
+        _scanAfter = pending[^1].OriginalLocalSeq;
+        var attemptedTargets = new HashSet<string>(StringComparer.Ordinal);
 
         long now = _clock.GetTimestamp();
 
@@ -181,13 +199,15 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
             if (_lifetime.IsCancellationRequested) break;
 
             string key = $"{receipt.Principal.Value}:{receipt.MessageId}";
+            _seen.Add(key);
+            if (attemptedTargets.Contains(receipt.TargetIp)) continue;
             EventState state;
 
             lock (_gate)
             {
                 if (!_states.TryGetValue(key, out state!))
                 {
-                    state = new EventState { Attempts = 0, NextAttemptTimestamp = 0 };
+                    state = new EventState { TargetIp = receipt.TargetIp, Attempts = 0, NextAttemptTimestamp = 0 };
                     _states[key] = state;
                 }
 
@@ -210,6 +230,7 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
                 }
 
                 _inFlightTargets.Add(receipt.TargetIp);
+                attemptedTargets.Add(receipt.TargetIp);
             }
 
             bool completed = false;
@@ -228,7 +249,7 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
                     receipt,
                     _port,
                     targetOwnIp,
-                    () => !_lifetime.IsCancellationRequested && _store.GetReadReceiptPolicy().Enabled,
+                    () => !_lifetime.IsCancellationRequested && _store.GetReadReceiptPolicy() is { Enabled: true } policy && policy.Generation == receipt.PolicyGeneration,
                     _lifetime.Token).ConfigureAwait(false);
 
                 if (result.Completed)
@@ -282,6 +303,8 @@ public sealed class ClassroomReceiptService : IAsyncDisposable
 
     private async Task StopAsync()
     {
+        _sender.CommunicationSucceeded -= PeerSucceeded;
+        _store.ClassroomCommunicationSucceeded -= PeerSucceeded;
         Interlocked.Increment(ref _generation);
         await _lifetime.CancelAsync().ConfigureAwait(false);
         _wake.Writer.TryComplete();
