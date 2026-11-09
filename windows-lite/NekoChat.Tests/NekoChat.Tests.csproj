@@ -8,4 +8,8 @@
   <ItemGroup><Compile Include="../NekoChat.Windows/UiTestOptions.cs" Link="WindowsSettings/UiTestOptions.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../Shared/ContactsUiSmokeSeed.cs" Link="Fixtures/ContactsUiSmokeSeed.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../../Shared/TestFixtureFiles.cs" Link="Fixtures/TestFixtureFiles.cs" /></ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../TestFixtures/AttachmentPreview/tiny.*" LogicalName="NekoChat.PreviewFixtures.%(Filename)%(Extension)" />
+    <Compile Include="../../Shared/AttachmentPreviewFixtures.cs" Link="Fixtures/AttachmentPreviewFixtures.cs" />
+  </ItemGroup>
 </Project>

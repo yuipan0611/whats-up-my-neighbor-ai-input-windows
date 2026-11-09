@@ -38,7 +38,8 @@ if (args.SequenceEqual(new[] { "--classroom-listener" })) { await NekoChat.Tests
 if (args.SequenceEqual(new[] { "--classroom-inbox" })) { NekoChat.Tests.ClassroomInboxChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-framing" })) { await NekoChat.Tests.ClassroomFramingChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-ui-policy" })) { NekoChat.Tests.ClassroomSendUiPolicyChecks.Run(); return; }
-if (args.SequenceEqual(new[] { "--attachments" })) { await NekoChat.Tests.AttachmentChecks.RunAsync(); return; }
+if (args.SequenceEqual(new[] { "--attachments" })) { await NekoChat.Tests.AttachmentChecks.RunAsync(); NekoChat.Tests.AttachmentImageProbeChecks.Run(); return; }
+if (args.SequenceEqual(new[] { "--attachment-previews" })) { NekoChat.Tests.AttachmentImageProbeChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-files" })) { await NekoChat.Tests.ClassroomFileChecks.RunAsync(); return; }
 if (args.SequenceEqual(new[] { "--teacher-files" })) { NekoChat.Tests.TeacherFileChecks.Run(); return; }
 if (args.SequenceEqual(new[] { "--classroom-ux" })) { NekoChat.Tests.ClassroomUxChecks.Run(); return; }
@@ -265,6 +266,7 @@ Reject(() => DirectLanMessaging.SendDirectAsync("8.8.8.8", "bad").GetAwaiter().G
 Reject(() => DirectLanMessaging.SendDirectAsync("127.0.0.1", "   ").GetAwaiter().GetResult(), "empty message rejected");
 checks += await DirectMessagingChecks.Run();
 checks += await ReactionChecks.Run();
+checks += NekoChat.Tests.AttachmentImageProbeChecks.Run();
 checks += await NekoChat.Tests.ReactionPreferenceChecks.Run();
 checks += await NekoChat.Tests.TeacherDeviceChecks.Run();
 checks += NekoChat.Tests.MessageFormattingChecks.Run();

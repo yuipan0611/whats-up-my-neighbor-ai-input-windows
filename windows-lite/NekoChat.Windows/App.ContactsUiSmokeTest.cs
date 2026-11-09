@@ -119,6 +119,7 @@ public partial class App
         var source = Settings.ForUiTest(options.DataDirectory) with { ClassRosterInitialized = true, AutoStartOnLogin = false };
         var hooks = new ContactsUiSmokeHooks(); var checks = new List<string>(); var captures = new List<string>();
         bool foregroundVerified = false, backgroundReadGuardVerified = false, removalRefreshFailureExercised = false; object? foregroundObservation = null;
+        object[] attachmentPreviewObservations = [];
         Window? foregroundCover = null;
         string? failure = null; ChatRuntime? runtime = null; ChatWindow? window = null; ClassroomTcpListener? synthetic = null;
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -495,6 +496,8 @@ public partial class App
                 (condition, label) => Wait(condition, label), deadline.Token);
             await RunDefaultRosterUiChecksAsync(output, Check, (name, element) => Shot(name, element),
                 (condition, label) => Wait(condition, label));
+            attachmentPreviewObservations = await RunAttachmentPreviewUiChecksAsync(output, Check, (name, element) => Shot(name, element),
+                (condition, label) => Wait(condition, label), deadline.Token);
             Check(captures.Count >= 18, "all native UI stages produced synthetic screenshots");
         }
         catch (Exception error)
@@ -511,7 +514,7 @@ public partial class App
         }
         await File.WriteAllTextAsync(resultFile, JsonSerializer.Serialize(new {
             passed = failure is null, checks, captures, failure, prompts = hooks.Prompts.Select(p => new { p.Title, p.Text, answer = p.Answer.ToString() }),
-            foregroundVerified, backgroundReadGuardVerified, foregroundObservation, removalRefreshFailureExercised, hooksInstalledBeforeAttach = true,
+            attachmentPreviewObservations, foregroundVerified, backgroundReadGuardVerified, foregroundObservation, removalRefreshFailureExercised, hooksInstalledBeforeAttach = true,
             seedSchemaVersion = 13, dailyProfileUsed = false, loopbackOnly = true, syntheticSourceMapping = true,
             backgroundSendLoopsStarted = false, dialogsAutoAnswered = true, attemptStateSeeded = true, attachmentTransferStateSeeded = true,
             captureKind = "Real WPF RenderTargetBitmap96; prompts auto-answered, not native MessageBox captures; not physical DPI evidence",

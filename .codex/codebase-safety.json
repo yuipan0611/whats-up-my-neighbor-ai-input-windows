@@ -73,7 +73,8 @@
       "Migration15 adds explicit local source-IP blocking; immediate writer transactions gate ingress and queued work. Unblock never auto-resumes cancelled work. WPF reads authoritative teacher state, projects Settings with retry, separates archive/blocked lists, and exposes scoped local deletion. Cross-build evidence is separate from unexecuted native UI acceptance.",
       "D-30: blocked valid classroom sends get normal stored ACKs but no local persistence; legacy uses existing delivered and offers use offered, never complete. Blocked receipt ACK is discarded; outgoing receipts recheck local blocking after hello. Receive diagnostics omit identifiers before admission. Classroom UI labels this acknowledgement sent, not proof of remote storage.",
       "Local hiding of blocked classroom-share authors is separate from serving already cached replicas to other permitted nodes. Relay lookup still excludes withdrawn content and keeps source/grant/range/ready checks. WPF notification block queries run on the storage Worker before Dispatcher notification; unknown state suppresses notification without identifiers.",
-      "D-31 explicit native contacts smoke runs only in a new safe ui-test-data profile. Per-window auto-dialog hooks require the exact isolated settings/DB root; ordinary prompts retain MessageBox behavior. Shared historical-v13 seed is test-only and refuses overwrite; loopback synthetic sources and seeded transfer states are declared, not LAN/physical acceptance."
+      "D-31 explicit native contacts smoke runs only in a new safe ui-test-data profile. Per-window auto-dialog hooks require the exact isolated settings/DB root; ordinary prompts retain MessageBox behavior. Shared historical-v13 seed is test-only and refuses overwrite; loopback synthetic sources and seeded transfer states are declared, not LAN/physical acceptance.",
+      "Attachment previews require complete persisted metadata or a staged draft, a bounded real file and a same-handle SHA-256 recheck before content-header recognition and WIC. A serial background worker copies only a bounded first-frame thumbnail into detached frozen UI pixels; per-card cancellation and draft generations reject stale results. No new wire fields, persistence states or image actions."
     ],
     "external_integrations": []
   },
@@ -260,6 +261,10 @@
     {
       "fact": "Confirmed class roster fill excludes distinct known IPs from RosterRemoved/ClassroomArchivedContact snapshots and reports skips without guessing old endpoint-free snapshots. Explicit-id reaction dispatch uses Find/Notification; the unused ForIncoming helper is removed. Annotation actions overlay the card instead of reserving a blank row.",
       "source": "windows-lite/NekoChat.Core/Storage/ChatStore.Roster.cs; windows-lite/NekoChat.Core/Roster/ClassroomRosterSeed.cs; windows-lite/NekoChat.Windows/ChatWindow.ClassRoster.cs; windows-lite/NekoChat.Tests/DefaultClassroomRosterChecks.cs; windows-lite/NekoChat.Windows/MessageHistoryView.cs"
+    },
+    {
+      "fact": "Content-based image probes bound size and known dimensions before installed WIC decoding. Windows fixtures distinguish actual first-frame thumbnails from explicit missing-codec hints and capture their own window before teardown; synthetic completed receive metadata does not claim network-transfer acceptance.",
+      "source": "windows-lite/NekoChat.Core/Attachments/AttachmentImageProbe.cs; windows-lite/NekoChat.Windows/AttachmentImage.cs; windows-lite/NekoChat.Tests/AttachmentImageProbeChecks.cs; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs; windows-lite/docs/specs/attachments-preview.md"
     }
   ]
 }

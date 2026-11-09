@@ -741,3 +741,40 @@ Correction keeps and strengthens the intent:
 This addresses a test observation/timing flaw; exact failing old subcondition remains unverified from the prior compound-only artifact. Native proof of the corrected observation requires the next CI, and is not claimed from Mac. No product logic, failure swallowing, timeout extension, guard relaxation or D-35 code is included.
 
 Local: freshly rebuilt Console0 warnings/0 errors; contacts228/exit0, reactions100/exit0, default Console6664/exit0; win-x64 cross-build0 warnings/0 errors/exit0. Logs build/r11-fix/*.log, results.json. Physical classroom/IME/DPI/two-machine checks remain separate. Local commit only; no push/merge/release/install/deploy.
+
+
+### D-35 content-based, bounded attachment thumbnails (2026-11-09)
+
+Resumed only after the isolated r10/r11 fixes were committed and reported. Base for this feature commit is7414ab5; r10 single-parent layout and r11 current-card observation code remain intact. The feature adds static thumbnail formats only: GIF first frame, WebP, TIFF first page, ICO, installed-WIC HEIC/HEIF, retaining PNG/JPEG/BMP. No enlarged viewer/open/copy-image action, schema/wire change, approved cat-asset edit, push or installation.
+
+| Spec | Implementation / evidence |
+|---|---|
+| AP-01 | AttachmentImageProbe recognizes content; AttachmentImage.Decode uses WIC Frames[0] only. Synthetic64×48 red fixtures (ICO16×16) include blue second GIF frame/TIFF page. Core recognizes all8 actual files; native checks actual frozen bitmap and red first-frame pixel, not just presence of a control. |
+| AP-02 | Bounded64KiB header probe covers PNG/JPEG/GIF/WebP/TIFF/ICO/BMP/HEIF. Native filenames deliberately end .data. Fake .jpg, truncated header and malformed container are refused before WIC; valid header with corrupt compressed payload must fail visibly without crashing. File extensions only select an unknown-image hint, never authorize decoding. |
+| AP-03 | Metadata and actual file are capped at25MiB; original ValidDimensions expression is unchanged in Windows and pinned in Core (width/height<=16384, pixels<=32,000,000). Header-known dimensions reject early; WIC first-frame dimensions are rechecked before pixels. Serial Task.Run worker does hashing/header/decode/scale, then copies at most320×200 into a detached frozen bitmap; UI card maximum300×200 remains. Native records a worker thread different from Dispatcher. |
+| AP-04 | Fixed inline hints cover content/size/dimension/hash/decoder failures without raw exception text. Explicit WIC component-not-found/unknown-format or COM class-not-registered errors classify missing codecs; other errors remain decode failures. Native builtins must actually render; optional WebP/HEIC may pass only the explicit missing-codec hint branch, HEIC naming Windows HEIF extension. Each actual status/error-code/notice is written before assertions to attachment-preview-observations.json, distinguishing thumbnail success, missing-codec hint and real failure. No codec availability is assumed from cross-build. |
+| AP-05 | Complete record plus AttachmentPath is required before any file/hash/decoder work. Length and SHA-256 are rechecked using the same stream that denies writers and allows deletion. Pending state with an existing valid blob and tampered completed blob are native negative controls. Staged local sender draft uses identical loader and verifies SHA; generations/cancellation prevent stale card/draft updates. |
+| Native evidence | App.AttachmentPreviewSmoke uses isolated safe profile, actual vault staging/store/history/WPF cards/draft, actual decoding/pixels and per-format attachment-preview-*.png screenshots. Receive completion state is seeded in SQLite after real staging; this is **not** claimed as network-download acceptance. Existing70-check TCP/SQLite attachment suite separately tests transport. Failure captures this helper's own window before teardown; incremental observations and all PNGs upload in the contacts artifact even if later checks fail. Existing12s step/100s deadline/115s watchdog unchanged. |
+| Specs/fixtures | attachments-preview.md AP-01–05 and LINE-PARITY B19 added. Shared embedded fixture bytes have generation/provenance README; no new runtime dependency or download. codebase-safety map updated and strict-valid (same2 physical/native unknowns remain). |
+
+#### Existing-test adaptation
+
+| Test | Before | After / basis |
+|---|---|---|
+| App.DragDropSmokeTest.cs:152 | Assert draft Image.Source immediately after draft metadata appeared | Wait using the existing UntilAsync/deadline for Source, then retain original non-null assertion and screenshot. D-35 deliberately moves decode off Dispatcher; no timeout increase or assertion removal. |
+| Program.cs --attachments/default | Existing attachments70 / default6664 | Preserve all old assertions, register115 new content-probe checks; --attachments185 total, default6779. New --attachment-previews isolates the115 checks. |
+
+Final local verification (SDK10.0.403; real worktree build/tmp; freshly built current test sources):
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 6.27 |
+| --attachment-previews | 115 | 0 | focused run |
+| --attachments | 70 existing +115 preview =185 | 0 | 2.79 |
+| --contacts | 194 +34 roster =228 | 0 | 2.28 |
+| --reactions | 47+31+22=100 | 0 | 0.96 |
+| Default Console | 6779 =6664+115 | 0 | 70.70 |
+| Final win-x64 cross-build | 0 warnings / 0 errors | 0 | 3.49 |
+| git diff --check / strict config | pass / valid | 0 | — |
+
+Logs: build/d35/*.log, results.json. **Native WPF codec outcomes and screenshots are 未執行 on Mac, pending PM push/Windows CI**; implementation of those tests is complete but does not constitute execution evidence. Physical Windows/classroom/two-device/IME/DPI acceptance stays separate. No deferred implementation item; no push/PR/merge/release/install/deploy.
