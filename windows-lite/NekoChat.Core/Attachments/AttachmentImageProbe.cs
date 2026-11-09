@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 namespace NekoChat.Core.Attachments;
 
 public enum AttachmentImageFormat { Unknown, Png, Jpeg, Gif, WebP, Tiff, Ico, Bmp, Heif }
-public enum AttachmentImageHeaderStatus { NotImage, Ready, Invalid, TooLarge, DimensionsExceeded }
+public enum AttachmentImageHeaderStatus { NotImage, Ready, Invalid, TooLarge, DimensionsExceeded, NotSupported }
 public sealed record AttachmentImageHeader(AttachmentImageFormat Format, AttachmentImageHeaderStatus Status, int Width = 0, int Height = 0)
 {
     public bool CanDecode => Status == AttachmentImageHeaderStatus.Ready;
@@ -104,7 +104,9 @@ public static class AttachmentImageProbe
             long directory = 6L + count * 16;
             long length = BinaryPrimitives.ReadUInt32LittleEndian(bytes[14..]), offset = BinaryPrimitives.ReadUInt32LittleEndian(bytes[18..]);
             if (count is < 1 or > 256 || directory > fileLength || length == 0 || offset < directory || offset + length > fileLength) return Bad(AttachmentImageFormat.Ico);
-            return Header(AttachmentImageFormat.Ico, bytes[6] == 0 ? 256 : bytes[6], bytes[7] == 0 ? 256 : bytes[7]);
+            // D-36: identify ICO by content, but never admit it to a preview decoder.
+            return new(AttachmentImageFormat.Ico, AttachmentImageHeaderStatus.NotSupported,
+                bytes[6] == 0 ? 256 : bytes[6], bytes[7] == 0 ? 256 : bytes[7]);
         }
         if (bytes.StartsWith("BM"u8))
         {

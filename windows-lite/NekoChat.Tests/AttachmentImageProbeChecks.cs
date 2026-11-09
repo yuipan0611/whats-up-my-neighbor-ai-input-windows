@@ -16,13 +16,21 @@ internal static class AttachmentImageProbeChecks
         {
             string name = AttachmentPreviewFixtures.Names[n]; byte[] bytes = AttachmentPreviewFixtures.Read(name);
             var actual = AttachmentImageProbe.Inspect(bytes, bytes.Length);
-            Check(actual.Format == expected[n] && actual.CanDecode, "AP-01 embedded real content recognized: " + name);
+            Check(actual.Format == expected[n] && (name == "ico"
+                ? actual.Status == AttachmentImageHeaderStatus.NotSupported && !actual.CanDecode : actual.CanDecode),
+                "AP-01 embedded content follows format preview policy (D-36 ICO excluded): " + name);
             Check(name == "heic" || (name == "ico" ? actual is { Width: 16, Height: 16 } : actual is { Width: 64, Height: 48 }), "AP-03 known header dimensions: " + name);
             Check(!AttachmentImageProbe.Inspect(bytes.AsSpan(0, Math.Min(7, bytes.Length)), Math.Min(7, bytes.Length)).CanDecode,
                 "AP-02 truncated magic/header rejected: " + name);
             Check(AttachmentImageProbe.Inspect(bytes, AttachmentLimits.MaximumFileBytes + 1).Status == AttachmentImageHeaderStatus.TooLarge,
                 "AP-03 file cap enforced before decoder: " + name);
         }
+        byte[] ico = AttachmentPreviewFixtures.Read("ico");
+        int icoPayload = (int)BinaryPrimitives.ReadUInt32LittleEndian(ico.AsSpan(18));
+        Check(ico.AsSpan(icoPayload).StartsWith(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }) &&
+            AttachmentImageProbe.Inspect(ico, ico.Length) is { Format: AttachmentImageFormat.Ico,
+                Status: AttachmentImageHeaderStatus.NotSupported, CanDecode: false },
+            "AP-01 D-36 an ICO containing PNG pixels remains unsupported; never unwrap its payload for preview");
         byte[] gif = AttachmentPreviewFixtures.Read("gif");
         Check(!AttachmentImageProbe.ImageName("photo.txt") && AttachmentImageProbe.Inspect(gif, gif.Length).Format == AttachmentImageFormat.Gif,
             "AP-02 image with wrong extension remains content-recognized");
@@ -62,7 +70,7 @@ internal static class AttachmentImageProbeChecks
             !AttachmentImageProbe.ValidDimensions(16385, 1) && !AttachmentImageProbe.ValidDimensions(8000, 4001), "AP-03 original dimension limits unchanged");
         var formats = Enum.GetValues<AttachmentImageFormat>().Where(format => format != AttachmentImageFormat.Unknown).ToArray();
         foreach (var format in formats)
-            Check(AttachmentDecoderPolicy.ContainerFormat(format) != Guid.Empty, "AP-04 every supported format has a WIC container: " + format);
+            Check(AttachmentDecoderPolicy.ContainerFormat(format) != Guid.Empty, "AP-04 every recognized format has a WIC inventory container: " + format);
         Check(formats.Select(AttachmentDecoderPolicy.ContainerFormat).Distinct().Count() == formats.Length, "AP-04 container GUIDs are distinct");
         Check(AttachmentDecoderPolicy.ContainerFormat(AttachmentImageFormat.WebP) == new Guid("e094b0e2-67f2-45b3-b0ea-115337ca7cf3") &&
             AttachmentDecoderPolicy.ContainerFormat(AttachmentImageFormat.Heif) == new Guid("e1e62521-6787-405b-a339-500715b5763f"), "AP-04 extension containers match Windows SDK");

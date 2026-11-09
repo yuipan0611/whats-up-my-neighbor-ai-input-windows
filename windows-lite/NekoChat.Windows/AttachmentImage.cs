@@ -9,7 +9,7 @@ using NekoChat.Core.Diagnostics;
 
 namespace NekoChat.Windows;
 
-internal enum AttachmentPreviewStatus { NotEligible, NotImage, InvalidHeader, TooLarge, DimensionsExceeded, VerificationFailed, DecoderUnavailable, DecodeFailed, Ready, Cancelled }
+internal enum AttachmentPreviewStatus { NotEligible, NotImage, InvalidHeader, TooLarge, DimensionsExceeded, VerificationFailed, DecoderUnavailable, DecodeFailed, Ready, Cancelled, NotSupported }
 internal sealed record AttachmentPreviewResult(BitmapSource? Image, string Notice, AttachmentImageFormat Format,
     AttachmentPreviewStatus Status, bool HashVerified = false, bool DecodeAttempted = false, int WorkerThreadId = 0, string? DecoderError = null, WicDecoderRegistration? DecoderRegistration = null);
 
@@ -63,6 +63,7 @@ internal static class AttachmentImage
                 AttachmentImageHeaderStatus.TooLarge => AttachmentPreviewStatus.TooLarge,
                 AttachmentImageHeaderStatus.DimensionsExceeded => AttachmentPreviewStatus.DimensionsExceeded,
                 AttachmentImageHeaderStatus.NotImage => AttachmentPreviewStatus.NotImage,
+                AttachmentImageHeaderStatus.NotSupported => AttachmentPreviewStatus.NotSupported,
                 _ => AttachmentPreviewStatus.InvalidHeader
             });
             registration = WicDecoderCatalog.Probe(format); // Content-independent registration evidence, on this worker.
@@ -100,6 +101,7 @@ internal static class AttachmentImage
         string notice = status switch {
             AttachmentPreviewStatus.NotEligible or AttachmentPreviewStatus.Cancelled or AttachmentPreviewStatus.Ready => "",
             AttachmentPreviewStatus.NotImage => AttachmentImageProbe.ImageName(name) ? "檔案內容不是可辨識的圖片，無法預覽（可另存後用看圖程式開啟）。" : "",
+            AttachmentPreviewStatus.NotSupported => "此圖片格式不提供預覽（可另存後開啟）",
             AttachmentPreviewStatus.TooLarge => "圖片超過 25 MiB，無法建立縮圖。",
             AttachmentPreviewStatus.DimensionsExceeded => "圖片尺寸超過預覽上限（可另存後用看圖程式開啟）。",
             AttachmentPreviewStatus.VerificationFailed => "無法驗證檔案，未產生預覽；請重新下載。",

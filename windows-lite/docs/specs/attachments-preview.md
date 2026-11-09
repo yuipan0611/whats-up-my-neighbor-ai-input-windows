@@ -4,9 +4,10 @@
 
 ## AP-01 支援格式、只取第一格
 
-- Given 已完成並校驗的 PNG、JPEG、BMP、GIF、WebP、TIFF、ICO 或 HEIC／HEIF，When 本機 WIC 有對應解碼器，Then 在卡片顯示靜態縮圖。
-- Given GIF 多格、TIFF 多頁或 ICO 多圖，When 建立縮圖，Then 只使用解碼器的第一格／第一頁，不播放動畫、不解碼後續格。
+- Given 已完成並校驗的 PNG、JPEG、BMP、GIF、WebP、TIFF 或 HEIC／HEIF，When 本機 WIC 有對應解碼器，Then 在卡片顯示靜態縮圖。
+- Given GIF 多格或 TIFF 多頁，When 建立縮圖，Then 只使用解碼器的第一格／第一頁，不播放動畫、不解碼後續格。
 - WebP 與 HEIC／HEIF 的實際可用性取決於這台 Windows 安裝的 WIC 解碼器；缺少時依 AP-04 顯示提示。
+- **D-36：ICO 不支援預覽。** Given 內容辨識為 ICO，When 請求縮圖，Then 回明確 `NotSupported`，不查詢產品解碼器、不嘗試像素解碼，顯示固定「此圖片格式不提供預覽（可另存後開啟）」。即使 ICO 內嵌 PNG 也一樣；檔案仍可依原流程另存。
 
 ## AP-02 依內容辨識
 
@@ -25,11 +26,11 @@
 
 - Given WIC 明確回報無解碼器，When 該格式不能預覽，Then 卡片顯示「這台電腦無法預覽此圖片格式（可另存後用看圖程式開啟）」。HEIC／HEIF 改提示「需要 Windows 的 HEIF 影像延伸模組」。
 - Given 校驗失敗、格式損壞、讀取或解碼失敗，When 建立預覽，Then 使用固定小字說明，不顯示例外原文、不使 App 崩潰。大小及尺寸超限另用固定提示。
-- r14 PM 要求：八種格式都先以 WIC `CreateDecoder(ContainerFormat)` 查詢實際註冊／可建立的解碼器，不用 OS 版本、圖片副檔名或 decode exception 猜測。盤點記錄 ContainerFormat、decoder CLSID、狀態與固定 HRESULT。
+- r14 PM 要求：支援的格式先以 WIC `CreateDecoder(ContainerFormat)` 查詢實際註冊／可建立的解碼器，不用 OS 版本、圖片副檔名或 decode exception 猜測。盤點記錄 ContainerFormat、decoder CLSID、狀態與固定 HRESULT。D-36 後 smoke 保留 ICO 的獨立環境盤點作資訊，產品預覽不使用它。
 - Given 該格式已註冊，When native smoke 解碼合成圖，Then 必須 Ready 並驗證第一格紅色像素；一般解碼錯誤不能冒充缺解碼器而通過。
 - Given 該格式明確未註冊，When 產品預覽，Then 狀態必須為 DecoderUnavailable、實際像素解碼不啟動、提示可見。
 - r15 PM 裁決：`0x88982F8B`（SDK `winerror.h` 的 `WINCODEC_ERR_COMPONENTINITIALIZEFAILURE`）單列為 `InitializeFailed`，表示元件初始化失敗、本機不可用；產品回 DecoderUnavailable、不嘗試像素解碼且顯示提示。observations 的 registration 必須為 InitializeFailed，保留原 HRESULT；不可寫成 NotRegistered 或虛構可用 CLSID。
-- 其他未知 HRESULT（包括相鄰的 INVALIDREGISTRATION 0x88982F8A、INSUFFICIENTBUFFER 0x88982F8C）仍是 Unknown，smoke 必須失敗。TIFF／ICO／HEIF 與其他格式使用相同規則；可用時仍須真縮圖／第一格像素。
+- 其他未知 HRESULT（包括相鄰的 INVALIDREGISTRATION 0x88982F8A、INSUFFICIENTBUFFER 0x88982F8C）仍是 Unknown，smoke 必須失敗。PNG／JPEG／GIF／TIFF／BMP 在原生 smoke 必須 Ready 與第一格像素正確；WebP／HEIF 依盤點走 Ready 或明確不可用提示。ICO 依 D-36 走 NotSupported／固定提示／未解碼斷言，保留截圖，不算縮圖成功、不跳過。
 
 ## AP-05 完成與校驗邊界、草稿
 

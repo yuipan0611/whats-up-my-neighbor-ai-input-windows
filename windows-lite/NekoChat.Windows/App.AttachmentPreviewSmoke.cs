@@ -85,12 +85,14 @@ public partial class App
             }
             foreach (string extension in AttachmentPreviewFixtures.Names)
             {
-                // All names deliberately use .data: content, not extension, must select the codec.
+                // All names deliberately use .data: content must select the format policy, including D-36 ICO refusal.
                 var item = await Card(AttachmentPreviewFixtures.Read(extension), "synthetic-" + extension + ".data", "complete");
                 var result = item.Preview.Result!;
                 var registration = inventory[extension];
                 observations.Add(new { format = extension, status = result.Status.ToString(),
-                    observation = result.Status == AttachmentPreviewStatus.Ready ? "實際縮圖成功" :
+                    previewSupported = extension != "ico",
+                    observation = result.Status == AttachmentPreviewStatus.NotSupported ? "D-36 ICO 不支援預覽，僅顯示提示" :
+                        result.Status == AttachmentPreviewStatus.Ready ? "實際縮圖成功" :
                         result.Status == AttachmentPreviewStatus.DecoderUnavailable ?
                             registration.State == AttachmentDecoderRegistration.InitializeFailed ? "解碼器初始化失敗時顯示提示" : "無解碼器時顯示提示"
                             : "預覽失敗，測試須失敗",
@@ -109,34 +111,47 @@ public partial class App
                     result.HashVerified, result.DecodeAttempted, result.WorkerThreadId, result.DecoderError, result.Notice });
                 await File.WriteAllTextAsync(Path.Combine(output, "attachment-preview-observations.json"),
                     System.Text.Json.JsonSerializer.Serialize(observations, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), cancellation);
-                check(registration.State != AttachmentDecoderRegistration.Unknown &&
-                    result.DecoderRegistration is { } productRegistration && productRegistration.State == registration.State &&
-                    productRegistration.ContainerFormat == registration.ContainerFormat,
-                    "AP-04 independent WIC container registration query is definitive and agrees with product: " + extension +
-                    " / " + registration.State + " / " + registration.QueryError);
-                if (registration.State is AttachmentDecoderRegistration.NotRegistered or AttachmentDecoderRegistration.InitializeFailed)
+                if (extension == "ico")
                 {
-                    if (registration.State == AttachmentDecoderRegistration.InitializeFailed)
-                        check(registration.QueryError == "88982F8B" && result.DecoderRegistration?.QueryError == "88982F8B",
-                            "AP-04 InitializeFailed retains the exact verified component initialization HRESULT: " + extension);
-                    check(result.Status == AttachmentPreviewStatus.DecoderUnavailable && !result.DecodeAttempted &&
+                    check(result is { Format: AttachmentImageFormat.Ico, Status: AttachmentPreviewStatus.NotSupported,
+                        DecodeAttempted: false, Image: null, DecoderRegistration: null } &&
                         item.Preview.Hint.IsVisible && !item.Preview.Thumbnail.IsVisible &&
-                        (extension != "heic" || item.Preview.Hint.Text.Contains("需要 Windows 的 HEIF 影像延伸模組", StringComparison.Ordinal)),
-                        "AP-04 解碼器缺少或初始化失敗時顯示提示且不解碼: " + extension + " / " + registration.State);
+                        item.Preview.Hint.Text == "此圖片格式不提供預覽（可另存後開啟）",
+                        "AP-01 D-36 ICO is explicitly NotSupported with exact hint and no decoder work");
                 }
                 else
                 {
-                    check(result.Status == AttachmentPreviewStatus.Ready && result.DecodeAttempted && registration.DecoderClsid is not null &&
-                        result.Image is { IsFrozen: true } &&
-                        item.Preview.Thumbnail.IsVisible && result.Image.PixelWidth <= 320 && result.Image.PixelHeight <= 200,
-                        "AP-01 actual WIC thumbnail rendered: " + extension + " / " + result.Status);
-                    var image = new FormatConvertedBitmap(result.Image!, PixelFormats.Bgra32, null, 0);
-                    byte[] pixel = new byte[4];
-                    image.CopyPixels(new Int32Rect(image.PixelWidth / 2, image.PixelHeight / 2, 1, 1), pixel, 4, 0);
-                    check(pixel[2] > 150 && pixel[0] < 120, "AP-01 first frame/page is red, never blue animation/page2: " + extension);
+                    check(extension is "webp" or "heic" || registration.State == AttachmentDecoderRegistration.Registered,
+                        "AP-01 built-in image format must have a working registered decoder: " + extension);
+                    check(registration.State != AttachmentDecoderRegistration.Unknown &&
+                        result.DecoderRegistration is { } productRegistration && productRegistration.State == registration.State &&
+                        productRegistration.ContainerFormat == registration.ContainerFormat,
+                        "AP-04 independent WIC container registration query is definitive and agrees with product: " + extension +
+                        " / " + registration.State + " / " + registration.QueryError);
+                    if (registration.State is AttachmentDecoderRegistration.NotRegistered or AttachmentDecoderRegistration.InitializeFailed)
+                    {
+                        if (registration.State == AttachmentDecoderRegistration.InitializeFailed)
+                            check(registration.QueryError == "88982F8B" && result.DecoderRegistration?.QueryError == "88982F8B",
+                                "AP-04 InitializeFailed retains the exact verified component initialization HRESULT: " + extension);
+                        check(result.Status == AttachmentPreviewStatus.DecoderUnavailable && !result.DecodeAttempted &&
+                            item.Preview.Hint.IsVisible && !item.Preview.Thumbnail.IsVisible &&
+                            (extension != "heic" || item.Preview.Hint.Text.Contains("需要 Windows 的 HEIF 影像延伸模組", StringComparison.Ordinal)),
+                            "AP-04 解碼器缺少或初始化失敗時顯示提示且不解碼: " + extension + " / " + registration.State);
+                    }
+                    else
+                    {
+                        check(result.Status == AttachmentPreviewStatus.Ready && result.DecodeAttempted && registration.DecoderClsid is not null &&
+                            result.Image is { IsFrozen: true } &&
+                            item.Preview.Thumbnail.IsVisible && result.Image.PixelWidth <= 320 && result.Image.PixelHeight <= 200,
+                            "AP-01 actual WIC thumbnail rendered: " + extension + " / " + result.Status);
+                        var image = new FormatConvertedBitmap(result.Image!, PixelFormats.Bgra32, null, 0);
+                        byte[] pixel = new byte[4];
+                        image.CopyPixels(new Int32Rect(image.PixelWidth / 2, image.PixelHeight / 2, 1, 1), pixel, 4, 0);
+                        check(pixel[2] > 150 && pixel[0] < 120, "AP-01 first frame/page is red, never blue animation/page2: " + extension);
+                    }
                 }
                 check(result.HashVerified && result.WorkerThreadId != 0 && result.WorkerThreadId != uiThread,
-                    "AP-03 hash/content/registration checked off UI; pixel decode only with a registered codec: " + extension);
+                    "AP-03 hash/content policy checked off UI; pixels only for supported registered formats: " + extension);
                 shot("attachment-preview-" + extension, view);
             }
             await File.WriteAllTextAsync(Path.Combine(output, "attachment-preview-observations.json"),

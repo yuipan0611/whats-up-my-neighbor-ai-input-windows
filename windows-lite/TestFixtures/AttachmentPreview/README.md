@@ -32,3 +32,5 @@ print(features.version("webp"))
 同次也實際解碼PNG/JPEG/GIF/TIFF/ICO/BMP；尺寸正確，GIF/TIFF各兩格／頁，第一格紅色、第二格藍色。結果與每檔SHA記於 `build/r14-fix/fixture-validation.json`。HEIC仍用原macOS sips產物；其Windows縮圖依實際WIC解碼器，不以Pillow缺外掛當作檔案損壞或Windows缺codec的證據。
 
 同次另以 `sips -s format png tiny.heic --out <worktree>/build/r14-fix/heic-decoded.png` 經 macOS ImageIO 實際解碼HEIC，再由Pillow讀出64×48、中央(218,60,30)。轉換輸出只在build，不修改內嵌圖；不等於Windows HEIF codec已安裝或驗收。
+
+D-36：ICO 保留為不支援預覽的負控，不再要求實際縮圖。Core 會驗證即使此 ICO 內嵌 PNG 仍是 NotSupported；native 必須有固定提示、無解碼且保留 attachment-preview-ico 截圖。原 bytes 不變。

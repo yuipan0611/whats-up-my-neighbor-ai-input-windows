@@ -892,3 +892,29 @@ API依據：[Microsoft CreateDecoder](https://learn.microsoft.com/en-us/windows/
 Logs: build/r15-fix/*.log、results.json。r15原生分支及webp/heic提示截圖未在Mac執行，交由Emily push後驗證；不能把r15修正推論為Windows全流程已通過。實機／雙機／教室／IME／DPI仍未完成。只本機commit，不push／PR／合併／發布／安裝。
 
 核對來源：[SDK winerror.h](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/shared/winerror.h)、[Microsoft WIC錯誤碼](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-codec-error-codes)、[COM錯誤說明](https://learn.microsoft.com/en-us/windows/win32/com/com-error-codes-10)。
+
+
+### r16／D-36：ICO 明確不支援，保留負向原生驗收（2026-11-09）
+
+Emily 提供 run42559908788／head1d48e70：PNG/JPEG/GIF/TIFF Ready，WebP InitializeFailed→Unavailable＋提示已過，ICO雖Registered卻DecodeFailed。使用者決策D-36明確拿掉ICO預覽；此次依決策修改產品合約，**不是把ICO的解碼失敗改叫縮圖成功，也不略過該格**。
+
+- AttachmentImageProbe新增NotSupported狀態（append，舊值不變），以內容辨識合法ICO後回Ico/NotSupported/CanDecode=false；既有大小與ICO標頭完整性檢查保留。
+- AttachmentImage將此狀態直接映射明確NotSupported，回固定「此圖片格式不提供預覽（可另存後開啟）」；在產品WIC查詢與像素解碼之前返回。仍先守complete/path/大小/同handle SHA與header，ICO不繞過資料校驗。
+- 原生ICO仍在既有8個fixture迴圈內，明確斷言Format=Ico、Status=NotSupported、DecodeAttempted=false、DecoderRegistration=null、Image=null、提示精確相同且可見、Thumbnail不可見。共用hash/off-UI斷言與attachment-preview-ico截圖照常執行，無continue／skip。獨立WIC inventory的ICO Registered僅是環境資訊；observations標previewSupported=false，文字明記D-36不支援，不寫成功縮圖。
+- 其餘分支保留真縮圖/first-frame斷言；另釘PNG/JPEG/GIF/TIFF/BMP必須有Registered decoder而達Ready，不容許走Unavailable提示當成功。只有WebP/HEIC可依既有精確盤點走Ready或Unavailable（含8B InitializeFailed）；Unknown仍必敗。後續HEIC/BMP、pending/missing/tamper/壞payload、sender GIF草稿程式完整保留，逾時不改。
+- attachments-preview.md AP-01/AP-04與LINE-PARITY B19依D-36註明ICO不支援；fixture README及安全設定同步。ICO原圖仍內嵌作負控，所有fixture bytes、wire/schema及App素材都未動。
+
+舊測試適配（依D-36授權）：AttachmentImageProbeChecks的8格式認定迴圈，原ICO要求CanDecode=true，改明確NotSupported且CanDecode=false；其尺寸、截斷、25MiB斷言原樣保留，其他格式要求Ready不變。另加1項「此ICO實際內嵌PNG，但仍必須是ICO/NotSupported且不可解碼」負控；容器清單描述由supported改recognized，ICO只作盤點，不是產品預覽能力。無其他舊斷言移除。
+
+本機指定檢查（SDK10.0.403、實際build/tmp TMPDIR）：
+
+| Check | Result | Exit | Wall seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 4.14 |
+| --attachment-previews | 141 =140+1 | 0 | 1.68 |
+| --attachments | 78+141=219 | 0 | 2.87 |
+| Default Console | 6805 =6804+1 | 0 | 70.80 |
+| win-x64 cross-build | 0 warnings / 0 errors | 0 | 7.25 |
+| strict config / git diff --check | valid / pass | 0 | — |
+
+Logs: build/r16-fix/*.log、results.json。新原生ICO提示圖與後續步驟未在Mac執行，須待Emily push Windows CI；不能宣稱第16輪以後已全綠。實機／教室／雙機／IME／DPI仍未完成。只本機commit，不push／PR／合併／發布／安裝。
