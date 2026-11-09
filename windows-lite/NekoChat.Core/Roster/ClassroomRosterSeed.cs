@@ -1,6 +1,8 @@
 namespace NekoChat.Core.Roster;
 
 /// <summary>IP-only classroom seed; sidecar overrides the embedded default. Automatic seeding never merges existing contacts.</summary>
+public sealed record ClassroomRosterFillPreview(RosterImportPreview Preview, int SkippedRemoved);
+
 public static class ClassroomRosterSeed
 {
     public static byte[] Load(string? sidecarPath = null)
@@ -34,14 +36,17 @@ public static class ClassroomRosterSeed
     }
 
     /// Explicit add-only preview: even a matching nickname must never select an existing row for update.
-    public static RosterImportPreview PreviewMissing(byte[] bytes, IReadOnlyList<RosterSnapshotRow> current,
-        IReadOnlyCollection<string> localAddresses)
+    public static ClassroomRosterFillPreview PreviewMissing(byte[] bytes, IReadOnlyList<RosterSnapshotRow> current,
+        IReadOnlyCollection<string> localAddresses, IReadOnlyCollection<string> removedAddresses)
     {
         var occupied = current.Select(row => row.Entry.Endpoint).ToHashSet(StringComparer.Ordinal);
-        var missing = Parse(bytes).Where(row => !localAddresses.Contains(row.Endpoint!, StringComparer.Ordinal) &&
+        var candidates = Parse(bytes).Where(row => !localAddresses.Contains(row.Endpoint!, StringComparer.Ordinal) &&
             !occupied.Contains(row.Endpoint)).ToArray();
-        return RosterImportPreview.Create(current, new RosterCsvResult(null, missing),
-            missing.Select(row => new RosterImportChoice(row.Line, null)));
+        var removed = removedAddresses.ToHashSet(StringComparer.Ordinal);
+        var missing = candidates.Where(row => !removed.Contains(row.Endpoint!)).ToArray();
+        int skipped = candidates.Where(row => removed.Contains(row.Endpoint!)).Select(row => row.Endpoint).Distinct(StringComparer.Ordinal).Count();
+        return new(RosterImportPreview.Create(current, new RosterCsvResult(null, missing),
+            missing.Select(row => new RosterImportChoice(row.Line, null))), skipped);
     }
 
     public static RosterImportPreview? Preview(byte[] bytes, IReadOnlyList<RosterSnapshotRow> current,

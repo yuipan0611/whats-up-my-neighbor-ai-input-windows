@@ -124,16 +124,19 @@ public partial class ChatWindow
         string path = ClassroomRosterSidecarPath();
         byte[] bytes = await Task.Run(() => ClassroomRosterSeed.Load(path));
         var local = ReactionRoleLocalAddresses();
-        var preview = await runtime.Worker.Run(store => ClassroomRosterSeed.PreviewMissing(bytes, store.GetRosterSnapshot(), local));
-        if (preview.Changes.Count == 0) { SetStatus("全班名單已齊全，沒有新增 IP。"); return; }
-        if (ContactPrompt($"將新增 {preview.Changes.Count} 個缺少的 IP，不覆蓋本機備註、不更換目前老師、不刪除歷史。是否載入？",
-            "載入全班名單", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        var fill = await runtime.Worker.Run(store => ClassroomRosterSeed.PreviewMissing(bytes, store.GetRosterSnapshot(), local, store.GetRemovedRosterEndpoints()));
+        var preview = fill.Preview;
+        string skipped = $"已跳過 {fill.SkippedRemoved} 位你先前移除的聯絡人";
+        if (preview.Changes.Count == 0) { SetStatus("沒有可新增的 IP。" + skipped + "。"); return; }
+        if (ContactPrompt($"將新增 {preview.Changes.Count} 個缺少的 IP，不覆蓋本機備註、不更換目前老師、不刪除歷史。{skipped}。是否載入？",
+            "載入全班名單", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes)
+        { SetStatus($"已取消載入。{skipped}。"); return; }
         if (!ReferenceEquals(runtime, _runtime) || _closingRequested) return;
         var result = await runtime.Worker.Run(store => store.ApplyRosterPreview(preview));
         if (!result.Applied) { SetStatus("名單已變動或暫時無法載入，請重新確認後再試。"); return; }
         UpdateSettings(settings with { ClassRosterInitialized = true });
         runtime.Presence?.Refresh(); await SyncTeacherProjectionAsync(); await RefreshInboxAsync(true, waitForCompletion: true);
-        SetStatus($"已補上 {result.Added} 個 IP，原有備註與老師設定已保留。");
+        SetStatus($"已補上 {result.Added} 個 IP，原有備註與老師設定已保留。{skipped}。");
     }
 
     private async Task BootstrapClassRosterAsync()

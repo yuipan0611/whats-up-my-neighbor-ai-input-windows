@@ -668,3 +668,43 @@ Combined local validation, SDK10.0.403 / actual worktree build/tmp:
 | Final win-x64 WPF cross-build | 0 warnings / 0 errors | 0 | 5.08 |
 
 Logs/results: build/d34/*.log, results.json. Original guards/assertions retained; only additive Console scenarios. Native hooks/fixtures are synthetic isolated evidence; new role/roster screenshots and Windows assertions are **未執行，待 PM push CI**. Core/cross-build success does not claim classroom/LAN/IME/physical-DPI/multiple-monitor/two-machine acceptance. Both tasks and the optional manual-fill button are completed; no quota deferral. No timeout extension, push/PR/merge/release/install/deploy or classroom EXE replacement.
+
+
+### B1 small fixes after round9 review (2026-11-09)
+
+Baseline clean23393d1. PM reports round9 run42549755344 green, each native package/portable183 checks/50PNG and Ben review PASS; this is PM-supplied pre-change CI evidence, not a claim about this new patch. Local pre-change --contacts194+CT-16 roster22 passes.
+
+Impact/plan: keep roster storage/schema/wire unchanged; expose a read-only known-removal-IP query and feed it into explicit fill preview, add mixed-sidecar negative controls, migrate unused reaction-helper tests to actual dispatch API, then adjust only annotated-card action placement. Ordinary message/attachment layout, current reaction routing, typed/no-ID semantics, and all existing time limits remain protected.
+
+| Request | Implementation / evidence |
+|---|---|
+| N1 respect removed contacts | IChatStore/ChatStore.GetRemovedRosterEndpoints joins RosterRemoved to v14+ ClassroomArchivedContact, returns distinct non-null endpoints. Older schema returns empty; upgraded old snapshots without endpoint are not inferred from names. PreviewMissing requires that removal set and returns Preview+SkippedRemoved. Skip only distinct source candidates that are missing/nonlocal; occupied/local rows are not counted as skipped. UI confirmation plus cancel/complete/no-add status reports exact requested text. Existing snapshot CAS and add-only import remain unchanged. |
+| N1 Core/native | New real SQLite scenario removes .15/.20, re-adds/removes .15 again, then requires exactly2 skipped IPs,35 additions, unchanged tombstone endpoints and repeated-fill no-op. Historical v13→current fixture proves name-looking-like-IP still cannot be used as a guessed endpoint and old snapshot survives. Native existing-user fixture adds a modern removed.15: No keeps the full roster token, confirmation/cancel status reports1 skipped; Yes adds35 and leaves.15 absent, alias preserved, final status reports1. |
+| G1 mixed valid/bad sidecar | New real sidecar contains valid row, bad999.x IP, valid row. Assert source bytes remain that sidecar (no fallback), parser has2 valid rows+1 error and no fatal error. Both auto seed and manual fill attempt actual apply; entire operation must throw before any rows are added. This targets S4's removal of FatalError/Errors checks, which would otherwise accept the surviving valid rows. No separate mutant execution is claimed. |
+| N2 startup arrival | CT-16 explicitly states: if stranger ingress already created a contact before first Attach, auto seed does not run; use the confirmed fill button. Runtime behavior already matches this via nonempty roster/history gate. |
+| N4 remove unused API | Delete ClassroomReactions.ForIncoming; C# source has no definitions/calls remaining. Tests use actual Find+ReactionPreviewPolicy.Notification for teacher/student and unknown-id text fallback; normal explicit-id dispatch behavior unchanged. MatchText remains because the outbound reaction path still references it. Frozen wire vector values/files remain untouched; one historical vector description still mentions the old helper as text, not a caller. |
+| N5 compact annotation | Code confirms no empty document blocks are rendered; the hidden more button's inherited28px minimum was a stacked row below metadata. For reaction-history annotations only, move the same action into a right-side overlay and reserve horizontal text space. Normal messages/attachments unchanged. Native per-card check finds the actual overlay and requires height <= content height + vertical padding +1px, with no stacked button row; existing annotated-history screenshot captures the new layout. |
+
+#### Test adaptation table
+
+| Test | Previous | Current / basis |
+|---|---|---|
+| ReactionChecks:16–17 | ForIncoming teacher accepted / student rejected | Find explicit id + current Notification enum Image/None, all5 reaction roles retained; N4. |
+| ReactionChecks:22,59; SharedPortChecks:51 | Unknown-id ForIncoming=null | Find=null and current dispatch=Text; actual TCP/raw text/id assertions retained; N4. |
+| ReactionChecks:23 | Unused helper's caption-versus-known-ID predicate | Replace obsolete helper contract with current no-ID ordinary-text dispatch check. Existing D-33 TeacherDeviceChecks actual legacy receive preserves body/null id and native typed-caption control unchanged. No product text parsing or routing changes; N4. |
+| DefaultClassroomRosterChecks | PreviewMissing returned import preview only | Read Preview from fill-summary result and supply actual removed-endpoint set. Original22 assertions preserved; add12 removal/mixed-source checks. |
+| App.DefaultRosterSmoke existing-user fixture | One active note, no removal; Yes yielded37 contacts | Keep note, add a removed.15; expect36 contacts after35 additions and no.15. No/token/alias/teacher assertions retained plus exact skipped-text checks; N1. |
+
+Final local checks (SDK10.0.403; real build/tmp TMPDIR):
+
+| Check | Result | Exit | Seconds |
+|---|---|---|---|
+| Release Console build | 0 warnings / 0 errors | 0 | 3.60 |
+| --contacts | 194 + roster34 =228 | 0 | 1.81 |
+| --reactions | 47+31+22=100 | 0 | 0.33 |
+| --blocking | 90 | 0 | 1.68 |
+| seed | 7 | 0 | 0.15 |
+| Default Console | 6664 = previous6652 +12 | 0 | 70.58 |
+| Final win-x64 cross-build | 0 warnings / 0 errors | 0 | 5.20 |
+
+Logs/results: build/b1-small-fixes/*.log, results.json. Native skip-count/cancel UI and compact-card geometry/screenshots are **未執行，待 PM push Windows CI**. Existing round9 success does not substitute for these new native assertions. No guard relaxation, schema/migration/wire/cat-asset change, time-limit extension or profile installation. Physical classroom/LAN/IME/DPI/multiple-monitor/two-device acceptance stays separate. N1/G1/N2/N4/N5 all completed locally; no deferred item. Local commit only; no push/PR/merge/release/install/deploy or classroom EXE replacement.

@@ -182,6 +182,14 @@ public partial class App
                 check(SmokeVisuals<TextBlock>(card).Any(text => text.Text == label && text.FontSize == 11) &&
                     !SmokeVisuals<TextBlock>(card).Any(text => text.Text == reaction.Text),
                     "RX-08 rendered small annotation replaces ordinary text body: " + reaction.Id);
+                view.UpdateLayout();
+                var bubble = SmokeVisuals<Border>(card).Single(border => border.Child is Grid overlay &&
+                    overlay.Children.OfType<StackPanel>().Any(panel => panel.Children.OfType<TextBlock>().Any(text => text.Text == label)));
+                var content = ((Grid)bubble.Child).Children.OfType<StackPanel>().Single();
+                check(bubble.ActualHeight <= content.ActualHeight + bubble.Padding.Top + bubble.Padding.Bottom + 1 &&
+                    !content.Children.OfType<Button>().Any(),
+                    "RX-08 compact annotation card reserves no blank action row: " + reaction.Id);
+
             }
             shot("reaction-student-ignored", view);
             await Send(null);

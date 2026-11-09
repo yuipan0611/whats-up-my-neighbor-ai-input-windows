@@ -13,14 +13,14 @@ internal static class ReactionChecks
         void Check(bool value, string name) { checks++; if (!value) throw new Exception("Reactions: " + name); }
         foreach (var r in ClassroomReactions.All)
         {
-            Check(ClassroomReactions.ForIncoming(r.Text, r.Id, true) == r, "teacher receives " + r.Id);
-            Check((ClassroomReactions.ForIncoming(r.Text, r.Id, false) is null) == r.TeacherOnly, "recipient scope " + r.Id);
+            Check(ClassroomReactions.Find(r.Id) == r && ReactionPreviewPolicy.Notification(true, ClassroomReactions.Find(r.Id), true) == ReactionNotificationKind.Image, "teacher receives " + r.Id);
+            Check((ReactionPreviewPolicy.Notification(true, ClassroomReactions.Find(r.Id), false) == ReactionNotificationKind.None) == r.TeacherOnly, "recipient scope " + r.Id);
             Check(ClassroomReactions.MatchText("  " + r.Text + "！！。 ") == r, "full-phrase punctuation " + r.Id);
         }
         foreach (var text in new[] { "不會太快", "我沒有聽不懂", "他說跟不上，但我可以", "這張圖寫著聽不懂", "聽不懂嗎", "" })
             Check(ClassroomReactions.MatchText(text) is null, "ordinary chat is not a sentiment classifier: " + text);
-        Check(ClassroomReactions.ForIncoming("聽不懂", "future-sticker", true) is null, "unknown sticker falls back to text");
-        Check(ClassroomReactions.ForIncoming("普通訊息", "dont-understand", true) is null, "metadata cannot replace unrelated text");
+        Check(ClassroomReactions.Find("future-sticker") is null && ReactionPreviewPolicy.Notification(true, ClassroomReactions.Find("future-sticker"), true) == ReactionNotificationKind.Text, "unknown sticker falls back to text");
+        Check(ClassroomReactions.Find(null) is null && ReactionPreviewPolicy.Notification(true, null, true) == ReactionNotificationKind.Text, "no reaction ID means ordinary text without body inference");
         var fast = ClassroomReactions.Find("too-fast")!;
         var inbox = new ReactionInbox();
         inbox.Enqueue(fast, "192.168.24.1", 10);
@@ -56,7 +56,7 @@ internal static class ReactionChecks
         using var response = await http.PostAsync($"http://127.0.0.1:{port}/nekochat/v1/direct", content, timeout.Token);
         var future = await received.Reader.ReadAsync(timeout.Token);
         Check(response.IsSuccessStatusCode && future.Message.Reaction == "future-sticker" &&
-            ClassroomReactions.ForIncoming(future.Message.Text, future.Message.Reaction, true) is null, "unknown wire ID remains readable ordinary text");
+            ClassroomReactions.Find(future.Message.Reaction) is null && ReactionPreviewPolicy.Notification(true, ClassroomReactions.Find(future.Message.Reaction), true) == ReactionNotificationKind.Text, "unknown wire ID remains readable ordinary text");
 
         // Model an old peer: it only reads text and ignores the new optional field.
         using var oldPeer = new TcpListener(IPAddress.Loopback, 0); oldPeer.Start();

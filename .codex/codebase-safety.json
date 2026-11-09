@@ -256,6 +256,10 @@
     {
       "fact": "D-34 embeds an IP-only 37-student/.240-teacher seed. Sidecar overrides the embedded source; first empty roster/history seeds once, while existing users only add missing IPs after confirmation with snapshot CAS. Explicit add-only choices preserve nicknames/roles and self exclusion uses all local addresses.",
       "source": "windows-lite/NekoChat.Core/Roster/DefaultClassroomRoster.csv; windows-lite/NekoChat.Core/Roster/ClassroomRosterSeed.cs; windows-lite/NekoChat.Windows/ChatWindow.ClassRoster.cs; windows-lite/NekoChat.Tests/DefaultClassroomRosterChecks.cs; windows-lite/docs/specs/contacts.md"
+    },
+    {
+      "fact": "Confirmed class roster fill excludes distinct known IPs from RosterRemoved/ClassroomArchivedContact snapshots and reports skips without guessing old endpoint-free snapshots. Explicit-id reaction dispatch uses Find/Notification; the unused ForIncoming helper is removed. Annotation actions overlay the card instead of reserving a blank row.",
+      "source": "windows-lite/NekoChat.Core/Storage/ChatStore.Roster.cs; windows-lite/NekoChat.Core/Roster/ClassroomRosterSeed.cs; windows-lite/NekoChat.Windows/ChatWindow.ClassRoster.cs; windows-lite/NekoChat.Tests/DefaultClassroomRosterChecks.cs; windows-lite/NekoChat.Windows/MessageHistoryView.cs"
     }
   ]
 }

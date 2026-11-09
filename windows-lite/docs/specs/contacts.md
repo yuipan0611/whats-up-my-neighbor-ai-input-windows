@@ -98,7 +98,9 @@
 - And 排除所有本機 IP；本機 .5 得到 36 位學生＋老師 .240，本機 .240 得到 37 位學生、沒有老師列。D-33 本機角色仍為老師，不依賴名單裡有自己
 - And 沿用 ClassroomRosterSeed／RosterImportPreview／既有匯入交易與備份，TC-07 至多一位老師。有效 sidecar 完全優先，不與內嵌來源混合；已存在但無效、不可讀或超大時回報失敗，不悄悄改用內嵌
 - Given 已有任何聯絡人或對話歷史的舊使用者，Then 不自動合併。即使曾移除所有聯絡人但仍有封存歷史，也不自動補回；成功完成初始處理會保存 ClassRosterInitialized，之後清空名單不視為首次啟動
-- When 使用者在設定按「載入全班名單」，Then 先顯示將新增的 IP 數量並確認（預設 No）。No 不改名單；Yes 只補缺少 IP、排除本機，不覆蓋備註／學號／既有 IP／原老師，不解除封鎖、不刪歷史。sidecar 來源規則同上
+- When 使用者在設定按「載入全班名單」，Then 跳過 RosterRemoved 仍保留且新版移除快照有 endpoint 的 IP；沒有 endpoint 的舊快照不猜測對應（不從備註推測）。只計本次來源中缺少且非本機的不同 IP，確認視窗與結果／取消狀態列顯示「已跳過 N 位你先前移除的聯絡人」。先顯示將新增的 IP 數量並確認（預設 No）。No 不改名單；Yes 只補缺少 IP、排除本機，不覆蓋備註／學號／既有 IP／原老師，不解除封鎖、不刪歷史。sidecar 來源規則同上
 - And 手動補齊明確指定只新增（即使既有備註恰好等於新 IP，也不將其當作更新目標）；提交仍核對原 snapshot token。確認期間名單改變則整批不套用，提示重新確認。重複補齊為 no-op。內嵌名單不授予任何署名／配對／撤下權限
 
 Core scenario：DefaultClassroomRosterChecks（--contacts 與預設 Console）；原生 contacts smoke 以四份隔離 profile 實際 Attach/Bootstrap 驗證學生、老師、sidecar、舊名單，擷取「首次啟動預設名單」，並測試手動 No/Yes 與備註保留。Windows 原生、教室實機與 LAN 驗收仍分開列。
+
+CT-16 補註：首次 Attach 前若已因陌生來訊建立聯絡人，名單不會自動載入，可用「載入全班名單」按鈕補上。合法 CSV 列夾著一列壞 IP 時整份拒絕，不退回內嵌，也不部分載入。

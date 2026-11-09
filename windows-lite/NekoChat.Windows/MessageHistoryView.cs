@@ -255,7 +255,14 @@ public sealed class MessageCard : UserControl
             HorizontalAlignment = HorizontalAlignment.Right, Opacity = 0 };
         System.Windows.Automation.AutomationProperties.SetName(more, "訊息操作");
         more.Click += (_, _) => { var menu = ActionMenu(message); menu.PlacementTarget = more; menu.IsOpen = true; };
-        body.Children.Add(more);
+        if (message.ReactionHistoryLabel is not null)
+        {
+            // Keep the existing action reachable without reserving an empty row under a small annotation.
+            var overlay = new Grid(); body.Margin = new Thickness(0, 0, 40, 0);
+            more.Width = 32; more.Height = 28; more.VerticalAlignment = VerticalAlignment.Center;
+            overlay.Children.Add(body); overlay.Children.Add(more); card.Child = overlay;
+        }
+        else body.Children.Add(more);
 
         var avatarImage = new Image
         {

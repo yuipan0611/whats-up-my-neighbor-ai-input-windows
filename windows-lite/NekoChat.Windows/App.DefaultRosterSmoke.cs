@@ -21,8 +21,14 @@ public partial class App
             if (kind == "sidecar") await File.WriteAllTextAsync(sidecar,
                 "student_number,name,ip,role\n,10.251.234.7,10.251.234.7,student\n");
             await using var runtime = await ChatRuntime.OpenAsync(new(preferences, SettingsSourceStatus.Loaded), true, 0, loopbackOnly: true);
-            if (kind == "existing") await runtime.Worker.Run(store => store.SaveManualRosterEntry(null,
-                new("合成既有備註", null, false, "192.168.24.10"), RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot())));
+            if (kind == "existing") await runtime.Worker.Run(store => {
+                store.SaveManualRosterEntry(null, new("合成既有備註", null, false, "192.168.24.10"),
+                    RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot()));
+                string removed = store.SaveManualRosterEntry(null, new("合成先前移除", null, false, "192.168.24.15"),
+                    RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot())).EntryId!;
+                var deletion = store.PreviewRosterDelete(removed);
+                return store.DeleteRosterEntry(removed, deletion.SnapshotToken, deletion.ToConfirmation());
+            });
             var hooks = new ContactsUiSmokeHooks { LocalAddresses = [local], ClassroomRosterSidecarPath = sidecar };
             var view = new ChatWindow(preferences);
             view.SettingsChanged += updated => preferences = updated;
@@ -68,13 +74,18 @@ public partial class App
                     }
                     string before = RosterImportPreview.ComputeSnapshotToken(rows);
                     hooks.NextPromptAnswer = ("將新增", MessageBoxResult.No); await Fill();
+                    check(hooks.Prompts[^1].Text.Contains("已跳過 1 位你先前移除的聯絡人", StringComparison.Ordinal) &&
+                        view.Status.Text.Contains("已跳過 1 位你先前移除的聯絡人", StringComparison.Ordinal),
+                        "CT-16 confirmation reports previously removed contact skip");
                     check(hooks.NextPromptAnswer is null && await runtime.Worker.Run(store =>
                         RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot())) == before,
                         "CT-16 No confirmation changes no contacts");
                     await Fill(); rows = await runtime.Worker.Run(store => store.GetRosterSnapshot());
-                    check(rows.Count == 37 && rows.Single(row => row.Entry.Endpoint == "192.168.24.10").Entry.DisplayName == "合成既有備註" &&
-                        rows.All(row => row.Entry.Endpoint != local) && rows.Single(row => row.Entry.IsTeacher).Entry.Endpoint == ClassroomReactions.DefaultTeacherIp,
+                    check(rows.Count == 36 && rows.Single(row => row.Entry.Endpoint == "192.168.24.10").Entry.DisplayName == "合成既有備註" &&
+                        rows.All(row => row.Entry.Endpoint != local && row.Entry.Endpoint != "192.168.24.15") && rows.Single(row => row.Entry.IsTeacher).Entry.Endpoint == ClassroomReactions.DefaultTeacherIp,
                         "CT-16 Yes adds only missing IPs, preserves nickname and excludes self");
+                    check(view.Status.Text.Contains("已跳過 1 位你先前移除的聯絡人", StringComparison.Ordinal),
+                        "CT-16 completed status reports removed contact skip");
                     shot("default-classroom-manual-fill", view);
                 }
             }

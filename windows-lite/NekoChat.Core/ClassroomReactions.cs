@@ -31,14 +31,7 @@ public static class ClassroomReactions
         return Find(id);
     }
 
-    public static ClassroomReaction? ForIncoming(string text, string? reactionId, bool isTeacher)
-    {
-        var matched = MatchText(text);
-        // Unknown future sticker IDs remain ordinary text, even if the caption matches a keyword.
-        var reaction = reactionId is null ? matched : Find(reactionId);
-        if (reaction is null || matched?.Id != reaction.Id || reaction.TeacherOnly && !isTeacher) return null;
-        return reaction;
-    }
+
 }
 
 public sealed record ReactionNotice(ClassroomReaction Reaction, string SenderIp, int Count = 1);

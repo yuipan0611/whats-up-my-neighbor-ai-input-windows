@@ -124,6 +124,15 @@ public sealed partial class ChatStore
         });
     }
 
+    /// Known IPs in removal snapshots; pre-v14 snapshots have no endpoint and cannot be inferred.
+    public IReadOnlyList<string> GetRemovedRosterEndpoints() => _migrations.Count < 14 ? [] : Read(c => {
+        using var command = c.CreateCommand();
+        command.CommandText = "SELECT DISTINCT a.endpoint FROM ClassroomArchivedContact a JOIN RosterRemoved d ON d.rosterEntryId=a.rosterEntryId WHERE a.endpoint IS NOT NULL ORDER BY a.endpoint";
+        using var reader = command.ExecuteReader(); var addresses = new List<string>();
+        while (reader.Read()) addresses.Add(reader.GetString(0));
+        return (IReadOnlyList<string>)addresses;
+    });
+
     /// <summary>Only after the user has reviewed and confirmed this immutable preview.</summary>
     public RosterApplyResult ApplyRosterPreview(RosterImportPreview preview) => ApplyRosterPreview(preview, null);
 

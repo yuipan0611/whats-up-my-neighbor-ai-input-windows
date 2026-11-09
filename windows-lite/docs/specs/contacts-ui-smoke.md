@@ -69,4 +69,6 @@ D-33 原生啟動負控：另兩份隔離的舊 JSON，注入本機 10.x IP 清�
 
 既有 contacts smoke 在 reaction checks 後，以四份全新隔離 profile 跑真正 Attach→角色初始化→Bootstrap→TC-03 投影。受控本機 IP .5：36 位學生＋老師 .240，老師只在 TeachersList 一筆，擷取 default-classroom-roster.png（沿既有數字前綴）；.240：37 位學生、無老師列，但 ThisDeviceIsTeacher=true。不存在的 sidecar 路徑限於該 profile 內，故確實驗證內嵌來源；sidecar case 寫入該處的單列 CSV，實際名單只含該列，不混合預設名單。
 
-舊使用者 case 預先存一筆合成備註，ClassRosterInitialized=false；Attach 後仍只有該筆、備註不動。顯示設定頁，斷言「載入全班名單」可見、有尺寸、可用；實際按鈕先回答 No（完整 roster token 不變），再 Yes（只補36個、排除自己、保留備註、老師 .240）。截取 default-classroom-manual-fill。所有網路迴圈不啟動，只用隔離 DB／合成資料；逾時界線不延長。新原生畫面與斷言待 PM push CI。
+舊使用者 case 預先存一筆合成備註，ClassRosterInitialized=false；Attach 後仍只有該筆、備註不動。顯示設定頁，斷言「載入全班名單」可見、有尺寸、可用；實際按鈕先回答 No（完整 roster token 不變），再 Yes。N1 補強 fixture 另有一位先前移除的 .15：確認與取消／完成狀態均顯示跳過1位，No 完整 roster token 不變；Yes 只補35個，排除自己及 .15、保留備註、老師 .240。截取 default-classroom-manual-fill。所有網路迴圈不啟動，只用隔離 DB／合成資料；逾時界線不延長。新原生畫面與斷言待 PM push CI。
+
+B1 小修：reaction-student-ignored 的 11pt 標示卡片將「⋯」移到右側疊層，保留操作入口，取消下方透明按鈕的空白列。原生逐款量測卡片高度不得超過內容高度＋上下 padding（容許1px layout rounding），內容 StackPanel 不得再含按鈕列。新畫面與斷言仍待下一輪 Windows CI。
