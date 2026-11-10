@@ -278,8 +278,7 @@ public partial class ChatWindow
                     var result = await runtime.Worker.Run(s => {
                         if (!runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(pair.Key, out var principal))
                         {
-                            var cr = s.SaveClassroomDraft(principal, ticket.Text, ticket.Epoch, ticket.Revision);
-                            return new DraftSaveResult(cr.Saved, cr.Reason, cr.CurrentEpoch, cr.CurrentRevision);
+                            return ticket.PersistClassroom(s, principal);
                         }
                         return ticket.Persist(s, pair.Key);
                     });

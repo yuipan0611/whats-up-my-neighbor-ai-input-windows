@@ -173,6 +173,12 @@ public static class ClassroomFileChecks
                 Check(!ShareProtocol.Valid(ShareProtocol.Sign(f with{Name="a.zip",Size=AttachmentLimits.MaximumFileBytes+1},"add",key)),"signed oversized metadata rejected");
                 Check(ShareProtocol.Valid(ShareProtocol.Sign(f with{Name="a.zip",Size=AttachmentLimits.MaximumFileBytes},"add",key)),"25 MiB inclusive upper boundary accepted");
             }
+            await using (var node = new Node(Path.Combine(root, "idempotent-dispose")))
+            {
+                await node.Shares.DisposeAsync();
+                await node.Shares.DisposeAsync();
+                Check(true, "ClassroomFileService DisposeAsync is idempotent across multiple calls");
+            }
             Console.WriteLine($"Classroom files: {checks} real TCP/SQLite, three-node failover, signed withdrawal, restart, quota and hash checks passed.");return checks;
         }
         finally{Directory.Delete(root,true);}

@@ -45,6 +45,11 @@ internal static class InboxWorkspaceChecks
             var buffer = new DraftEditBuffer(f.Store.GetDraftState(f.Conversation)!); var sent = buffer.Edit("sent text");
             Check(buffer.CompleteWrite(sent, f.Save(sent)) && !buffer.Dirty, "confirmed save updates matching editor generation");
             Check(sent.Persist(f.Store, f.Conversation) is { Saved: true, Reason: "already-current" }, "duplicate flush confirms exact durable snapshot instead of falsely failing exit");
+            var crPrincipal = ClassroomPrincipalKey.ForSourceIp("10.0.0.9");
+            f.Store.SaveClassroomDraft(crPrincipal, "cr draft", 0, 1);
+            var crBuffer = new DraftEditBuffer(f.Store.GetClassroomDraftState(crPrincipal));
+            var crSent = crBuffer.Capture();
+            Check(crSent.PersistClassroom(f.Store, crPrincipal) is { Saved: true, Reason: "already-current" }, "duplicate classroom flush confirms exact durable snapshot instead of failing exit");
             var attempt = (AttemptStarted)f.Store.BeginManualSend(f.Conversation, sent.Text, sent.Epoch, sent.Revision);
             var edited = buffer.Edit("new edit before ACK callback");
             var prepared = f.Store.GetPreparedSend(attempt.MessageId)!;
