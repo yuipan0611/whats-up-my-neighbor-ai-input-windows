@@ -691,8 +691,6 @@ public partial class ChatWindow
         int start = Draft.SelectionStart; string selection = Draft.SelectedText;
         Draft.SelectedText = "\n```" + language + "\n" + selection + "\n```\n"; Draft.Select(start + language.Length + 5, selection.Length); Draft.Focus();
     }
-    private void ReactionPreviewToggleClick(object sender, RoutedEventArgs e)
-    { if (UpdateSettings(settings with { ShowReactionPreviews = ReactionPreviewToggle.IsChecked == true, ReactionPreviewExplicitChoice = true })) SetStatus(ReactionPreviewToggle.IsChecked == true ? "已開啟課堂反應貓咪圖；一般訊息提醒仍不顯示正文。" : "課堂反應圖片已關閉，只顯示文字提醒。"); }
     private async void ReloadDataClick(object sender, RoutedEventArgs e)
     {
         if (_runtime is null) { DataRetryRequested?.Invoke(); return; }

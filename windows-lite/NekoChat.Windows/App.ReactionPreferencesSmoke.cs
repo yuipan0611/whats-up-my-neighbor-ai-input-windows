@@ -37,7 +37,6 @@ public partial class App
                     "RX-07 startup fixture has no CSV hint or roster teacher: " + name);
                 await roleView.AttachRuntimeAsync(roleRuntime, 0);
                 check(current.ThisDeviceIsTeacher == expected && current.TeacherIp == "" &&
-                    roleView.ThisDeviceTeacherToggle.IsChecked == expected &&
                     Settings.LoadWithStatus(file).Value.ThisDeviceIsTeacher == expected,
                     "RX-07 real legacy-settings/Attach/empty projection/persistence path: " + name);
             }
@@ -55,7 +54,7 @@ public partial class App
         var view = new ChatWindow(preferences); var target = new PetWindow();
         var outcomes = new List<ReactionNotificationKind>();
         target.SetWanderEnabled(false); target.ReactionDisplayDevice = "disconnected-test-screen";
-        view.SettingsChanged += updated => { preferences = updated; target.ReactionDisplayDevice = updated.ReactionDisplayDevice; };
+        view.SettingsChanged += updated => { preferences = updated; };
         int notifications = 0; Task? notification = null; LegacyDeliveryNotice? stored = null;
         var rebuildObservations = new List<object>();
         Func<object>? currentRebuildState = null;
@@ -83,12 +82,9 @@ public partial class App
                 "RX-07 fixed default local IP promotes a previous false before empty roster projection, and persists");
             listener.Start(); view.SetReceiverState(true, listener.Port, null); view.Show(); target.Show(); view.Activate();
             view.SettingsPane.Visibility = Visibility.Visible;
-            view.ReactionPreviewToggle.BringIntoView(); view.UpdateLayout();
-            check(view.ReactionPreviewToggle.IsVisible && view.ReactionPreviewToggle.ActualWidth > 0 &&
-                view.ReactionPreviewToggle.IsEnabled && view.ReactionPreviewToggle.IsChecked == true &&
-                view.ReactionDisplay.IsVisible && view.ThisDeviceTeacherToggle.IsVisible && view.ThisDeviceTeacherToggle.IsChecked == true &&
-                !view.TeacherIpBox.IsVisible,
-                "RX-02 visible default-ON reaction toggle and monitor picker; legacy teacher editor remains hidden");
+            view.UpdateLayout();
+            check(!view.TeacherIpBox.IsVisible && SmokeVisuals<TextBlock>(view.SettingsPane).All(text => text.Text != "課堂反應" && text.Text != "提醒螢幕"),
+                "RX-02 settings page has no classroom-reaction section or monitor picker; legacy teacher editor remains hidden");
             shot("reaction-settings-default-on", view);
             async Task Send(string? id, bool expectNotification = true)
             {
@@ -134,34 +130,29 @@ public partial class App
             await CaptureReaction("cant-keep-up", "跟不上", "close-up.png");
             await CaptureReaction("dont-understand", "聽不懂", "close-up.png");
             await CaptureReaction("say-again", "再講一次", "raised-paw.png");
-            view.ReactionPreviewToggle.IsChecked = false;
-            view.ReactionPreviewToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            var reopened = Settings.LoadWithStatus(preferences.PersistencePath).Value;
-            check(!reopened.ShowReactionPreviews && reopened.ReactionPreviewExplicitChoice,
-                "RX-04 visible OFF persists explicit choice and survives settings reload");
+            // No visible control remains; an explicit-OFF settings file from an older version is still honored.
+            preferences = preferences with { ShowReactionPreviews = false, ReactionPreviewExplicitChoice = true };
+            check(preferences.Save() && !Settings.LoadWithStatus(preferences.PersistencePath).Value.ShowReactionPreviews,
+                "RX-04 legacy explicit OFF persists and survives settings reload");
             await Send("too-fast");
             check(!target.ReactionActive && target.ReactionImage.Source is null && target.Bubble.IsVisible &&
                 target.BubbleText.Text.Contains("新訊息") && !target.BubbleText.Text.Contains("講太快"),
                 "RX-02 OFF routes only to content-free text reminder, with no cat image");
             shot("reaction-off-text-only", target); shot("reaction-settings-explicit-off", view);
-            view.ReactionPreviewToggle.IsChecked = true;
-            view.ReactionPreviewToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            // Real visible role click, then reload Settings and run the actual Attach/projection path again.
-            view.ThisDeviceTeacherToggle.IsChecked = false;
-            view.ThisDeviceTeacherToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await wait(() => view.SmokeContactsViewIdle, "RX-07 role change history refresh did not settle");
+            preferences = preferences with { ShowReactionPreviews = true, ReactionPreviewExplicitChoice = true,
+                ThisDeviceIsTeacher = false, ThisDeviceTeacherExplicitChoice = true };
+            check(preferences.Save(), "RX-07 explicit role persisted from settings file (no visible role control)");
             check(!IsReactionTeacher(runtime, preferences) && preferences.ThisDeviceTeacherExplicitChoice &&
                 preferences.ResolveTeacherDeviceRole(hooks.LocalAddresses!, true).ThisDeviceIsTeacher == false,
                 "RX-07 explicit OFF wins over fixed IP and CSV teacher-node hint");
             view.DetachRuntime(); view.Hide();
             preferences = Settings.LoadWithStatus(preferences.PersistencePath).Value;
             view = new ChatWindow(preferences);
-            view.SettingsChanged += updated => { preferences = updated; target.ReactionDisplayDevice = updated.ReactionDisplayDevice; };
+            view.SettingsChanged += updated => { preferences = updated; };
             view.InstallContactsUiSmokeHooks(profile, hooks, runtime);
             await view.AttachRuntimeAsync(runtime, 0);
             view.SetReceiverState(true, listener.Port, null); view.Show(); view.Activate();
-            check(!IsReactionTeacher(runtime, preferences) && view.ThisDeviceTeacherToggle.IsChecked == false &&
-                preferences.ThisDeviceTeacherExplicitChoice, "RX-07 second startup at fixed default IP respects explicit unchecked role");
+            check(!IsReactionTeacher(runtime, preferences) && preferences.ThisDeviceTeacherExplicitChoice, "RX-07 second startup at fixed default IP respects explicit unchecked role");
             while (target.Bubble.Visibility == Visibility.Visible) target.AdvanceChatNotice();
             int beforeIgnored = notifications, beforeOutcomes = outcomes.Count;
             foreach (var reaction in ClassroomReactions.All.Where(r => r.TeacherOnly))

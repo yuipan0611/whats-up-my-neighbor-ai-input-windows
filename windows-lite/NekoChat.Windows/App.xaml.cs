@@ -156,13 +156,8 @@ public partial class App : Application
             pet = new PetWindow();
             chat = new ChatWindow(settings);
             Settings.SaveProblem += SettingsSaveProblem;
-            pet.ReactionDisplayDevice = settings.ReactionDisplayDevice;
             pet.ReactionFailed += message => chat.SetStatus(message);
-            chat.SettingsChanged += updated =>
-            {
-                settings = updated;
-                pet.ReactionDisplayDevice = settings.ReactionDisplayDevice;
-            };
+            chat.SettingsChanged += updated => { settings = updated; };
             pet.SetWanderEnabled(settings.WanderEnabled);
             pet.WanderToggled += enabled =>
             {

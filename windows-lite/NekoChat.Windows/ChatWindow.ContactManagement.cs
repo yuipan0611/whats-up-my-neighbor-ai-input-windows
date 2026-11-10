@@ -41,14 +41,10 @@ public partial class ChatWindow
         if (_runtime is not { } runtime) return;
         var resolved = settings.ResolveTeacherDeviceRole(ReactionRoleLocalAddresses(), runtime.ClassroomFiles?.IsTeacherNode == true);
         if (settings.ThisDeviceIsTeacher != resolved.ThisDeviceIsTeacher) UpdateSettings(resolved);
-        ThisDeviceTeacherToggle.IsChecked = IsThisDeviceTeacher;
     }
 
-    private async void ThisDeviceTeacherToggleClick(object sender, RoutedEventArgs e)
-    {
-        UpdateSettings(settings with { ThisDeviceIsTeacher = ThisDeviceTeacherToggle.IsChecked == true, ThisDeviceTeacherExplicitChoice = true });
-        if (_runtime is not null) await RefreshInboxAsync(true, waitForCompletion: true);
-    }
+    // Native smoke only: the settings page no longer exposes reaction preferences, so fixtures apply them here.
+    internal bool SmokeApplySettings(Func<Settings, Settings> change) => UpdateSettings(change(settings));
 
     private bool _readNoticeShowing;
     private bool _teacherProjectionPending;

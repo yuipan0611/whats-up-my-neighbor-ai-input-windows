@@ -57,7 +57,7 @@ JSON 逐條記 checks、截圖檔名、實際提示文字、合成狀態旗標�
 
 ## D-32 課堂反應（RX-01～06）
 
-contacts smoke 最後另建全新 reaction-profile（相同安全路徑檢查、無日常資料），不重用 v13 聯絡人 seed。真 loopback legacy 接收 → 真 store event → 與產品共用 NotifyReactionOrText → 真 PetWindow。圖片設定未預先 opt-in；以合成老師角色先驗證預設貓咪圖、畫面可見／有圖片及不搶焦點，再用實際 Click 關閉，驗證 explicit OFF 重讀與純文字提醒；使用可見本機老師勾選框切為學生角色並載入設定重跑 Attach，驗證 TeacherOnly 不跳圖也不跳文字、同學貼圖正常。封鎖後同一來源真 TCP 正常 ACK，但無 event、無新增正文、無文字／圖片提醒。四款 TeacherOnly 與五款雙接收路徑的封鎖情境由 --reactions 全覆蓋。
+contacts smoke 最後另建全新 reaction-profile（相同安全路徑檢查、無日常資料），不重用 v13 聯絡人 seed。真 loopback legacy 接收 → 真 store event → 與產品共用 NotifyReactionOrText → 真 PetWindow。圖片設定未預先 opt-in；以合成老師角色先驗證預設貓咪圖、畫面可見／有圖片及不搶焦點，再以舊設定檔 explicit OFF（D-37：設定頁已無可見開關）驗證重讀與純文字提醒；以設定檔切為學生角色並載入設定重跑 Attach，驗證 TeacherOnly 不跳圖也不跳文字、同學貼圖正常。封鎖後同一來源真 TCP 正常 ACK，但無 event、無新增正文、無文字／圖片提醒。四款 TeacherOnly 與五款雙接收路徑的封鎖情境由 --reactions 全覆蓋。
 
 每款先等前張消失，再送出並截取真 PetWindow；五張固定檔名為 reaction-teacher-too-fast.png、reaction-teacher-cant-keep-up.png、reaction-teacher-dont-understand.png、reaction-teacher-say-again.png、reaction-stop-scrolling.png（不加流水號）。逐款以獨立的字面預期釘選 caption 與資產名稱，並將實際 Image.Source 的完整像素和指定內嵌 PNG 解碼結果比對；「跟不上／聽不懂」必須 close-up.png，其餘 raised-paw.png。Caption 必須完全相等，不能混入 ×2。前四款在尚未操作開關的老師 profile 拍攝，最後一款仍在學生角色拍攝。原有 reaction-settings-default-on、reaction-off-text-only、reaction-settings-explicit-off、reaction-blocked-no-notice 保留，全部進既有 contacts JSON 的 checks/captures 和既有 artifact。沿用原 step/global/watchdog deadline，不延長逾時。Mac 僅交叉建置；新原生斷言、截圖、投影／多螢幕實測仍未執行。
 
