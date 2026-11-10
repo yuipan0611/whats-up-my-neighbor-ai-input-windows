@@ -511,11 +511,13 @@ public partial class App : Application
         if (_recoveringIdentity) { _shutdownAfterIdentityRecovery = true; _identityRecoveryCancellation?.Cancel(); return; }
         if (closingApp) return; closingApp = true;
         try { chat.BeginClosing(); if (chatRuntime is not null) await chatRuntime.StopReceivingAsync(); await _activeLegacySend; await chat.PrepareForShutdownAsync(); if (chatRuntime is not null) await chatRuntime.DisposeAsync(); Shutdown(); }
-        catch
+        catch (Exception ex)
         {
+            chatRuntime?.Diagnostics.Record(DiagnosticStage.Shutdown, DiagnosticOutcome.Failed, error: ex);
             try { if (chatRuntime is not null) await chatRuntime.DisposeAsync(); } catch { }
             chatRuntime = null; directListener = null; chat.DetachRuntime(); chat.AbortClosing(); closingApp = false;
-            MessageBox.Show(chat, "關閉前無法完成存稿。這次不關閉；請保留目前文字，並處理資料讀寫問題後重試。", "無法完成存稿", MessageBoxButton.OK, MessageBoxImage.Warning);
+            string displayFault = DiagnosticFault.FromException(ex).DisplayCode;
+            MessageBox.Show(chat, $"關閉前無法完成存稿。這次不關閉；請保留目前文字，並處理資料讀寫問題後重試。（{displayFault}）", "無法完成存稿", MessageBoxButton.OK, MessageBoxImage.Warning);
             await StartDataAsync();
         }
     }

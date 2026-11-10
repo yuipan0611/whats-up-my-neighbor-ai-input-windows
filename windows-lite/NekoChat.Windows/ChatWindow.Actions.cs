@@ -185,8 +185,7 @@ public partial class ChatWindow
             DraftSaveResult saved;
             if (!runtime.ArchivedIdentityFixture && ClassroomPrincipalKey.TryParse(write.Key, out var principal))
             {
-                var cr = s.SaveClassroomDraft(principal, write.Ticket.Text, write.Ticket.Epoch, write.Ticket.Revision);
-                saved = new DraftSaveResult(cr.Saved, cr.Reason, cr.CurrentEpoch, cr.CurrentRevision);
+                saved = write.Ticket.PersistClassroom(s, principal);
             }
             else
             {

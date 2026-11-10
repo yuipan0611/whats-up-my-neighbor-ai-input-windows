@@ -25,7 +25,7 @@ public sealed class ClassroomFileService : IAsyncDisposable
     private readonly ConcurrentDictionary<SharePeer,DateTimeOffset> _online = new();
     private readonly ConcurrentDictionary<(string Id,SharePeer Peer),DateTimeOffset> _replicas = new();
     private readonly Dictionary<string,(string Id,string Ip,DateTimeOffset Expires)> _grants = [];
-    private Task? _loop;
+    private Task? _loop, _disposal;
     private bool _ready;
     private long _generation;
     public string NodeId { get; }
@@ -254,10 +254,15 @@ public sealed class ClassroomFileService : IAsyncDisposable
         {return new(403,ShareProtocol.Bytes(new {Error=e is AttachmentException a?a.Code:"invalid_payload"}));}
     }
     private static ClassroomTransportResponse Json<T>(T value)=>new(200,ShareProtocol.Bytes(value));
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() { lock (_gate) return new(_disposal ??= StopAsync()); }
+    private async Task StopAsync()
     {
-        await _lifetime.CancelAsync().ConfigureAwait(false);SetReady(false);if(_loop is not null)await _loop.ConfigureAwait(false);
-        Task[] jobs;lock(_gate)jobs=_downloads.Values.Select(j=>j.Work).ToArray();try{await Task.WhenAll(jobs).ConfigureAwait(false);}catch(Exception e)when(e is IOException or OperationCanceledException or HttpRequestException){}
-        await _sync.WaitAsync().ConfigureAwait(false);_sync.Release();await _mutations.WaitAsync().ConfigureAwait(false);_mutations.Release();_http.Dispose();_sync.Dispose();_mutations.Dispose();_lifetime.Dispose();
+        await _lifetime.CancelAsync().ConfigureAwait(false); SetReady(false);
+        if (_loop is not null) { try { await _loop.ConfigureAwait(false); } catch { } }
+        Task[] jobs; lock (_gate) jobs = _downloads.Values.Select(j => j.Work).ToArray();
+        try { await Task.WhenAll(jobs).ConfigureAwait(false); } catch { }
+        await _sync.WaitAsync().ConfigureAwait(false); _sync.Release();
+        await _mutations.WaitAsync().ConfigureAwait(false); _mutations.Release();
+        _http.Dispose(); _sync.Dispose(); _mutations.Dispose(); _lifetime.Dispose();
     }
 }
