@@ -13,7 +13,6 @@ public partial class ChatWindow : Window
 {
     private Settings settings;
     private bool updatingCombo;
-    private bool updatingDisplays;
     private bool composingText;
 
     internal event Action<string, string>? SendRequested;
@@ -49,9 +48,6 @@ public partial class ChatWindow : Window
         UpdateLocalIPDisplay();
         TeacherIpBox.Text = settings.TeacherIp;
         RefreshReactionTargets();
-        RefreshDisplays();
-        ThisDeviceTeacherToggle.IsChecked = settings.ThisDeviceIsTeacher == true;
-        ReactionPreviewToggle.IsChecked = settings.ShowReactionPreviews;
         InitializeInbox();
     }
 
@@ -268,28 +264,6 @@ public partial class ChatWindow : Window
         ScrollTarget.Text = string.IsNullOrWhiteSpace(target)
             ? "你再給我滑！ → 請先選定上方聊天對象"
             : $"你再給我滑！ → {target}";
-    }
-
-    private void RefreshDisplays()
-    {
-        updatingDisplays = true;
-        try
-        {
-            var choices = new List<DisplayScreen> { new("", "跟隨貓咪所在螢幕", IntPtr.Zero, default, default) };
-            choices.AddRange(DisplayScreens.All());
-            ReactionDisplay.ItemsSource = choices;
-            ReactionDisplay.SelectedValue = choices.Any(c => c.DeviceName == settings.ReactionDisplayDevice)
-                ? settings.ReactionDisplayDevice : "";
-        }
-        finally { updatingDisplays = false; }
-    }
-
-    private void ReactionDisplayOpened(object? sender, EventArgs e) => RefreshDisplays();
-
-    private void ReactionDisplayChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (!updatingDisplays && ReactionDisplay.SelectedItem is DisplayScreen screen)
-            UpdateSettings(settings with { ReactionDisplayDevice = screen.DeviceName });
     }
 }
 

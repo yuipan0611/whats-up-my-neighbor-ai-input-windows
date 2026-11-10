@@ -918,3 +918,16 @@ Emily 提供 run42559908788／head1d48e70：PNG/JPEG/GIF/TIFF Ready，WebP Initi
 | strict config / git diff --check | valid / pass | 0 | — |
 
 Logs: build/r16-fix/*.log、results.json。新原生ICO提示圖與後續步驟未在Mac執行，須待Emily push Windows CI；不能宣稱第16輪以後已全綠。實機／教室／雙機／IME／DPI仍未完成。只本機commit，不push／PR／合併／發布／安裝。
+
+### D-37 移除設定頁「課堂反應」區與提醒螢幕選項（2026-11-10）
+
+使用者決策：設定頁不再顯示「課堂反應」整區（「這台是老師的電腦」勾選、「收到課堂反應時跳出貓咪圖」開關、「提醒螢幕」下拉）。
+
+**WHY NOT（為什麼不這樣設計）**
+- 不做「提醒螢幕」選擇：教室實際用硬體廣播，老師電腦只有一個螢幕；多問一個「貓咪要跟哪個螢幕」只會混淆使用者。貓咪圖固定跟隨貓咪所在螢幕。
+- 不做「這台是老師的電腦」手動勾選：老師電腦由 IP（192.168.24.240）／teacher node／舊 TeacherIp 自動辨識（RX-07），教學現場沒有人需要手動切換。
+- 不做「跳圖開關（投影時可關閉）」：老師不投影這台電腦（用硬體廣播），沒有「投影時要關圖」的情境；設定頁不放用不到的選項。
+- 保留：Settings 欄位（ShowReactionPreviews、ReactionPreviewExplicitChoice、ReactionDisplayDevice、ThisDeviceIsTeacher、ThisDeviceTeacherExplicitChoice）與載入遷移不動，以相容舊 settings.json；舊檔若 explicit OFF，仍照舊被尊重（Core 策略不變）。
+- 重開條件：出現實際的多螢幕／投影教學場景再討論，且須先有場景再加選項。
+
+**驗證**：本機 .NET 10.0.403 建置 0 警告／0 錯誤；--reactions 47+31+22 全過。本機原生 contacts smoke 因其他視窗遮住 NekoChat 而中止（在新增聯絡人步驟，早於反應檢查），未視為通過；Windows 原生 smoke（ReactionPreferencesSmoke／ReactionSmokeTest）已改為不依賴已刪控制項，待 CI 執行。

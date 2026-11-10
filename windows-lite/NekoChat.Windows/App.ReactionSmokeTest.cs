@@ -68,8 +68,7 @@ public partial class App
             await UntilAsync(() => pet.ReactionActive && pet.ReactionImage.Source is not null && pet.ReactionCaption.Text.StartsWith("講太快了", StringComparison.Ordinal), cancellation);
             Capture(pet, Path.Combine(options.Directory, "bob-default-reaction.png"));
             await UntilAsync(() => !pet.ReactionActive, cancellation);
-            chat.ReactionPreviewToggle.IsChecked = false;
-            chat.ReactionPreviewToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            chat.SmokeApplySettings(s => s with { ShowReactionPreviews = false, ReactionPreviewExplicitChoice = true });
             Require(!settings.ShowReactionPreviews && settings.ReactionPreviewExplicitChoice, "RX-04 explicit OFF did not persist");
             // Remove earlier signed-chat reminders before allowing the OFF control message.
             // An old visible bubble must not satisfy the next receive assertion.
@@ -82,9 +81,8 @@ public partial class App
             Require(chat.SmokeSelectedEntry is { PeerId: null } && chat.History.Rows.All(r => r.Legacy), "Legacy notification merged into the signed peer history");
             File.WriteAllText(Ready("privacy-verified"), "ready");
         }
-        // Restore ON through the actual visible control before the unchanged asset/timing checks.
-        chat.ReactionPreviewToggle.IsChecked = true;
-        chat.ReactionPreviewToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        // Restore ON through the settings path before the unchanged asset/timing checks.
+        chat.SmokeApplySettings(s => s with { ShowReactionPreviews = true, ReactionPreviewExplicitChoice = true });
         Require(settings.ShowReactionPreviews && settings.ReactionPreviewExplicitChoice, "Explicit reaction-preview preference did not persist");
         File.WriteAllText(Ready(options.Role + "-opt-in"), "ready");
         await UntilAsync(() => File.Exists(Ready((options.Role == "alice" ? "bob" : "alice") + "-opt-in")), cancellation);

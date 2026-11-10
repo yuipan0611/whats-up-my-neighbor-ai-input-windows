@@ -45,4 +45,4 @@ Core 提供設為老師、取消老師、權威 IP、原子單一化與保存資
 
 ## D-33：本機老師電腦與名單老師分開
 
-TC-03 的 SQLite 權威與 Settings.TeacherIp 只代表「我要傳給誰」，不代表「這台電腦是不是老師」。本機課堂反應角色由 ThisDeviceIsTeacher／ThisDeviceTeacherExplicitChoice 管理，啟動時在投影覆寫前依 RX-07 遷移。固定老師 IP 192.168.24.240 每次啟動自動視為老師，除非使用者明確取消勾選；名單沒有自己或更換／取消老師聯絡人均不改本機角色。這個顯示角色不是署名、分享或撤下授權。
+TC-03 的 SQLite 權威與 Settings.TeacherIp 只代表「我要傳給誰」，不代表「這台電腦是不是老師」。本機課堂反應角色由 ThisDeviceIsTeacher／ThisDeviceTeacherExplicitChoice 管理，啟動時在投影覆寫前依 RX-07 遷移。固定老師 IP 192.168.24.240 每次啟動自動視為老師，除非舊設定檔明確記錄為非老師（D-37 起設定頁已無勾選入口）；名單沒有自己或更換／取消老師聯絡人均不改本機角色。這個顯示角色不是署名、分享或撤下授權。
