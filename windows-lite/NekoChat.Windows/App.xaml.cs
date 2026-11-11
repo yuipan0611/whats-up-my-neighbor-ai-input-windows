@@ -613,7 +613,7 @@ public partial class App : Application
         }
     }
 
-    private async Task RequestShutdownAsync(Action? beforeShutdown = null)
+    private async Task RequestShutdownAsync(Action? beforeShutdown = null, Action<string>? reportFailure = null)
     {
         if (_recoveringIdentity) { _shutdownAfterIdentityRecovery = true; _identityRecoveryCancellation?.Cancel(); return; }
         if (closingApp) return; closingApp = true;
@@ -624,7 +624,9 @@ public partial class App : Application
             try { if (chatRuntime is not null) await chatRuntime.DisposeAsync(); } catch { }
             chatRuntime = null; directListener = null; chat.DetachRuntime(); chat.AbortClosing(); closingApp = false;
             string displayFault = DiagnosticFault.FromException(ex).DisplayCode;
-            MessageBox.Show(chat, $"關閉前無法完成存稿。這次不關閉；請保留目前文字，並處理資料讀寫問題後重試。（{displayFault}）", "無法完成存稿", MessageBoxButton.OK, MessageBoxImage.Warning);
+            string message = $"關閉前無法完成存稿。這次不關閉；請保留目前文字，並處理資料讀寫問題後重試。（{displayFault}）";
+            if (reportFailure is not null) reportFailure(message);
+            else MessageBox.Show(chat, message, "無法完成存稿", MessageBoxButton.OK, MessageBoxImage.Warning);
             await StartDataAsync();
         }
     }

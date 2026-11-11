@@ -10,7 +10,7 @@
 
 ## NekoChat Lite：教室聊天與綠色版（教室輕量版）
 
-新版本為 **0.1.0-beta.10 預發布測試版**：[下載與更新說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.10)。加入真實附件、老師／同學聊天室及課堂檔案分享；教室雙機、網路及其他 DPI 驗收仍未完成。
+新版本為 **0.1.0-beta.15 預發布測試版**：[下載與更新說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.15)。加入真實附件、老師／同學聊天室及課堂檔案分享；教室雙機、網路及其他 DPI 驗收仍未完成。
 
 教室環境專屬的輕量化實作位於 [windows-lite/](windows-lite/README.md)：透明桌面貓咪、9 種花色隨選、訊息氣泡，以及「免邀請碼、純內網 IP 直連通信」。
 
