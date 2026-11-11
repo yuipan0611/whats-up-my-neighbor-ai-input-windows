@@ -203,10 +203,10 @@ public partial class PetWindow : Window
 
     internal void DismissUpdateNotice()
     {
+        if (updateRestartAction is null) return;
         updateRestartAction = null;
         persistentNotice = false;
-        Bubble.Visibility = Visibility.Collapsed;
-        bubbleTimer.Stop();
+        AdvanceChatNotice();
     }
 
     private void BubbleClick(object sender, RoutedEventArgs e)
