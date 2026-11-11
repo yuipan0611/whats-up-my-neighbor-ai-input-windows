@@ -267,7 +267,9 @@
     <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="ChatLayout">
      <TextBlock Text="設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,16"/>
      <TextBlock x:Name="MyDirectIP" Text="我的 IP：偵測中…" TextWrapping="Wrap"/><Button x:Name="CopyMyIPButton" Content="複製我的 IP" Click="CopyMyIPClick" HorizontalAlignment="Left" Margin="0,8"/>
-     <CheckBox x:Name="AutoStartCheck" Content="開機啟動" Checked="AutoStartChecked" Unchecked="AutoStartUnchecked" Margin="0,8,0,16"/>
+     <CheckBox x:Name="AutoStartCheck" Content="開機啟動" Checked="AutoStartChecked" Unchecked="AutoStartUnchecked" Margin="0,8,0,12"/>
+     <CheckBox x:Name="AutoUpdateCheck" Content="自動更新（背景下載並無縫升級）" Checked="AutoUpdateChecked" Unchecked="AutoUpdateUnchecked" Margin="0,0,0,4"/>
+     <TextBlock Text="發現新版本時自動於背景下載並平滑重啟，免手動關閉舊版。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,16"/>
      <Button x:Name="LoadClassRosterButton" Content="載入全班名單" Click="LoadClassRosterClick" HorizontalAlignment="Left" Margin="0,0,0,4"/>
      <TextBlock Text="只補上缺少的 IP，不覆蓋本機備註。已有名單不會自動合併。" Foreground="#596B80" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,12"/>
      <StackPanel x:Name="ArchivedIdentityPanel" Visibility="Collapsed">

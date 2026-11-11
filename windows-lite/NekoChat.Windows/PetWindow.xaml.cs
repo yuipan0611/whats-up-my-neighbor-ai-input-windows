@@ -26,6 +26,8 @@ public partial class PetWindow : Window
     private readonly MenuItem autoStartMenuItem;
     private readonly MenuItem checkUpdateMenuItem;
     private string? sender;
+    private Action? updateRestartAction;
+    private bool updateNoticeActive;
     private sealed record ChatNotice(string Text, string From, string Name);
     private readonly LinkedList<ChatNotice> chatNotices = new();
     private ChatNotice? currentChat;
@@ -194,8 +196,30 @@ public partial class PetWindow : Window
         }
     }
 
+    internal void NotifyUpdateReady(string text, Action onRestart)
+    {
+        updateNoticeActive = true;
+        updateRestartAction = onRestart;
+        Notify(text, persistent: true);
+    }
+
+    internal void DismissUpdateNotice()
+    {
+        if (!updateNoticeActive) return;
+        updateNoticeActive = false;
+        updateRestartAction = null;
+        persistentNotice = false;
+        AdvanceChatNotice();
+    }
+
     private void BubbleClick(object sender, RoutedEventArgs e)
     {
+        if (updateRestartAction is { } restart)
+        {
+            DismissUpdateNotice();
+            restart();
+            return;
+        }
         OpenChat?.Invoke(this.sender);
         if (currentChat is not null) AdvanceChatNotice();
     }

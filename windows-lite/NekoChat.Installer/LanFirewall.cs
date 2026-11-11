@@ -12,6 +12,26 @@ internal static class LanFirewall
     internal static string RuleName(string path) => "NekoChat.LAN.TCP8768." +
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(path).ToUpperInvariant())))[..16];
 
+    internal static bool IsConfigured(string path)
+    {
+        try
+        {
+            path = Path.GetFullPath(path);
+            if (!File.Exists(path)) return false;
+            dynamic policy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2")!)!;
+            dynamic rules = policy.Rules;
+            string name = RuleName(path);
+            bool verified = false;
+            foreach (dynamic rule in rules)
+            {
+                if ((string)rule.Name == name && IsExpected((object)rule, path)) verified = true;
+                if (IsBlock(rule, path)) return false;
+            }
+            return verified;
+        }
+        catch { return false; }
+    }
+
     internal static void Configure(string path)
     {
         path = Path.GetFullPath(path);

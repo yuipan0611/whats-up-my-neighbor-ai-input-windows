@@ -5,7 +5,7 @@
     "name": "NekoChat Windows Lite",
     "purpose": "Windows classroom LAN chat, persistent drafts/history and bounded attachments",
     "repo_root": ".",
-    "last_reviewed": "2026-11-09"
+    "last_reviewed": "2026-11-11"
   },
   "instructions": {
     "files": [
@@ -281,6 +281,10 @@
     {
       "fact": "D-36 deliberately excludes ICO attachment previews by content before any product WIC query/decode, returning explicit NotSupported and a fixed save-as hint even when the ICO embeds PNG pixels. ICO stays in native fixture/informational inventory and must prove hint/no-decode/no-image with a screenshot; PNG/JPEG/GIF/TIFF/BMP remain strict Ready controls, WebP/HEIF follow confirmed availability.",
       "source": "windows-lite/NekoChat.Core/Attachments/AttachmentImageProbe.cs; windows-lite/NekoChat.Windows/AttachmentImage.cs; windows-lite/NekoChat.Tests/AttachmentImageProbeChecks.cs; windows-lite/NekoChat.Windows/App.AttachmentPreviewSmoke.cs; windows-lite/docs/specs/attachments-preview.md"
+    },
+    {
+      "fact": "Automatic installer handoff runs only after PrepareForShutdownAsync and runtime disposal. A failed draft save never launches the installer. Headless updates wait for the old PID and abort on timeout without killing it; manual install process closure stays separate. Native package/portable fixtures exercise save failure, launch failure, committed drafts and idempotent unread-notice restoration.",
+      "source": "windows-lite/NekoChat.Windows/App.xaml.cs#RequestShutdownAsync; windows-lite/NekoChat.Windows/App.UpdateHandoffSmoke.cs; windows-lite/NekoChat.Installer/Program.cs#ApplyUpdateHeadless; windows-lite/NekoChat.Installer/UpdateProcessWait.cs; .github/workflows/nekochat-windows-lite.yml"
     }
   ]
 }

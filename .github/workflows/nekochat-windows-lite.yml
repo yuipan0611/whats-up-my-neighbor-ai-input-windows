@@ -174,6 +174,18 @@ jobs:
             Copy-Item "$target/result.txt" "build/windows-lite-smoke/update-download/result-$index.txt"
             $index++
           }
+      - name: Verify update handoff preserves drafts on shutdown and launch failures
+        shell: pwsh
+        run: |
+          foreach ($app in @('build/windows-lite-package/NekoChat.Windows.exe', 'build/windows-lite-portable/NekoChat-Lite.exe')) {
+            $kind = if ($app -like '*portable*') { 'portable' } else { 'package' }
+            $proof = Join-Path $env:GITHUB_WORKSPACE "build/windows-lite-smoke/update-handoff-$kind"
+            $probe = Start-Process -FilePath (Resolve-Path $app).Path -ArgumentList @('--update-handoff-smoke-test', "`"$proof`"") -PassThru
+            if (!$probe.WaitForExit(75000)) { $probe.Kill(); throw 'Update handoff fixture timed out' }
+            Get-Content "$proof/update-handoff-result.json"
+            $result = Get-Content "$proof/update-handoff-result.json" -Raw | ConvertFrom-Json
+            if ($probe.ExitCode -ne 0 -or !$result.passed -or $result.dailyProfileUsed -or !$result.loopbackOnly -or $result.checks.Count -lt 6) { throw 'Update handoff fixture failed' }
+          }
       - name: Verify current manual-send Cancel controls in isolated native fixtures
         shell: pwsh
         run: |
