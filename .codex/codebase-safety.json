@@ -285,6 +285,10 @@
     {
       "fact": "Automatic installer handoff runs only after PrepareForShutdownAsync and runtime disposal. A failed draft save never launches the installer. Headless updates wait for the old PID and abort on timeout without killing it; manual install process closure stays separate. Native package/portable fixtures exercise save failure, launch failure, committed drafts and idempotent unread-notice restoration.",
       "source": "windows-lite/NekoChat.Windows/App.xaml.cs#RequestShutdownAsync; windows-lite/NekoChat.Windows/App.UpdateHandoffSmoke.cs; windows-lite/NekoChat.Installer/Program.cs#ApplyUpdateHeadless; windows-lite/NekoChat.Installer/UpdateProcessWait.cs; .github/workflows/nekochat-windows-lite.yml"
+    },
+    {
+      "fact": "The GitHub introduction is maintained in README.md, README.en.md and README.ja.md. Voice Input beta.3 and Lite beta.15 have separate download/update instructions. Detailed Chinese voice guidance lives in docs/VOICE-GUIDE.zh-TW.md. README image provenance and checksums are recorded in docs/media/README.md.",
+      "source": "README.md; README.en.md; README.ja.md; docs/VOICE-GUIDE.zh-TW.md; docs/media/README.md"
     }
   ]
 }
