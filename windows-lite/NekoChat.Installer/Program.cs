@@ -89,19 +89,10 @@ internal static class Program
     }
     private static int ApplyUpdateHeadless(int waitPid, bool restart)
     {
-        if (waitPid > 0)
-        {
-            try
-            {
-                using var p = Process.GetProcessById(waitPid);
-                p.WaitForExit(8000);
-            }
-            catch (ArgumentException) { }
-            catch { }
-        }
-        CloseRunningProcesses();
         using var gate = new Mutex(true, "Local\\NekoChat.WindowsLite.Installer", out bool acquired);
         if (!acquired) return 1;
+        // An automatic handoff must never force an app past its save/exit gate.
+        if (!UpdateProcessWait.WaitForExit(waitPid, TimeSpan.FromSeconds(60))) return 1;
         string parent = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
         try
         {

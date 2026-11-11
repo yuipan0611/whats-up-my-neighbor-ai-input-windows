@@ -87,6 +87,12 @@ public partial class App : Application
             return;
         }
 
+        if (startupArgs.Length == 2 && startupArgs[0] == "--update-handoff-smoke-test")
+        {
+            Environment.Exit(await RunUpdateHandoffSmokeAsync(startupArgs[1]));
+            return;
+        }
+
         if (startupArgs.Length == 2 && startupArgs[0] == "--smoke-test")
         {
             Environment.Exit(SmokeTest.Run(startupArgs[1]));
@@ -428,14 +434,16 @@ public partial class App : Application
 
     private async Task ApplyUpdateAndRestartAsync(string downloadedPath)
     {
-        var psi = new ProcessStartInfo(downloadedPath) { UseShellExecute = true };
-        psi.ArgumentList.Add("--apply-update");
-        psi.ArgumentList.Add("--wait-pid");
-        psi.ArgumentList.Add(Environment.ProcessId.ToString());
-        psi.ArgumentList.Add("--restart");
-        using var process = Process.Start(psi)
-            ?? throw new IOException("無法啟動安裝程式，已保留下載檔供重試。");
-        await RequestShutdownAsync();
+        await RequestShutdownAsync(() =>
+        {
+            var psi = new ProcessStartInfo(downloadedPath) { UseShellExecute = true };
+            psi.ArgumentList.Add("--apply-update");
+            psi.ArgumentList.Add("--wait-pid");
+            psi.ArgumentList.Add(Environment.ProcessId.ToString());
+            psi.ArgumentList.Add("--restart");
+            using var process = Process.Start(psi)
+                ?? throw new IOException("無法啟動安裝程式，已保留下載檔供重試。");
+        });
     }
 
     private void CancelPendingAutoUpdate()
@@ -605,11 +613,11 @@ public partial class App : Application
         }
     }
 
-    private async Task RequestShutdownAsync()
+    private async Task RequestShutdownAsync(Action? beforeShutdown = null)
     {
         if (_recoveringIdentity) { _shutdownAfterIdentityRecovery = true; _identityRecoveryCancellation?.Cancel(); return; }
         if (closingApp) return; closingApp = true;
-        try { chat.BeginClosing(); if (chatRuntime is not null) await chatRuntime.StopReceivingAsync(); await _activeLegacySend; await chat.PrepareForShutdownAsync(); if (chatRuntime is not null) await chatRuntime.DisposeAsync(); Shutdown(); }
+        try { chat.BeginClosing(); if (chatRuntime is not null) await chatRuntime.StopReceivingAsync(); await _activeLegacySend; await chat.PrepareForShutdownAsync(); if (chatRuntime is not null) await chatRuntime.DisposeAsync(); beforeShutdown?.Invoke(); Shutdown(); }
         catch (Exception ex)
         {
             chatRuntime?.Diagnostics.Record(DiagnosticStage.Shutdown, DiagnosticOutcome.Failed, error: ex);
