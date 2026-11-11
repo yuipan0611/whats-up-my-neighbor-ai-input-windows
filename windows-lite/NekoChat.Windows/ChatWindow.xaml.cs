@@ -37,6 +37,7 @@ public partial class ChatWindow : Window
         Closing += OnClosing;
 
         AutoStartCheck.IsChecked = settings.AutoStartOnLogin;
+        AutoUpdateCheck.IsChecked = settings.AutoUpdateEnabled;
         if (!string.IsNullOrWhiteSpace(settings.LastRecipientIp))
         {
             RecipientIp.Text = settings.LastRecipientIp;
@@ -211,6 +212,20 @@ public partial class ChatWindow : Window
         AutoStartChanged?.Invoke(false);
         if (saved) SetStatus("已關閉開機啟動。");
     }
+
+    private void AutoUpdateChecked(object sender, RoutedEventArgs e)
+    {
+        bool saved = UpdateSettings(settings with { AutoUpdateEnabled = true });
+        if (saved) SetStatus("已開啟自動更新。");
+    }
+
+    private void AutoUpdateUnchecked(object sender, RoutedEventArgs e)
+    {
+        bool saved = UpdateSettings(settings with { AutoUpdateEnabled = false });
+        if (saved) SetStatus("已關閉自動更新。");
+    }
+
+    internal bool IsComposing => composingText || !string.IsNullOrWhiteSpace(Draft.Text);
 
     internal void RefreshSettingsSaveStatus()
     {

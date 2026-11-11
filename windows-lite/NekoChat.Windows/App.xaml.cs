@@ -19,6 +19,7 @@ public partial class App : Application
     private int directSendPort = DirectLanMessaging.DefaultPort;
     private Mutex? instanceGate;
     private bool checkingUpdate;
+    private DispatcherTimer? periodicUpdateTimer;
     private UiTestOptions? _uiTestOptions;
     private ChatRuntime? chatRuntime;
     private SettingsLoadResult? startupSource;
@@ -255,6 +256,9 @@ public partial class App : Application
             if (startupArgs.Length == 0 && uiTestOptions is null)
             {
                 _ = Task.Delay(3000).ContinueWith(_ => Dispatcher.Invoke(() => _ = CheckForUpdatesAsync(false)));
+                periodicUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(1) };
+                periodicUpdateTimer.Tick += (_, _) => _ = CheckForUpdatesAsync(false);
+                periodicUpdateTimer.Start();
             }
 
             if (startupArgs.Length == 2 && startupArgs[0] is "--startup-smoke-test" or "--text-only-startup-smoke-test")
@@ -378,11 +382,16 @@ public partial class App : Application
                     download.ShowDialog();
                     if (download.Error is not null) throw download.Error;
                     if (download.DownloadedPath is null) { chat.SetStatus("更新下載已取消。"); return; }
-                    if (MessageBox.Show(chat, "下載與檔案驗證完成。是否開啟安裝程式並關閉 NekoChat？", "NekoChat — 更新已下載", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
+                    if (MessageBox.Show(chat, "下載與檔案驗證完成。是否立即無縫更新並重新啟動 NekoChat？", "NekoChat — 更新已下載", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
                     {
-                        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(download.DownloadedPath) { UseShellExecute = true })
-                            ?? throw new IOException("無法啟動安裝程式，已保留下載檔供重試。");
-                        await RequestShutdownAsync();
+                        await ApplyUpdateAndRestartAsync(download.DownloadedPath);
+                    }
+                }
+                else if (settings.AutoUpdateEnabled)
+                {
+                    if (!string.IsNullOrWhiteSpace(result.DownloadUrl) && !string.IsNullOrWhiteSpace(result.ChecksumUrl))
+                    {
+                        _ = DownloadAndApplyAutoUpdateAsync(result);
                     }
                 }
                 else
@@ -409,6 +418,70 @@ public partial class App : Application
         finally { checkingUpdate = false; }
     }
 
+    private async Task ApplyUpdateAndRestartAsync(string downloadedPath)
+    {
+        var psi = new ProcessStartInfo(downloadedPath) { UseShellExecute = true };
+        psi.ArgumentList.Add("--apply-update");
+        psi.ArgumentList.Add("--wait-pid");
+        psi.ArgumentList.Add(Environment.ProcessId.ToString());
+        psi.ArgumentList.Add("--restart");
+        using var process = Process.Start(psi)
+            ?? throw new IOException("無法啟動安裝程式，已保留下載檔供重試。");
+        await RequestShutdownAsync();
+    }
+
+    private async Task DownloadAndApplyAutoUpdateAsync(UpdateCheckResult release)
+    {
+        try
+        {
+            using var downloader = new UpdateDownloader();
+            string cacheDir = Path.Combine(Settings.DirectoryPath, "Updates");
+            var downloaded = await downloader.DownloadAsync(release.DownloadUrl!, release.ChecksumUrl!, cacheDir);
+            if (string.IsNullOrWhiteSpace(downloaded) || !File.Exists(downloaded)) return;
+
+            int remaining = 5;
+            DispatcherTimer? countdown = null;
+            bool updating = false;
+
+            async Task DoRestartAsync()
+            {
+                if (updating) return;
+                updating = true;
+                countdown?.Stop();
+                await ApplyUpdateAndRestartAsync(downloaded);
+            }
+
+            pet.NotifyUpdateReady($"新版本已下載就緒，{remaining} 秒後自動重啟\n（點擊立即更新）", () => _ = DoRestartAsync());
+
+            countdown = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            countdown.Tick += async (_, _) =>
+            {
+                if (updating || closingApp) { countdown.Stop(); return; }
+                if (chat.IsComposing)
+                {
+                    remaining = 5;
+                    pet.NotifyUpdateReady("新版本已就緒，打字結束後自動重啟\n（點擊立即更新）", () => _ = DoRestartAsync());
+                    return;
+                }
+                remaining--;
+                if (remaining <= 0)
+                {
+                    countdown.Stop();
+                    await DoRestartAsync();
+                }
+                else
+                {
+                    pet.NotifyUpdateReady($"新版本已下載就緒，{remaining} 秒後自動重啟\n（點擊立即更新）", () => _ = DoRestartAsync());
+                }
+            };
+            countdown.Start();
+        }
+        catch (Exception ex)
+        {
+            chatRuntime?.Diagnostics.Record(DiagnosticStage.Startup, DiagnosticOutcome.Failed, error: ex);
+        }
+    }
+
     private void SettingsSaveProblem(string reason)
     {
         if (closingApp || Dispatcher.HasShutdownStarted) return;
@@ -417,6 +490,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        periodicUpdateTimer?.Stop();
         Settings.SaveProblem -= SettingsSaveProblem;
         _identityRecoveryCancellation?.Cancel();
         SystemEvents.PowerModeChanged -= AppPowerModeChanged;

@@ -18,6 +18,17 @@ internal static class Program
     {
         if(args.Length==2 && args[0]=="--configure-firewall")return LanFirewall.RunHelper(args[1]);
         if(args.Length==2 && args[0]=="--smoke-install")return Smoke(args[1]);
+        if(args.Length>=1 && args[0]=="--apply-update")
+        {
+            int waitPid = 0;
+            bool restart = false;
+            for(int i = 1; i < args.Length; i++)
+            {
+                if(args[i] == "--wait-pid" && i + 1 < args.Length && int.TryParse(args[i + 1], out int p)) waitPid = p;
+                if(args[i] == "--restart") restart = true;
+            }
+            return ApplyUpdateHeadless(waitPid, restart);
+        }
         if(args.Length!=0)return 2;
         using var gate=new Mutex(true,"Local\\NekoChat.WindowsLite.Installer",out bool acquired);
         if(!acquired){MessageBox.Show("另一個 NekoChat 安裝程式正在執行。","NekoChat");return 1;}
@@ -76,8 +87,74 @@ internal static class Program
         };
         window.Content=panel;app.Run(window);return 0;
     }
+    private static int ApplyUpdateHeadless(int waitPid, bool restart)
+    {
+        if (waitPid > 0)
+        {
+            try
+            {
+                using var p = Process.GetProcessById(waitPid);
+                p.WaitForExit(8000);
+            }
+            catch (ArgumentException) { }
+            catch { }
+        }
+        CloseRunningProcesses();
+        using var gate = new Mutex(true, "Local\\NekoChat.WindowsLite.Installer", out bool acquired);
+        if (!acquired) return 1;
+        try
+        {
+            var parent = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
+            using var transaction = InstallAt(parent);
+            var exePath = Path.Combine(transaction.Destination, "NekoChat.Windows.exe");
+            try { ConfigureFirewallAsync(exePath).GetAwaiter().GetResult(); } catch { }
+            transaction.AcceptLaunch(folder =>
+            {
+                if (restart)
+                {
+                    using var process = Process.Start(new ProcessStartInfo(Path.Combine(folder, "NekoChat.Windows.exe"))
+                    {
+                        WorkingDirectory = folder,
+                        UseShellExecute = true
+                    }) ?? throw new IOException("無法啟動新版。");
+                }
+            });
+            try { CreateShortcut(transaction.Destination); } catch { }
+            return 0;
+        }
+        catch { return 1; }
+    }
+
+    private static void CloseRunningProcesses()
+    {
+        int sessionId = Process.GetCurrentProcess().SessionId;
+        var running = new[] { "NekoChat.Windows", "NekoChat-Lite" }
+            .SelectMany(Process.GetProcessesByName)
+            .Where(p => { using (p) return p.SessionId == sessionId; })
+            .ToList();
+        if (running.Count == 0) return;
+        foreach (var p in running)
+        {
+            try
+            {
+                if (!p.HasExited)
+                {
+                    p.CloseMainWindow();
+                    if (!p.WaitForExit(3000))
+                    {
+                        p.Kill(entireProcessTree: true);
+                        p.WaitForExit(2000);
+                    }
+                }
+            }
+            catch { }
+            finally { p.Dispose(); }
+        }
+    }
+
     private static async Task ConfigureFirewallAsync(string programPath)
     {
+        if (LanFirewall.IsConfigured(programPath)) return;
         using var identity=WindowsIdentity.GetCurrent();
         if(new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator))
         {
@@ -110,8 +187,7 @@ internal static class Program
     }
     private static InstallationUpdate Install()
     {
-        if(new[]{"NekoChat.Windows","NekoChat-Lite"}.SelectMany(Process.GetProcessesByName).Any(p=>{using(p)return p.SessionId==Process.GetCurrentProcess().SessionId;}))
-            throw new IOException("請先從貓咪右鍵選單離開舊版 NekoChat，再按安裝。");
+        CloseRunningProcesses();
         var parent=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs");
         return InstallAt(parent);
     }

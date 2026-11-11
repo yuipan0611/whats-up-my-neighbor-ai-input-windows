@@ -17,10 +17,15 @@ internal static class SettingsSourceChecks
             string path = Path.Combine(root, "settings.json");
             var missing = Settings.LoadWithStatus(path);
             Check(missing.Status == SettingsSourceStatus.Missing && missing.CanImportLegacyRoster && !File.Exists(path), "missing source is explicitly empty without creating file");
+            Check(missing.Value.AutoUpdateEnabled, "AutoUpdateEnabled defaults to true for seamless updates");
             using (var store = ChatStore.Open(new(Path.Combine(root, "missing-db"))))
                 Check(missing.ImportLegacyRoster(store) is { Added: 0, Skipped: 0 } && store.LegacyRosterImportCompleted(), "actual missing source can commit the one-time empty import");
             var edited = missing.Value.WithContact("10.0.0.1", "測試同學");
-            Check(edited.Save() && Settings.LoadWithStatus(path) is { Status: SettingsSourceStatus.Loaded, Value.Contacts.Count: 1 }, "valid save atomically creates and reloads settings");
+            Check(edited.Save() && Settings.LoadWithStatus(path) is { Status: SettingsSourceStatus.Loaded, Value.Contacts.Count: 1, Value.AutoUpdateEnabled: true }, "valid save atomically creates and reloads settings");
+            var disabledAuto = edited with { AutoUpdateEnabled = false };
+            Check(disabledAuto.Save() && Settings.LoadWithStatus(path).Value.AutoUpdateEnabled == false, "AutoUpdateEnabled persists false when toggled off");
+            var reEnabledAuto = Settings.LoadWithStatus(path).Value with { AutoUpdateEnabled = true };
+            Check(reEnabledAuto.Save() && Settings.LoadWithStatus(path).Value.AutoUpdateEnabled == true, "AutoUpdateEnabled persists true when toggled on");
             string json = File.ReadAllText(path);
             Check(!json.Contains("PersistencePath") && !json.Contains("ReadOnlyFallback") && Directory.GetFiles(root, "*.tmp").Length == 0, "internal path/error state absent from JSON and no owned tmp retained");
             using (var store = ChatStore.Open(new(Path.Combine(root, "valid-db"))))
