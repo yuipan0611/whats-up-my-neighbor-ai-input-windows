@@ -102,9 +102,9 @@ internal static class Program
         CloseRunningProcesses();
         using var gate = new Mutex(true, "Local\\NekoChat.WindowsLite.Installer", out bool acquired);
         if (!acquired) return 1;
+        string parent = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
         try
         {
-            var parent = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
             using var transaction = InstallAt(parent);
             var exePath = Path.Combine(transaction.Destination, "NekoChat.Windows.exe");
             try { ConfigureFirewallAsync(exePath).GetAwaiter().GetResult(); } catch { }
@@ -122,16 +122,42 @@ internal static class Program
             try { CreateShortcut(transaction.Destination); } catch { }
             return 0;
         }
-        catch { return 1; }
+        catch
+        {
+            if (restart)
+            {
+                try
+                {
+                    var fallbackExe = Path.Combine(parent, "NekoChat.WindowsLite", "NekoChat.Windows.exe");
+                    if (File.Exists(fallbackExe))
+                    {
+                        Process.Start(new ProcessStartInfo(fallbackExe) { WorkingDirectory = Path.GetDirectoryName(fallbackExe), UseShellExecute = true });
+                    }
+                }
+                catch { }
+            }
+            return 1;
+        }
     }
 
     private static void CloseRunningProcesses()
     {
         int sessionId = Process.GetCurrentProcess().SessionId;
-        var running = new[] { "NekoChat.Windows", "NekoChat-Lite" }
-            .SelectMany(Process.GetProcessesByName)
-            .Where(p => { using (p) return p.SessionId == sessionId; })
-            .ToList();
+        var running = new List<Process>();
+        foreach (var name in new[] { "NekoChat.Windows", "NekoChat-Lite" })
+        {
+            foreach (var p in Process.GetProcessesByName(name))
+            {
+                if (p.SessionId == sessionId)
+                {
+                    running.Add(p);
+                }
+                else
+                {
+                    p.Dispose();
+                }
+            }
+        }
         if (running.Count == 0) return;
         foreach (var p in running)
         {

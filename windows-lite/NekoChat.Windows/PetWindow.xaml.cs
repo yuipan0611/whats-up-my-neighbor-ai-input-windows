@@ -201,6 +201,14 @@ public partial class PetWindow : Window
         Notify(text, persistent: true);
     }
 
+    internal void DismissUpdateNotice()
+    {
+        updateRestartAction = null;
+        persistentNotice = false;
+        Bubble.Visibility = Visibility.Collapsed;
+        bubbleTimer.Stop();
+    }
+
     private void BubbleClick(object sender, RoutedEventArgs e)
     {
         if (updateRestartAction is { } restart)

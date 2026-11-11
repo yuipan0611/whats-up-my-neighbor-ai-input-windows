@@ -1,8 +1,10 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using NekoChat.Core;
 using NekoChat.Core.Storage;
@@ -20,6 +22,7 @@ public partial class App : Application
     private Mutex? instanceGate;
     private bool checkingUpdate;
     private DispatcherTimer? periodicUpdateTimer;
+    private DispatcherTimer? autoUpdateCountdown;
     private UiTestOptions? _uiTestOptions;
     private ChatRuntime? chatRuntime;
     private SettingsLoadResult? startupSource;
@@ -212,6 +215,11 @@ public partial class App : Application
                 {
                     LoginStartup.Apply(enabled);
                 }
+            };
+            chat.AutoUpdateChanged += enabled =>
+            {
+                settings = settings with { AutoUpdateEnabled = enabled };
+                if (!enabled) CancelPendingAutoUpdate();
             };
             chat.SendRequested += async (targetIp, text) => await SendDirectMessageAsync(targetIp, text);
             chat.ReactionRequested += async (targetIp, reaction) => await SendDirectMessageAsync(targetIp, reaction.Text, reaction, preserveDraft: true);
@@ -430,33 +438,54 @@ public partial class App : Application
         await RequestShutdownAsync();
     }
 
+    private void CancelPendingAutoUpdate()
+    {
+        if (autoUpdateCountdown is not null)
+        {
+            autoUpdateCountdown.Stop();
+            autoUpdateCountdown = null;
+        }
+        pet?.DismissUpdateNotice();
+    }
+
     private async Task DownloadAndApplyAutoUpdateAsync(UpdateCheckResult release)
     {
         try
         {
+            if (!settings.AutoUpdateEnabled) return;
             using var downloader = new UpdateDownloader();
             string cacheDir = Path.Combine(Settings.DirectoryPath, "Updates");
             var downloaded = await downloader.DownloadAsync(release.DownloadUrl!, release.ChecksumUrl!, cacheDir);
-            if (string.IsNullOrWhiteSpace(downloaded) || !File.Exists(downloaded)) return;
+            if (string.IsNullOrWhiteSpace(downloaded) || !File.Exists(downloaded) || !settings.AutoUpdateEnabled) return;
 
+            CancelPendingAutoUpdate();
             int remaining = 5;
-            DispatcherTimer? countdown = null;
             bool updating = false;
 
             async Task DoRestartAsync()
             {
-                if (updating) return;
+                if (updating || !settings.AutoUpdateEnabled) return;
                 updating = true;
-                countdown?.Stop();
-                await ApplyUpdateAndRestartAsync(downloaded);
+                CancelPendingAutoUpdate();
+                try
+                {
+                    await ApplyUpdateAndRestartAsync(downloaded);
+                }
+                catch (Exception ex)
+                {
+                    updating = false;
+                    chatRuntime?.Diagnostics.Record(DiagnosticStage.Startup, DiagnosticOutcome.Failed, error: ex);
+                    pet?.Notify("更新啟動失敗，已保留下載檔案供稍後重試。");
+                }
             }
 
             pet.NotifyUpdateReady($"新版本已下載就緒，{remaining} 秒後自動重啟\n（點擊立即更新）", () => _ = DoRestartAsync());
 
-            countdown = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-            countdown.Tick += async (_, _) =>
+            autoUpdateCountdown = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            autoUpdateCountdown.Tick += async (_, _) =>
             {
-                if (updating || closingApp) { countdown.Stop(); return; }
+                if (updating || closingApp) { CancelPendingAutoUpdate(); return; }
+                if (!settings.AutoUpdateEnabled) { CancelPendingAutoUpdate(); return; }
                 if (chat.IsComposing)
                 {
                     remaining = 5;
@@ -466,7 +495,7 @@ public partial class App : Application
                 remaining--;
                 if (remaining <= 0)
                 {
-                    countdown.Stop();
+                    CancelPendingAutoUpdate();
                     await DoRestartAsync();
                 }
                 else
@@ -474,7 +503,7 @@ public partial class App : Application
                     pet.NotifyUpdateReady($"新版本已下載就緒，{remaining} 秒後自動重啟\n（點擊立即更新）", () => _ = DoRestartAsync());
                 }
             };
-            countdown.Start();
+            autoUpdateCountdown.Start();
         }
         catch (Exception ex)
         {
@@ -491,6 +520,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         periodicUpdateTimer?.Stop();
+        CancelPendingAutoUpdate();
         Settings.SaveProblem -= SettingsSaveProblem;
         _identityRecoveryCancellation?.Cancel();
         SystemEvents.PowerModeChanged -= AppPowerModeChanged;

@@ -17,6 +17,7 @@ public partial class ChatWindow : Window
 
     internal event Action<string, string>? SendRequested;
     internal event Action<bool>? AutoStartChanged;
+    internal event Action<bool>? AutoUpdateChanged;
     internal event Action<Settings>? SettingsChanged;
     internal event Action<string, ClassroomReaction>? ReactionRequested;
 
@@ -216,12 +217,14 @@ public partial class ChatWindow : Window
     private void AutoUpdateChecked(object sender, RoutedEventArgs e)
     {
         bool saved = UpdateSettings(settings with { AutoUpdateEnabled = true });
+        AutoUpdateChanged?.Invoke(true);
         if (saved) SetStatus("已開啟自動更新。");
     }
 
     private void AutoUpdateUnchecked(object sender, RoutedEventArgs e)
     {
         bool saved = UpdateSettings(settings with { AutoUpdateEnabled = false });
+        AutoUpdateChanged?.Invoke(false);
         if (saved) SetStatus("已關閉自動更新。");
     }
 
