@@ -148,7 +148,7 @@ public partial class ChatWindow
         var migrated = settings.MigrateClassroomSubnet();
         if (!ReferenceEquals(migrated, settings)) UpdateSettings(migrated);
         if (result.Conflicts > 0)
-            SetStatus($"教室 IP 已更新；{result.Conflicts} 筆新舊 IP 重複，已保留原資料，請在名單中確認。");
+            StorageStatus.Text = $"教室 IP 已更新；{result.Conflicts} 筆新舊 IP 重複，已保留原資料，請在名單中確認。";
     }
 
     private async Task BootstrapClassRosterAsync()

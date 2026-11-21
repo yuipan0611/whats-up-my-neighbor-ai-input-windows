@@ -32,6 +32,10 @@ public partial class App
             if (kind == "subnet-upgrade") await runtime.Worker.Run(store => {
                 store.SaveManualRosterEntry(null, new("合成保留備註", null, false, "192.168.24.10"),
                     RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot()));
+                store.SaveManualRosterEntry(null, new("合成舊位址衝突", null, false, "192.168.24.20"),
+                    RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot()));
+                store.SaveManualRosterEntry(null, new("合成新位址衝突", null, false, "192.168.21.20"),
+                    RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot()));
                 return store.SaveManualRosterEntry(null, new("合成老師", null, true, "192.168.24.240"),
                     RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot()));
             });
@@ -70,15 +74,18 @@ public partial class App
                         "CT-16 real sidecar source takes priority over embedded class");
                 else if (kind == "subnet-upgrade")
                 {
-                    check(rows.Count == 2 && rows.Single(row => !row.Entry.IsTeacher).Entry is
+                    check(rows.Count == 4 && rows.Single(row => row.Entry.DisplayName == "合成保留備註").Entry is
                         { Endpoint: "192.168.21.10", DisplayName: "合成保留備註" } &&
                         rows.Single(row => row.Entry.IsTeacher).Entry.Endpoint == "192.168.21.240" &&
                         preferences.TeacherIp == "192.168.21.240" && preferences.ClassRosterInitialized,
                         "subnet upgrade runs before inbox/bootstrap and projects the new teacher without adding contacts");
                     view.Show(); view.Activate(); view.UpdateLayout();
-                    check(view.TeachersList.Items.Count == 1 && view.InboxList.Items.Count == 1 &&
+                    check(view.TeachersList.Items.Count == 1 && view.InboxList.Items.Count == 3 &&
                         view.TeachersList.Items.OfType<InboxRowView>().Single().Entry.Endpoint == "192.168.21.240",
                         "subnet upgrade appears in the actual native teacher pin and classmate list");
+                    view.SetStatus("本機資料已就緒。");
+                    check(view.StorageStatus.Text.Contains("IP 重複", StringComparison.Ordinal),
+                        "subnet conflict guidance stays visible after normal startup status replaces the status line");
                     shot("classroom-subnet-upgrade", view);
                 }
                 else

@@ -27,6 +27,7 @@ internal static class ClassroomSubnetChecks
             var deletion = store.PreviewRosterDelete(removed);
             store.DeleteRosterEntry(removed, deletion.SnapshotToken, deletion.ToConfirmation());
             store.SetSourceBlocked("192.168.24.15", true);
+            store.SetSourceBlocked("192.168.24.20", true);
             var principal = ClassroomPrincipalKey.ForRosterEntry(student);
             store.ReceiveClassroomMessage("192.168.24.115", new("subnet-history", "保留歷史 IP 192.168.24.115"), () => true);
             var history = store.ListClassroomMessages(principal).Items.ToArray();
@@ -53,6 +54,8 @@ internal static class ClassroomSubnetChecks
                 rows.Single(r => r.Entry.Id == occupied).Entry.DisplayName == "已有的新位址" &&
                 rows.Single(r => r.Entry.Id == unrelated).Entry.Endpoint == "10.30.0.9", "conflicting and unrelated contacts stay intact");
             Check(store.IsSourceBlocked("192.168.21.15") && !store.IsSourceBlocked("192.168.24.15"), "blocked contact moves to the new classroom");
+            Check(store.IsSourceBlocked("192.168.24.20") && !store.IsSourceBlocked("192.168.21.20"),
+                "conflicting contact keeps its old block without blocking the occupied new address");
             Check(store.GetRemovedRosterEndpoints().Contains("192.168.21.25") &&
                 !store.GetRemovedRosterEndpoints().Contains("192.168.24.25"), "removed contact stays excluded from new default roster");
             Check(store.ListClassroomMessages(principal).Items.SequenceEqual(history), "history/source addresses/message IDs stay byte-for-byte unchanged");

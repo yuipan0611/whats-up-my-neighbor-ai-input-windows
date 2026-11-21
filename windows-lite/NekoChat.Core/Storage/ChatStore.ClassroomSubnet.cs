@@ -31,8 +31,9 @@ public sealed partial class ChatStore
                 auxiliary += ctx.Exec("UPDATE ClassroomArchivedContact SET endpoint='192.168.21.' || substr(endpoint,12) WHERE endpoint GLOB '192.168.24.*'");
             if (_migrations.Count >= 15)
             {
-                auxiliary += ctx.Exec("INSERT OR IGNORE INTO BlockedSource(ip,rosterEntryId,displayName,blockedUtc) SELECT '192.168.21.' || substr(ip,12),rosterEntryId,displayName,blockedUtc FROM BlockedSource WHERE ip GLOB '192.168.24.*'");
-                auxiliary += ctx.Exec("DELETE FROM BlockedSource WHERE ip GLOB '192.168.24.*'");
+                // A collision left its active contact at the old IP: its block must stay there too.
+                auxiliary += ctx.Exec("INSERT OR IGNORE INTO BlockedSource(ip,rosterEntryId,displayName,blockedUtc) SELECT '192.168.21.' || substr(ip,12),rosterEntryId,displayName,blockedUtc FROM BlockedSource WHERE ip GLOB '192.168.24.*' AND NOT EXISTS(SELECT 1 FROM RosterEntry WHERE endpoint=BlockedSource.ip)");
+                auxiliary += ctx.Exec("DELETE FROM BlockedSource WHERE ip GLOB '192.168.24.*' AND NOT EXISTS(SELECT 1 FROM RosterEntry WHERE endpoint=BlockedSource.ip)");
             }
             return (new ClassroomSubnetMigrationResult(updated, conflicts), updated + auxiliary > 0);
         });
