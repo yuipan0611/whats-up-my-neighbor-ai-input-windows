@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/windows.yml"><img src="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/windows.yml/badge.svg" alt="Windows build"></a>
   <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml"><img src="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml/badge.svg" alt="NekoChat Lite build"></a>
-  <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.15"><img src="https://img.shields.io/badge/Lite-0.1.0--beta.15-5267a8" alt="NekoChat Lite 0.1.0-beta.15"></a>
+  <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.16"><img src="https://img.shields.io/badge/Lite-0.1.0--beta.16-5267a8" alt="NekoChat Lite 0.1.0-beta.16"></a>
   <img src="https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078D4" alt="Windows 10 / 11 x64">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
 </p>
@@ -53,7 +53,7 @@ This Windows repository contains two separate apps: **Voice Input** transcribes 
 | What you want to do | Version | Download |
 |---|---|---|
 | Dictate into your current text field | Voice Input **0.1.0-beta.3** | [Voice installer](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/v0.1.0-beta.3/Neighbor-Setup-0.1.0-beta.3-x64.exe) · [Release notes](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/v0.1.0-beta.3) |
-| Chat and share files on a LAN, with a desktop cat | NekoChat Lite **0.1.0-beta.15** | [Lite installer](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Setup-win-x64.exe) · [Portable EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Lite.exe) · [Release notes](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.15) |
+| Chat and share files on a LAN, with a desktop cat | NekoChat Lite **0.1.0-beta.16** | [Lite installer](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Setup-win-x64.exe) · [Portable EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Lite.exe) · [Release notes](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.16) |
 
 Both are testing releases. Lite needs neither a microphone nor an API key. Voice Input needs your own Groq API key and internet access. Lite messaging uses your LAN; checking and downloading updates requires access to GitHub.
 
@@ -95,7 +95,7 @@ NekoChat Lite includes all nine coats below. Switch from the cat's right-click m
 
 ### NekoChat Lite
 
-1. [Download and run Setup](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Setup-win-x64.exe), or use the [portable EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Lite.exe). No separate .NET installation is needed.
+1. [Download and run Setup](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Setup-win-x64.exe), or use the [portable EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Lite.exe). No separate .NET installation is needed.
 2. Setup installs for the current Windows user. Initial inbound firewall configuration may require administrator approval; the portable app does not change firewall rules automatically.
 3. Double-click the cat, choose 「新增對象」 (Add contact), and enter the classmate's LAN IP. Use 「加入老師」 (Add teacher) for the teacher. See the [Lite guide](windows-lite/README.md) in Traditional Chinese.
 4. **beta.14 and older require one manual upgrade to beta.15.** Automatic background updates are enabled from beta.15 onward. Updating the portable app moves you to the installed version.
@@ -128,7 +128,7 @@ Detailed linked manuals are primarily in Traditional Chinese.
 |---|---|
 | Use Lite chat, attachments and classroom files | [Lite guide](windows-lite/README.md) · [Attachments](windows-lite/ATTACHMENTS.md) |
 | Configure voice, vocabulary, keys or uninstall | [Full Voice guide](docs/VOICE-GUIDE.zh-TW.md) |
-| Check releases and update methods | [All releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) · [Lite beta.15](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.15) · [Voice update process](docs/UPDATES.md) |
+| Check releases and update methods | [All releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) · [Lite beta.16](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.16) · [Voice update process](docs/UPDATES.md) |
 | Learn about the cat and platform differences | [Desktop cat](docs/DESKTOP-PET.md) · [Lite animation comparison](docs/LITE-ANIMATION-PARITY.md) |
 | Develop and test | [Architecture](docs/ARCHITECTURE.md) · [Development](docs/DEVELOPMENT.md) · [Testing](docs/TESTING.md) |
 | Contribute or report a problem | [CONTRIBUTING.md](CONTRIBUTING.md) · [Issues](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/issues) · [SECURITY.md](SECURITY.md) |

@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/windows.yml"><img src="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/windows.yml/badge.svg" alt="Windows build"></a>
   <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml"><img src="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml/badge.svg" alt="NekoChat Lite build"></a>
-  <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.15"><img src="https://img.shields.io/badge/Lite-0.1.0--beta.15-5267a8" alt="NekoChat Lite 0.1.0-beta.15"></a>
+  <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.16"><img src="https://img.shields.io/badge/Lite-0.1.0--beta.16-5267a8" alt="NekoChat Lite 0.1.0-beta.16"></a>
   <img src="https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078D4" alt="Windows 10 / 11 x64">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
 </p>
@@ -50,7 +50,7 @@ What's up my neighbor 的 Windows repo 提供兩款獨立 App：**語音標準�
 | 想做什麼 | 版本 | 下載 |
 |---|---|---|
 | 在目前的文字欄位用說話輸入 | 語音標準版 **0.1.0-beta.3** | [標準版安裝檔](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/v0.1.0-beta.3/Neighbor-Setup-0.1.0-beta.3-x64.exe) · [版本說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/v0.1.0-beta.3) |
-| 和同學內網聊天、傳檔，讓貓咪在桌面散步 | NekoChat Lite **0.1.0-beta.15** | [Lite 安裝檔](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Setup-win-x64.exe) · [免安裝 EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Lite.exe) · [版本說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.15) |
+| 和同學內網聊天、傳檔，讓貓咪在桌面散步 | NekoChat Lite **0.1.0-beta.16** | [Lite 安裝檔](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Setup-win-x64.exe) · [免安裝 EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Lite.exe) · [版本說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.16) |
 
 兩款目前都作為測試版提供。Lite 不需要麥克風或 API Key；語音標準版需要自己的 Groq API Key 與網路。Lite 聊天走內網，檢查與下載新版需要連線 GitHub。
 
@@ -92,7 +92,7 @@ NekoChat Lite 內建下列九種花色。從貓咪右鍵選單切換，會記住
 
 ### NekoChat Lite
 
-1. [下載 Setup](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Setup-win-x64.exe) 並執行；也可選擇[免安裝版](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Lite.exe)，不需另裝 .NET。
+1. [下載 Setup](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Setup-win-x64.exe) 並執行；也可選擇[免安裝版](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Lite.exe)，不需另裝 .NET。
 2. Setup 安裝到目前 Windows 使用者的個人資料夾；首次設定收訊防火牆時可能要求管理員同意。免安裝版不會自動改防火牆。
 3. 雙擊貓咪開聊天，按「新增對象」填同學內網 IP；老師用「加入老師」。詳見 [Lite 使用說明](windows-lite/README.md)。
 4. **beta.14 或更舊版需先手動更新一次到 beta.15**；beta.15 起預設背景自動更新。免安裝版要求更新時會轉至安裝版。
@@ -123,7 +123,7 @@ Get-FileHash .\NekoChat-Setup-win-x64.exe -Algorithm SHA256
 |---|---|
 | 使用 Lite 聊天、附件與課堂分享 | [Lite 指南](windows-lite/README.md) · [附件](windows-lite/ATTACHMENTS.md) |
 | 設定語音、詞典、金鑰與解除安裝 | [語音標準版完整指南](docs/VOICE-GUIDE.zh-TW.md) |
-| 看版本與更新方式 | [所有 Releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) · [Lite beta.15](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.15) · [語音更新流程](docs/UPDATES.md) |
+| 看版本與更新方式 | [所有 Releases](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) · [Lite beta.16](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.16) · [語音更新流程](docs/UPDATES.md) |
 | 了解貓咪與平台差異 | [桌面貓咪](docs/DESKTOP-PET.md) · [Lite 動畫對照](docs/LITE-ANIMATION-PARITY.md) |
 | 開發與測試 | [架構](docs/ARCHITECTURE.md) · [開發](docs/DEVELOPMENT.md) · [測試](docs/TESTING.md) |
 | 參與開發、回報問題 | [CONTRIBUTING.md](CONTRIBUTING.md) · [Issues](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/issues) · [SECURITY.md](SECURITY.md) |

@@ -17,13 +17,13 @@ internal static class DefaultClassroomRosterChecks
         try
         {
             byte[] bytes = ClassroomRosterSeed.Load(); var csv = RosterCsv.Parse(bytes);
-            var students = Enumerable.Range(1, 37).Select(index => "192.168.24." + index * 5).ToArray();
+            var students = Enumerable.Range(1, 37).Select(index => "192.168.21." + index * 5).ToArray();
             Check(csv.FatalError is null && csv.Errors.Count == 0 && csv.Rows.Count == 38 &&
                 csv.Rows.All(row => row.Name == row.Endpoint && row.StudentNumber is null), "embedded resource contains IP only; no names/student numbers");
             Check(csv.Rows.Where(row => !row.IsTeacher).Select(row => row.Endpoint).SequenceEqual(students) &&
                 csv.Rows.Single(row => row.IsTeacher).Endpoint == ClassroomReactions.DefaultTeacherIp &&
-                csv.Rows.All(row => row.Endpoint != "192.168.24.200"), "37 student IPs and corrected teacher .240; old .200 excluded");
-            foreach (string local in new[] { "192.168.24.5", ClassroomReactions.DefaultTeacherIp })
+                csv.Rows.All(row => row.Endpoint != "192.168.21.200"), "37 student IPs and corrected teacher .240; old .200 excluded");
+            foreach (string local in new[] { "192.168.21.5", ClassroomReactions.DefaultTeacherIp })
             {
                 using var store = ChatStore.Open(new(Path.Combine(root, local)));
                 var preview = ClassroomRosterSeed.Preview(bytes, store.GetRosterSnapshot(), [local])!;
@@ -32,7 +32,7 @@ internal static class DefaultClassroomRosterChecks
                 Check(rows.Count == 37 && rows.All(row => row.Entry.Endpoint != local),
                     "self excluded with exact peer count for " + local);
                 Check(rows.Count(row => row.Entry.IsTeacher) == (local.EndsWith(".5", StringComparison.Ordinal) ? 1 : 0) &&
-                    (local != "192.168.24.5" || store.GetClassroomTeacherIp() == ClassroomReactions.DefaultTeacherIp),
+                    (local != "192.168.21.5" || store.GetClassroomTeacherIp() == ClassroomReactions.DefaultTeacherIp),
                     "teacher is unique/pinned only when remote: " + local);
                 Check(new Settings().ResolveTeacherDeviceRole([local], false).ThisDeviceIsTeacher ==
                     (local == ClassroomReactions.DefaultTeacherIp), "D-33 local role independent of roster teacher: " + local);
@@ -48,7 +48,7 @@ internal static class DefaultClassroomRosterChecks
             using (var store = ChatStore.Open(new(Path.Combine(root, "sidecar-db"))))
             {
                 Check(store.ApplyRosterPreview(ClassroomRosterSeed.Preview(ClassroomRosterSeed.Load(sidecar),
-                    store.GetRosterSnapshot(), ["192.168.24.5"])!).Applied &&
+                    store.GetRosterSnapshot(), ["192.168.21.5"])!).Applied &&
                     store.GetRosterSnapshot().Single().Entry.Endpoint == "10.32.0.7", "actual sidecar produces only its own roster");
             }
             File.WriteAllText(sidecar, "broken csv");
@@ -82,13 +82,13 @@ internal static class DefaultClassroomRosterChecks
             {
                 string Add(string ip, string name, bool teacher = false) => store.SaveManualRosterEntry(null,
                     new(name, null, teacher, ip), RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot())).EntryId!;
-                string kept = Add("192.168.24.10", "保留本機備註");
+                string kept = Add("192.168.21.10", "保留本機備註");
                 string teacher = Add("10.32.0.1", "原本老師", true);
-                string collision = Add("10.32.0.2", "192.168.24.15");
-                store.SetSourceBlocked("192.168.24.20", true);
+                string collision = Add("10.32.0.2", "192.168.21.15");
+                store.SetSourceBlocked("192.168.21.20", true);
                 var original = store.GetRosterSnapshot();
-                Check(ClassroomRosterSeed.Preview(bytes, original, ["192.168.24.5"]) is null, "upgrade does not merge into nonempty custom roster");
-                var addOnly = ClassroomRosterSeed.PreviewMissing(bytes, original, ["192.168.24.5"], store.GetRemovedRosterEndpoints()).Preview;
+                Check(ClassroomRosterSeed.Preview(bytes, original, ["192.168.21.5"]) is null, "upgrade does not merge into nonempty custom roster");
+                var addOnly = ClassroomRosterSeed.PreviewMissing(bytes, original, ["192.168.21.5"], store.GetRemovedRosterEndpoints()).Preview;
                 Check(addOnly.Changes.Count == 36 && addOnly.Changes.All(item => item.Action == RosterImportAction.Add && item.TargetId is null),
                     "explicit missing-IP preview only adds; matching nickname cannot target existing row");
                 var result = store.ApplyRosterPreview(addOnly);
@@ -97,9 +97,9 @@ internal static class DefaultClassroomRosterChecks
                     after.Single(row => row.Entry.Id == kept).Entry.DisplayName == "保留本機備註" &&
                     after.Single(row => row.Entry.Id == collision).Entry.Endpoint == "10.32.0.2",
                     "manual fill preserves notes and unrelated same-name endpoints");
-                Check(after.Single(row => row.Entry.IsTeacher).Entry.Id == teacher && store.IsSourceBlocked("192.168.24.20"),
+                Check(after.Single(row => row.Entry.IsTeacher).Entry.Id == teacher && store.IsSourceBlocked("192.168.21.20"),
                     "manual fill does not replace teacher or unblock source");
-                Check(ClassroomRosterSeed.PreviewMissing(bytes, after, ["192.168.24.5"], store.GetRemovedRosterEndpoints()).Preview.Changes.Count == 0,
+                Check(ClassroomRosterSeed.PreviewMissing(bytes, after, ["192.168.21.5"], store.GetRemovedRosterEndpoints()).Preview.Changes.Count == 0,
                     "explicit fill is idempotent and excludes self");
             }
             using (var store = ChatStore.Open(new(Path.Combine(root, "removed-db"))))
@@ -111,17 +111,17 @@ internal static class DefaultClassroomRosterChecks
                     var deletion = store.PreviewRosterDelete(id);
                     Check(store.DeleteRosterEntry(id, deletion.SnapshotToken, deletion.ToConfirmation()).Changed, "N1 fixture removes contact with modern endpoint snapshot");
                 }
-                Remove("192.168.24.15"); Remove("192.168.24.20"); Remove("192.168.24.15");
+                Remove("192.168.21.15"); Remove("192.168.21.20"); Remove("192.168.21.15");
                 var removed = store.GetRemovedRosterEndpoints();
-                Check(removed.SequenceEqual(new[] { "192.168.24.15", "192.168.24.20" }),
+                Check(removed.SequenceEqual(new[] { "192.168.21.15", "192.168.21.20" }),
                     "N1 modern removal IPs are distinct even after repeated remove/re-add");
-                var fill = ClassroomRosterSeed.PreviewMissing(bytes, store.GetRosterSnapshot(), ["192.168.24.5"], removed);
+                var fill = ClassroomRosterSeed.PreviewMissing(bytes, store.GetRosterSnapshot(), ["192.168.21.5"], removed);
                 Check(fill.SkippedRemoved == 2 && fill.Preview.Changes.Count == 35 &&
-                    fill.Preview.Changes.All(item => item.Row!.Endpoint is not ("192.168.24.15" or "192.168.24.20")),
+                    fill.Preview.Changes.All(item => item.Row!.Endpoint is not ("192.168.21.15" or "192.168.21.20")),
                     "N1 removed contacts excluded from proposed additions with exact skipped count");
                 Check(store.ApplyRosterPreview(fill.Preview).Applied && store.GetRosterSnapshot().Count == 35 &&
                     store.GetRemovedRosterEndpoints().SequenceEqual(removed), "N1 fill respects removal and preserves snapshots");
-                var repeated = ClassroomRosterSeed.PreviewMissing(bytes, store.GetRosterSnapshot(), ["192.168.24.5"], store.GetRemovedRosterEndpoints());
+                var repeated = ClassroomRosterSeed.PreviewMissing(bytes, store.GetRosterSnapshot(), ["192.168.21.5"], store.GetRemovedRosterEndpoints());
                 Check(repeated.SkippedRemoved == 2 && repeated.Preview.Changes.Count == 0,
                     "N1 repeated fill still skips removals instead of resurrecting them");
             }
@@ -129,7 +129,7 @@ internal static class DefaultClassroomRosterChecks
             string oldId;
             using (var old = ChatStore.Open(new(oldRoot) { Migrations = Migration.Default.Take(13).ToArray() }))
             {
-                oldId = old.SaveManualRosterEntry(null, new("192.168.24.25", null, false, "192.168.24.25"),
+                oldId = old.SaveManualRosterEntry(null, new("192.168.21.25", null, false, "192.168.21.25"),
                     RosterImportPreview.ComputeSnapshotToken(old.GetRosterSnapshot())).EntryId!;
                 var deletion = old.PreviewRosterDelete(oldId);
                 Check(old.DeleteRosterEntry(oldId, deletion.SnapshotToken, deletion.ToConfirmation()).Changed &&
@@ -137,14 +137,14 @@ internal static class DefaultClassroomRosterChecks
             }
             using (var upgraded = ChatStore.Open(new(oldRoot)))
             {
-                var fill = ClassroomRosterSeed.PreviewMissing(bytes, upgraded.GetRosterSnapshot(), ["192.168.24.5"], upgraded.GetRemovedRosterEndpoints());
-                Check(fill.SkippedRemoved == 0 && fill.Preview.Changes.Any(item => item.Row!.Endpoint == "192.168.24.25") &&
+                var fill = ClassroomRosterSeed.PreviewMissing(bytes, upgraded.GetRosterSnapshot(), ["192.168.21.5"], upgraded.GetRemovedRosterEndpoints());
+                Check(fill.SkippedRemoved == 0 && fill.Preview.Changes.Any(item => item.Row!.Endpoint == "192.168.21.25") &&
                     upgraded.GetClassroomInboxSnapshot().Entries.Any(entry => entry.RosterEntryId == oldId && entry.Removed),
                     "N1 upgrade keeps old snapshot; never guesses IP from display name");
             }
             using (var store = ChatStore.Open(new(Path.Combine(root, "stale-db"))))
             {
-                var preview = ClassroomRosterSeed.PreviewMissing(bytes, store.GetRosterSnapshot(), ["192.168.24.5"], store.GetRemovedRosterEndpoints()).Preview;
+                var preview = ClassroomRosterSeed.PreviewMissing(bytes, store.GetRosterSnapshot(), ["192.168.21.5"], store.GetRemovedRosterEndpoints()).Preview;
                 store.SaveManualRosterEntry(null, new("newer", null, false, "10.32.0.8"),
                     RosterImportPreview.ComputeSnapshotToken(store.GetRosterSnapshot()));
                 Check(!store.ApplyRosterPreview(preview).Applied && store.GetRosterSnapshot().Count == 1,

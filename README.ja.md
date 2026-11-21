@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/windows.yml"><img src="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/windows.yml/badge.svg" alt="Windows build"></a>
   <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml"><img src="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/actions/workflows/nekochat-windows-lite.yml/badge.svg" alt="NekoChat Lite build"></a>
-  <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.15"><img src="https://img.shields.io/badge/Lite-0.1.0--beta.15-5267a8" alt="NekoChat Lite 0.1.0-beta.15"></a>
+  <a href="https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.16"><img src="https://img.shields.io/badge/Lite-0.1.0--beta.16-5267a8" alt="NekoChat Lite 0.1.0-beta.16"></a>
   <img src="https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078D4" alt="Windows 10 / 11 x64">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
 </p>
@@ -53,7 +53,7 @@ Windows 版には独立した 2 つのアプリがあります。**音声入力�
 | やりたいこと | バージョン | ダウンロード |
 |---|---|---|
 | 入力中のテキスト欄に音声で入力 | 音声入力標準版 **0.1.0-beta.3** | [音声版インストーラー](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/v0.1.0-beta.3/Neighbor-Setup-0.1.0-beta.3-x64.exe) · [リリース情報](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/v0.1.0-beta.3) |
-| LAN でチャット・ファイル共有、デスクトップ猫 | NekoChat Lite **0.1.0-beta.15** | [Lite インストーラー](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Setup-win-x64.exe) · [ポータブル EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Lite.exe) · [リリース情報](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.15) |
+| LAN でチャット・ファイル共有、デスクトップ猫 | NekoChat Lite **0.1.0-beta.16** | [Lite インストーラー](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Setup-win-x64.exe) · [ポータブル EXE](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Lite.exe) · [リリース情報](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.16) |
 
 どちらもテスト版です。Lite はマイクも API キーも不要です。音声版には自分の Groq API キーとインターネット接続が必要です。Lite のチャットは LAN 内で動作し、更新の確認・ダウンロードには GitHub への接続が必要です。
 
@@ -95,7 +95,7 @@ NekoChat Lite には以下の 9 種類の毛色が入っています。猫の右
 
 ### NekoChat Lite
 
-1. [Setup をダウンロード](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Setup-win-x64.exe)して実行するか、[ポータブル版](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.15/NekoChat-Lite.exe)を使います。.NET の別途インストールは不要です。
+1. [Setup をダウンロード](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Setup-win-x64.exe)して実行するか、[ポータブル版](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/download/nekochat-lite-v0.1.0-beta.16/NekoChat-Lite.exe)を使います。.NET の別途インストールは不要です。
 2. Setup は現在の Windows ユーザー用フォルダーにインストールします。初回の受信ファイアウォール設定には管理者の承認が必要な場合があります。ポータブル版はルールを自動変更しません。
 3. 猫をダブルクリックし、「新增對象」（連絡先追加）で相手の LAN IP を入力。先生には「加入老師」（先生を追加）を使います。[Lite ガイド](windows-lite/README.md)は繁体字中国語です。
 4. **beta.14 以前は、まず beta.15 へ一度手動で更新してください。** beta.15 から自動更新が初期設定で有効です。ポータブル版から更新するとインストール版へ移行します。
@@ -128,7 +128,7 @@ Get-FileHash .\NekoChat-Setup-win-x64.exe -Algorithm SHA256
 |---|---|
 | Lite のチャット・添付・授業用共有 | [Lite ガイド](windows-lite/README.md) · [添付ファイル](windows-lite/ATTACHMENTS.md) |
 | 音声・辞書・キーの設定、アンインストール | [音声版の詳細ガイド](docs/VOICE-GUIDE.zh-TW.md) |
-| バージョンと更新方法 | [全リリース](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) · [Lite beta.15](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.15) · [音声版の更新手順](docs/UPDATES.md) |
+| バージョンと更新方法 | [全リリース](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases) · [Lite beta.16](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.16) · [音声版の更新手順](docs/UPDATES.md) |
 | 猫とプラットフォームの違い | [デスクトップ猫](docs/DESKTOP-PET.md) · [Lite アニメーション比較](docs/LITE-ANIMATION-PARITY.md) |
 | 開発・テスト | [構成](docs/ARCHITECTURE.md) · [開発](docs/DEVELOPMENT.md) · [テスト](docs/TESTING.md) |
 | 開発に参加・不具合を報告 | [CONTRIBUTING.md](CONTRIBUTING.md) · [Issues](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/issues) · [SECURITY.md](SECURITY.md) |

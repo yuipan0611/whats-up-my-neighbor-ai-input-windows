@@ -4,7 +4,7 @@ public sealed record ClassroomReaction(string Id, string Text, string ImageFile,
 
 public static class ClassroomReactions
 {
-    public const string DefaultTeacherIp = "192.168.24.240";
+    public const string DefaultTeacherIp = "192.168.21.240";
     public const double DisplaySeconds = 2;
     public static IReadOnlyList<ClassroomReaction> All { get; } = Array.AsReadOnly<ClassroomReaction>([
         new("too-fast", "講太快了", "raised-paw.png", true),

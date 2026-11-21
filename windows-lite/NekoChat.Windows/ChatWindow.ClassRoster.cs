@@ -139,6 +139,18 @@ public partial class ChatWindow
         SetStatus($"已補上 {result.Added} 個 IP，原有備註與老師設定已保留。{skipped}。");
     }
 
+    private async Task MigrateClassroomSubnetAsync()
+    {
+        if (_runtime is not { ArchivedIdentityFixture: false } runtime || settings.ReadOnlyFallback) return;
+        var local = ReactionRoleLocalAddresses();
+        if (!ClassroomSubnet.IsCurrentNetwork(local)) return;
+        var result = await runtime.Worker.Run(store => store.MigrateClassroomSubnet(local));
+        var migrated = settings.MigrateClassroomSubnet();
+        if (!ReferenceEquals(migrated, settings)) UpdateSettings(migrated);
+        if (result.Conflicts > 0)
+            SetStatus($"教室 IP 已更新；{result.Conflicts} 筆新舊 IP 重複，已保留原資料，請在名單中確認。");
+    }
+
     private async Task BootstrapClassRosterAsync()
     {
         if (_runtime is null || _runtime.ArchivedIdentityFixture || settings.ClassRosterInitialized || settings.ReadOnlyFallback) return;

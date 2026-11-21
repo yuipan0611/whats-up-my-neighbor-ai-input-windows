@@ -1,6 +1,8 @@
-# NekoChat Windows Lite 0.1.0-beta.15
+# NekoChat Windows Lite 0.1.0-beta.16
 
-Windows 教室／區網聊天與桌面貓咪，提供未簽署的 x64 預發布測試版。預設啟用背景自動更新，可在設定關閉。[完整更新說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.15)。
+本版更新新教室網段為 `192.168.21.*`（老師 `192.168.21.240`）。在新教室啟動時，既有 `192.168.24.*` 名單只改第三段；聯絡人、備註、聊天與草稿保留。重複 IP 不會自動合併，會保留資料並提示確認。
+
+Windows 教室／區網聊天與桌面貓咪，提供未簽署的 x64 預發布測試版。預設啟用背景自動更新，可在設定關閉。[完整更新說明](https://github.com/yuipan0611/whats-up-my-neighbor-ai-input-windows/releases/tag/nekochat-lite-v0.1.0-beta.16)。
 
 ## 開始使用
 

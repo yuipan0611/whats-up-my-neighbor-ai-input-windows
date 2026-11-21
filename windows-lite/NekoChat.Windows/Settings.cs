@@ -38,6 +38,18 @@ internal record Settings
         this with { ThisDeviceIsTeacher = NekoChat.Core.TeacherDevicePolicy.Resolve(ThisDeviceIsTeacher,
             ThisDeviceTeacherExplicitChoice, TeacherIp, localAddresses, teacherNode) };
 
+    internal Settings MigrateClassroomSubnet()
+    {
+        string recipient = NekoChat.Core.ClassroomSubnet.UpgradeAddress(LastRecipientIp)!;
+        string teacher = NekoChat.Core.ClassroomSubnet.UpgradeAddress(TeacherIp)!;
+        var contacts = Contacts.Select(contact => {
+            string ip = NekoChat.Core.ClassroomSubnet.UpgradeAddress(contact.Ip)!;
+            return ip == contact.Ip ? contact : new ContactItem(ip, contact.Name == contact.Ip ? ip : contact.Name);
+        }).ToList();
+        return recipient == LastRecipientIp && teacher == TeacherIp && contacts.SequenceEqual(Contacts)
+            ? this : this with { LastRecipientIp = recipient, TeacherIp = teacher, Contacts = contacts };
+    }
+
     // Legacy fields kept for seamless JSON compatibility
     public bool Lan { get; init; } = true;
     public string LanEndpoint { get; init; } = "ws://127.0.0.1:8765/nekochat/v1/ws";

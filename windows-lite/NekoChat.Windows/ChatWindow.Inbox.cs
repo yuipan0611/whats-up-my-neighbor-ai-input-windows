@@ -98,6 +98,7 @@ public partial class ChatWindow
     internal async Task AttachRuntimeAsync(ChatRuntime runtime, int peerPort)
     {
         _diagnosticFailures = []; _runtime = runtime; SetDiagnosticsDirectory(Path.Combine(Path.GetDirectoryName(runtime.DataDirectory)!, "diagnostics")); ResetRecipientProtocolHints(); ArchivedIdentityPanel.Visibility = runtime.ArchivedIdentityFixture ? Visibility.Visible : Visibility.Collapsed; _peerPort = peerPort; IdentityStatus.Text = runtime.IdentityStatus; StorageStatus.Text = runtime.StartupWarning ?? "";
+        await MigrateClassroomSubnetAsync();
         // Resolve from the legacy setting and this device BEFORE TC-03 replaces TeacherIp with the roster projection.
         InitializeTeacherDeviceRole();
         var policy = await runtime.Worker.Run(s => s.GetReadReceiptPolicy());

@@ -15,7 +15,7 @@
 
 **RX-07 老師電腦辨識與升級（D-33）**
 - Given Settings.ThisDeviceIsTeacher 是 nullable，舊設定為 null；名單老師（SQLite 與 TeacherIp 投影）與本機角色分開。
-- When 每次 AttachRuntime 啟動，在 TC-03 投影覆寫 TeacherIp **之前**，先以本機所有 IP＋ClassroomFiles.IsTeacherNode 解決本機角色。首次 null：舊 TeacherIp 是本機任一 IP、teacher node 或本機包含 DefaultTeacherIp（192.168.24.240）則 true，否則 false。
+- When 每次 AttachRuntime 啟動，在 TC-03 投影覆寫 TeacherIp **之前**，先以本機所有 IP＋ClassroomFiles.IsTeacherNode 解決本機角色。首次 null：舊 TeacherIp 是本機任一 IP、teacher node 或本機包含 DefaultTeacherIp（192.168.21.240）則 true，否則 false。
 - Then 將解決結果儲存，不會因為名單沒有自己、投影變成空字串而失去老師角色。未明確選擇時，每次啟動重新檢查 DefaultTeacherIp／teacher node；即使上次為 false 也會提升為 true。已遷移的 true 在換網卡／DHCP 後保留；普通學生 IP 不匹配且沒有其他依據時為 false。
 - **D-37 修訂：設定頁已移除「這台是老師的電腦」勾選，僅自動辨識**；舊設定檔中的 ThisDeviceTeacherExplicitChoice=true 仍被尊重。明確 true／false 永遠優先，**包含優先於 teacher-node 提示**，明確 false 在固定 .240 上重開仍為 false。這是本機顯示角色，不授予課堂檔案撤下或網路權限。
 - IsReactionTeacher 不再讀 TeacherIp 或給 127.0.0.1 特例。原生測試只在精確隔離 profile/runtime 的既有 hook 注入本機 IP 清單，不修改網卡，也不讓一般 profile 使用該 hook。遷移儲存失敗沿用設定保存失敗提示、保留記憶體結果並可於下次啟動重試，不覆寫無效原檔。
